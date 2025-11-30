@@ -145,6 +145,33 @@ CREATE TABLE public.workspace_members (
   CONSTRAINT workspace_members_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT workspace_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
+CREATE TABLE public.workspace_settings (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  workspace_id uuid NOT NULL UNIQUE,
+  business_name text,
+  greeting_message text DEFAULT 'আসসালামু আলাইকুম! 👋
+আমি আপনার AI assistant।
+আপনি কোন product খুঁজছেন?'::text,
+  conversation_tone text DEFAULT 'friendly'::text CHECK (conversation_tone = ANY (ARRAY['friendly'::text, 'professional'::text, 'casual'::text])),
+  bengali_percent integer DEFAULT 80 CHECK (bengali_percent >= 0 AND bengali_percent <= 100),
+  use_emojis boolean DEFAULT true,
+  confidence_threshold integer DEFAULT 75 CHECK (confidence_threshold >= 50 AND confidence_threshold <= 100),
+  show_image_confirmation boolean DEFAULT true,
+  delivery_charge_inside_dhaka numeric DEFAULT 60,
+  delivery_charge_outside_dhaka numeric DEFAULT 120,
+  delivery_time text DEFAULT '3-5 business days'::text,
+  auto_mention_delivery boolean DEFAULT true,
+  payment_methods jsonb DEFAULT '{"cod": {"enabled": false}, "bkash": {"number": "", "enabled": true}, "nagad": {"number": "", "enabled": true}}'::jsonb,
+  payment_message text DEFAULT 'Payment করতে আমাদের bKash এ send করুন।
+Screenshot পাঠালে আমরা verify করব।'::text,
+  behavior_rules jsonb DEFAULT '{"askSize": true, "showStock": true, "multiProduct": false, "sendConfirmation": true, "offerAlternatives": false}'::jsonb,
+  advanced_config jsonb DEFAULT '{"model": "gpt-4-turbo", "maxTokens": 1000, "temperature": 0.7}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  fast_lane_messages jsonb DEFAULT '{"name_collected": "আপনার সাথে পরিচিত হয়ে ভালো লাগলো, {name}! 😊\n\nএখন আপনার ফোন নম্বর দিন। 📱\n(Example: 01712345678)", "order_cancelled": "অর্ডার cancel করা হয়েছে। 😊\n\nকোনো সমস্যা নেই! নতুন অর্ডার করতে product এর ছবি পাঠান।", "order_confirmed": "✅ অর্ডারটি কনফার্ম করা হয়েছে!\n\nআপনার অর্ডার সফলভাবে সম্পন্ন হয়েছে। শীঘ্রই আমরা আপনার সাথে যোগাযোগ করবো।\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉", "phone_collected": "পেয়েছি! 📱\n\nএখন আপনার ডেলিভারি ঠিকানাটি দিন। 📍\n(Example: House 123, Road 4, Dhanmondi, Dhaka)", "product_confirm": "দারুণ! 🎉\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)", "product_decline": "কোনো সমস্যা নেই! 😊\n\nঅন্য product এর ছবি পাঠান অথবা \"help\" লিখুন।"}'::jsonb,
+  CONSTRAINT workspace_settings_pkey PRIMARY KEY (id),
+  CONSTRAINT workspace_settings_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
+);
 CREATE TABLE public.workspaces (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   owner_id uuid NOT NULL,

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { checkRateLimit } from '@/lib/rate-limit'
+import * as Sentry from '@sentry/nextjs'
 
 export async function GET(request: Request) {
   try {
@@ -9,6 +11,15 @@ export async function GET(request: Request) {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Rate limiting
+    const isAllowed = checkRateLimit(user.id)
+    if (!isAllowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429 }
+      )
     }
 
     // Get workspace
@@ -145,6 +156,9 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     console.error('Analytics API error:', error)
+    Sentry.captureException(error, {
+      tags: { api_route: 'analytics' }
+    })
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

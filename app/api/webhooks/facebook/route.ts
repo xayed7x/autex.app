@@ -1,0 +1,284 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { Database } from '@/types/supabase';
+import {
+  verifySignature,
+  generateEventId,
+  FacebookWebhookPayload,
+  MessagingEvent,
+} from '@/lib/facebook/utils';
+import { processMessage } from '@/lib/conversation/orchestrator';
+
+/**
+ * GET /api/webhooks/facebook
+ * Handles Facebook webhook verification
+ */
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const mode = searchParams.get('hub.mode');
+  const token = searchParams.get('hub.verify_token');
+  const challenge = searchParams.get('hub.challenge');
+
+  const verifyToken = process.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN;
+
+  if (!verifyToken) {
+    console.error('FACEBOOK_WEBHOOK_VERIFY_TOKEN is not configured');
+    return NextResponse.json(
+      { error: 'Server configuration error' },
+      { status: 500 }
+    );
+  }
+
+  if (mode === 'subscribe' && token === verifyToken) {
+    console.log('Webhook verified successfully');
+    return new NextResponse(challenge, { status: 200 });
+  }
+
+  console.warn('Webhook verification failed');
+  return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+}
+
+/**
+ * POST /api/webhooks/facebook
+ * Handles incoming Facebook webhook events
+ * 
+ * SIMPLIFIED VERSION - All logic delegated to Orchestrator
+ */
+export async function POST(request: NextRequest) {
+  console.log('🔥 [WEBHOOK] POST request received at:', new Date().toISOString());
+  
+  try {
+    // ========================================
+    // STEP 1: VERIFY SIGNATURE
+    // ========================================
+    
+    const appSecret = process.env.FACEBOOK_APP_SECRET;
+    if (!appSecret) {
+      console.error('❌ [WEBHOOK] FACEBOOK_APP_SECRET is not configured');
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
+    const rawBody = await request.text();
+    const signature = request.headers.get('x-hub-signature-256');
+
+    if (!signature || !verifySignature(rawBody, signature, appSecret)) {
+      console.warn('❌ [WEBHOOK] Invalid webhook signature');
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+    }
+    console.log('✅ [WEBHOOK] Signature verified');
+
+    // ========================================
+    // STEP 2: PARSE PAYLOAD
+    // ========================================
+    
+    const payload: FacebookWebhookPayload = JSON.parse(rawBody);
+    console.log('📦 [WEBHOOK] Payload:', JSON.stringify(payload, null, 2));
+
+    if (payload.object !== 'page') {
+      console.log(`⚠️ [WEBHOOK] Ignoring non-page event: ${payload.object}`);
+      return NextResponse.json({ status: 'ok' }, { status: 200 });
+    }
+
+    // ========================================
+    // STEP 3: CREATE SUPABASE CLIENT
+    // ========================================
+    
+    const supabase = createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
+
+    // ========================================
+    // STEP 4: PROCESS EACH ENTRY
+    // ========================================
+    
+    for (const entry of payload.entry) {
+      console.log(`🔄 [WEBHOOK] Processing entry: ${entry.id}`);
+      
+      // Process messaging events (Direct Messages)
+      if (entry.messaging) {
+        for (const event of entry.messaging) {
+          await processMessagingEvent(supabase, entry.id, event);
+        }
+      }
+    }
+
+    return NextResponse.json({ status: 'ok' }, { status: 200 });
+  } catch (error) {
+    console.error('❌ [WEBHOOK] Error processing webhook:', error);
+    // Return 200 to prevent Facebook from retrying
+    return NextResponse.json({ status: 'error' }, { status: 200 });
+  }
+}
+
+/**
+ * Process a single messaging event
+ * 
+ * SIMPLIFIED VERSION - Delegates to Orchestrator
+ */
+async function processMessagingEvent(
+  supabase: any,
+  entryId: string,
+  event: MessagingEvent
+) {
+  try {
+    const { sender, recipient, timestamp, message } = event;
+    const customerPsid = sender.id;
+    const pageId = recipient.id;
+
+    // ========================================
+    // HANDLE POSTBACK (Button Clicks)
+    // ========================================
+    
+    if (event.postback) {
+      console.log('🔘 Postback event detected:', event.postback.payload);
+      // TODO: Handle postback events
+      return;
+    }
+
+    // ========================================
+    // HANDLE MESSAGES
+    // ========================================
+    
+    if (!message || !message.mid) {
+      console.log('Skipping non-message event');
+      return;
+    }
+
+    const messageText = message.text || '';
+    const messageId = message.mid;
+
+    // Extract image URL if present
+    let imageUrl: string | undefined;
+    if (message.attachments && message.attachments.length > 0) {
+      const imageAttachment = message.attachments.find(
+        (att) => att.type === 'image'
+      );
+      if (imageAttachment && imageAttachment.payload?.url) {
+        imageUrl = imageAttachment.payload.url;
+        console.log('📸 Image attachment detected:', imageUrl);
+      }
+    }
+
+    // ========================================
+    // CHECK IDEMPOTENCY
+    // ========================================
+    
+    const eventId = generateEventId(entryId, timestamp, messageId);
+
+    const { data: existingEvent } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .eq('event_id', eventId)
+      .single();
+
+    if (existingEvent) {
+      console.log(`Duplicate event detected: ${eventId}`);
+      return;
+    }
+
+    // Log event
+    await supabase.from('webhook_events').insert({
+      event_id: eventId,
+      event_type: 'messaging',
+      payload: event,
+    });
+
+    // ========================================
+    // FIND FACEBOOK PAGE
+    // ========================================
+    
+    const { data: fbPage, error: pageError } = await supabase
+      .from('facebook_pages')
+      .select('id, workspace_id')
+      .eq('id', parseInt(pageId))
+      .single();
+
+    if (pageError || !fbPage) {
+      console.error(`Facebook page not found: ${pageId}`, pageError);
+      return;
+    }
+
+    // ========================================
+    // FIND OR CREATE CONVERSATION
+    // ========================================
+    
+    let { data: conversation, error: convError } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('fb_page_id', fbPage.id)
+      .eq('customer_psid', customerPsid)
+      .single();
+
+    if (convError || !conversation) {
+      // Create new conversation
+      const { data: newConversation, error: createError } = await supabase
+        .from('conversations')
+        .insert({
+          workspace_id: fbPage.workspace_id,
+          fb_page_id: fbPage.id,
+          customer_psid: customerPsid,
+          current_state: 'IDLE',
+          context: { 
+            state: 'IDLE',
+            cart: [],
+            checkout: {},
+            metadata: {
+              messageCount: 0,
+            },
+          },
+          last_message_at: new Date(timestamp).toISOString(),
+        })
+        .select('*')
+        .single();
+
+      if (createError) {
+        console.error('Error creating conversation:', createError);
+        return;
+      }
+
+      conversation = newConversation;
+    }
+
+    // ========================================
+    // LOG CUSTOMER MESSAGE
+    // ========================================
+    
+    await supabase.from('messages').insert({
+      conversation_id: conversation.id,
+      sender: 'customer',
+      message_text: messageText,
+      message_type: message.attachments ? 'attachment' : 'text',
+      attachments: message.attachments || null,
+    });
+
+    // ========================================
+    // CALL ORCHESTRATOR
+    // ========================================
+    
+    console.log('🎭 Calling Orchestrator...');
+    
+    await processMessage({
+      pageId,
+      customerPsid,
+      messageText: messageText || undefined,
+      imageUrl,
+      workspaceId: fbPage.workspace_id,
+      fbPageId: fbPage.id,
+      conversationId: conversation.id,
+    });
+
+    console.log('✅ Message processed successfully');
+  } catch (error) {
+    console.error('❌ Error processing messaging event:', error);
+  }
+}

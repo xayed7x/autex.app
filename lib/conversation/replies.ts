@@ -1,0 +1,190 @@
+/**
+ * Reply templates for conversation bot
+ * All messages in Bangla/English mix with emojis
+ */
+
+export interface ReplyParams {
+  productName?: string;
+  price?: number;
+  name?: string;
+  phone?: string;
+  address?: string;
+  deliveryCharge?: number;
+  totalAmount?: number;
+  orderId?: string;
+}
+
+/**
+ * Bot reply templates
+ */
+export const Replies = {
+  /**
+   * When product is found from image
+   */
+  PRODUCT_FOUND: (params: ReplyParams) => {
+    const { productName, price } = params;
+    return `দারুণ! এটা তো আমাদের ${productName}! 😊
+
+📦 Product: ${productName}
+💰 Price: ৳${price}
+✅ Stock: Available
+🚚 Delivery: ৳60 (ঢাকার মধ্যে)
+🚚 Delivery: ৳120 (ঢাকার বাইরে)
+
+অর্ডার করতে চান? 🛒`;
+  },
+
+  /**
+   * When product is not found
+   */
+  PRODUCT_NOT_FOUND: () => {
+    return `দুঃখিত! 😔 এই product টা আমাদের কাছে নেই।
+
+আপনি চাইলে:
+1️⃣ অন্য product এর ছবি পাঠান
+2️⃣ অথবা আমাদের catalog দেখুন
+
+কিভাবে সাহায্য করতে পারি? 🤔`;
+  },
+
+  /**
+   * Ask for customer name
+   */
+  ASK_NAME: () => {
+    return `দারুণ! 🎉
+
+আপনার সম্পূর্ণ নামটি বলবেন?
+(Example: Zayed Bin Hamid)`;
+  },
+
+  /**
+   * Ask for phone number
+   */
+  ASK_PHONE: (params: ReplyParams) => {
+    const { name } = params;
+    return `ধন্যবাদ ${name}! 
+এখন আপনার ফোন নম্বর দিন। 📱`;
+  },
+
+  /**
+   * Ask for address
+   */
+  ASK_ADDRESS: () => {
+    return `পেয়েছি! ✅
+এখন আপনার ডেলিভারি ঠিকানাটি দিন।
+Example: House 123, Road 4, Dhanmondi, Dhaka`;
+  },
+
+  /**
+   * Invalid phone number
+   */
+  INVALID_PHONE: () => {
+    return `⚠️ Phone number টা ঠিক মনে হচ্ছে না।
+
+সঠিক Bangladesh phone number দিন:
+Example: 01812345678
+
+আবার চেষ্টা করুন। 📱`;
+  },
+
+  /**
+   * Order summary for confirmation
+   */
+  ORDER_SUMMARY: (params: ReplyParams) => {
+    const { name, productName, price, deliveryCharge, totalAmount, address } = params;
+    return `পারফেক্ট ${name}! 👌
+একটু confirm করে নিই...
+
+📋 Order Summary:
+📦 ${productName}
+💰 Price: ৳${price}
+🚚 Delivery: ৳${deliveryCharge}
+💵 Total: ৳${totalAmount}
+
+📍 ${address}
+
+Confirm করতে 'YES' লিখুন। ✅`;
+  },
+
+  /**
+   * Order confirmed
+   */
+  ORDER_CONFIRMED: (params: ReplyParams) => {
+    const { orderId, name, deliveryCharge } = params;
+    return `🎉 অর্ডারটি কনফার্ম করা হয়েছে! ✅
+Order ID: #${orderId}
+Delivery Charge: ৳${deliveryCharge}
+bKash: 01812345678
+
+আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ ${name}! 🎉
+
+আপনার product টি ৩-৫ কার্যদিবসের মধ্যে পৌঁছে যাবে। 🚚`;
+  },
+
+  /**
+   * Order cancelled
+   */
+  ORDER_CANCELLED: () => {
+    return `ঠিক আছে! অর্ডার cancel করা হলো। ❌
+
+নতুন করে অর্ডার করতে চাইলে product এর ছবি পাঠান। 📸`;
+  },
+
+  /**
+   * Generic error message
+   */
+  ERROR: () => {
+    return `দুঃখিত! কিছু একটা সমস্যা হয়েছে। 😔
+
+আবার চেষ্টা করুন অথবা আমাদের সাথে যোগাযোগ করুন:
+📞 01812345678`;
+  },
+
+  /**
+   * Help message
+   */
+  HELP: () => {
+    return `আমি আপনাকে সাহায্য করতে পারি! 😊
+
+কিভাবে অর্ডার করবেন:
+1️⃣ Product এর ছবি পাঠান
+2️⃣ আমি product খুঁজে দেব
+3️⃣ Confirm করুন
+4️⃣ নাম, ফোন, ঠিকানা দিন
+5️⃣ Order confirmed! 🎉
+
+এখনই শুরু করতে product এর ছবি পাঠান! 📸`;
+  },
+
+  /**
+   * Welcome message
+   */
+  WELCOME: () => {
+    return `স্বাগতম! 👋
+
+আমি আপনার shopping assistant! 🛍️
+
+Product খুঁজতে:
+📸 Product এর ছবি পাঠান
+অথবা
+💬 Product এর নাম লিখুন
+
+শুরু করি? 😊`;
+  },
+};
+
+/**
+ * Helper to format price in Bangladeshi Taka
+ */
+export function formatPrice(amount: number): string {
+  return `৳${amount.toLocaleString('en-BD')}`;
+}
+
+/**
+ * Helper to generate order number
+ */
+export function generateOrderNumber(): string {
+  const timestamp = Date.now().toString().slice(-6);
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `${timestamp}${random}`;
+}

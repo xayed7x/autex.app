@@ -140,8 +140,133 @@ async function processMessagingEvent(
     // ========================================
     
     if (event.postback) {
-      console.log('🔘 Postback event detected:', event.postback.payload);
-      // TODO: Handle postback events
+      const payload = event.postback.payload;
+      console.log('🔘 Postback event detected:', payload);
+      
+      // Handle "Order Now" button click
+      if (payload.startsWith('ORDER_PRODUCT_')) {
+        const productId = payload.replace('ORDER_PRODUCT_', '');
+        console.log(`🛒 Order Now clicked for product: ${productId}`);
+        
+        // Fetch product details
+        const { data: product } = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', productId)
+          .single();
+        
+        if (product) {
+          // Find or create conversation
+          let { data: conversation } = await supabase
+            .from('conversations')
+            .select('*')
+            .eq('fb_page_id', parseInt(pageId))
+            .eq('customer_psid', customerPsid)
+            .single();
+          
+          if (!conversation) {
+            // Create conversation if doesn't exist
+            const { data: fbPage } = await supabase
+              .from('facebook_pages')
+              .select('workspace_id')
+              .eq('id', parseInt(pageId))
+              .single();
+            
+            if (fbPage) {
+              const { data: newConv } = await supabase
+                .from('conversations')
+                .insert({
+                  workspace_id: fbPage.workspace_id,
+                  fb_page_id: parseInt(pageId),
+                  customer_psid: customerPsid,
+                  current_state: 'COLLECTING_NAME',
+                  context: {
+                    state: 'COLLECTING_NAME',
+                    cart: [{
+                      productId: product.id,
+                      productName: product.name,
+                      productPrice: product.price,
+                      productImageUrl: product.image_urls?.[0],
+                      quantity: 1,
+                    }],
+                    checkout: {},
+                  },
+                })
+                .select()
+                .single();
+              conversation = newConv;
+            }
+          } else {
+            // Update existing conversation
+            await supabase
+              .from('conversations')
+              .update({
+                current_state: 'COLLECTING_NAME',
+                context: {
+                  ...conversation.context,
+                  state: 'COLLECTING_NAME',
+                  cart: [{
+                    productId: product.id,
+                    productName: product.name,
+                    productPrice: product.price,
+                    productImageUrl: product.image_urls?.[0],
+                    quantity: 1,
+                  }],
+                },
+              })
+              .eq('id', conversation.id);
+          }
+          
+          // Send "Ask for name" message
+          const { sendMessage } = await import('@/lib/facebook/messenger');
+          const { Replies } = await import('@/lib/conversation/replies');
+          await sendMessage(pageId, customerPsid, Replies.ASK_NAME());
+        }
+        return;
+      }
+      
+      // Handle "View Details" button click
+      if (payload.startsWith('VIEW_DETAILS_')) {
+        const productId = payload.replace('VIEW_DETAILS_', '');
+        console.log(`📋 View Details clicked for product: ${productId}`);
+        
+        // Fetch full product details
+        const { data: product } = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', productId)
+          .single();
+        
+        if (product) {
+          // Parse variations if available
+          let variations;
+          if (product.variations) {
+            variations = {
+              colors: product.variations.colors || [],
+              sizes: product.variations.sizes || [],
+            };
+          }
+          
+          // Send detailed product information
+          const { sendMessage } = await import('@/lib/facebook/messenger');
+          const { Replies } = await import('@/lib/conversation/replies');
+          
+          const detailsMessage = Replies.PRODUCT_DETAILS({
+            name: product.name,
+            price: product.price,
+            description: product.description,
+            stock: product.stock_quantity,
+            category: product.category,
+            variations,
+          });
+          
+          await sendMessage(pageId, customerPsid, detailsMessage);
+        }
+        return;
+      }
+      
+      // Unknown postback
+      console.log('⚠️ Unknown postback payload:', payload);
       return;
     }
 
@@ -220,6 +345,34 @@ async function processMessagingEvent(
       .single();
 
     if (convError || !conversation) {
+      // Fetch customer name from Facebook
+      let customerName = 'Unknown Customer';
+      try {
+        const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+        const { data: pageData } = await supabase
+          .from('facebook_pages')
+          .select('encrypted_access_token')
+          .eq('id', fbPage.id)
+          .single();
+        
+        if (pageData) {
+          const accessToken = decryptToken(pageData.encrypted_access_token);
+          const profileUrl = `https://graph.facebook.com/v19.0/${customerPsid}?fields=name&access_token=${accessToken}`;
+          const profileResponse = await fetch(profileUrl);
+          
+          if (profileResponse.ok) {
+            const profileData = await profileResponse.json();
+            if (profileData.name) {
+              customerName = profileData.name;
+              console.log(`✅ Fetched customer name: ${customerName}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Could not fetch customer name:', error);
+        // Continue with default name
+      }
+      
       // Create new conversation
       const { data: newConversation, error: createError } = await supabase
         .from('conversations')
@@ -227,6 +380,7 @@ async function processMessagingEvent(
           workspace_id: fbPage.workspace_id,
           fb_page_id: fbPage.id,
           customer_psid: customerPsid,
+          customer_name: customerName,
           current_state: 'IDLE',
           context: { 
             state: 'IDLE',

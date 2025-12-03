@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { decryptToken } from '@/lib/facebook/crypto-utils';
 import {
   SendMessageRequest,
   SendMessageResponse,
@@ -44,16 +45,25 @@ export async function sendMessage(
       throw new Error(`Failed to fetch Facebook page: ${pageError?.message || 'Page not found'}`);
     }
 
-    const accessToken = fbPage.encrypted_access_token;
+    const encryptedToken = fbPage.encrypted_access_token;
 
-    // Verify token exists and log first few characters for debugging
-    if (!accessToken || accessToken.length < 20) {
-      throw new Error('Invalid or missing access token in database');
+    // Verify encrypted token exists
+    if (!encryptedToken || encryptedToken.length < 20) {
+      throw new Error('Invalid or missing encrypted access token in database');
     }
-    console.log('Access token retrieved:', {
-      tokenPrefix: accessToken.substring(0, 15) + '...',
-      tokenLength: accessToken.length,
-    });
+
+    // Decrypt the access token
+    let accessToken: string;
+    try {
+      accessToken = decryptToken(encryptedToken);
+      console.log('Access token decrypted successfully:', {
+        tokenPrefix: accessToken.substring(0, 15) + '...',
+        tokenLength: accessToken.length,
+      });
+    } catch (decryptError) {
+      console.error('Failed to decrypt access token:', decryptError);
+      throw new Error('Failed to decrypt access token - token may be corrupted');
+    }
 
     // Prepare request body (minimal required fields only)
     const requestBody = {
@@ -120,6 +130,129 @@ export async function sendMessage(
     return result;
   } catch (error) {
     console.error('Error sending message:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sends a product card with image and buttons to a Facebook user via Messenger
+ * Uses Facebook's Generic Template for rich product display
+ * @param pageId - The Facebook Page ID
+ * @param recipientPsid - The recipient's Page-Scoped ID
+ * @param product - Product details including image, price, and variations
+ * @returns Promise with the send message response
+ * @throws Error if sending fails
+ */
+export async function sendProductCard(
+  pageId: string,
+  recipientPsid: string,
+  product: {
+    id: string;
+    name: string;
+    price: number;
+    imageUrl: string;
+    stock: number;
+    category?: string;
+    description?: string;
+    variations?: {
+      colors?: string[];
+      sizes?: string[];
+    };
+  }
+): Promise<SendMessageResponse> {
+  try {
+    // Fetch access token from database
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
+    
+    const { data: fbPage, error: pageError } = await supabase
+      .from('facebook_pages')
+      .select('encrypted_access_token')
+      .eq('id', parseInt(pageId))
+      .single();
+
+    if (pageError || !fbPage) {
+      throw new Error(`Failed to fetch Facebook page: ${pageError?.message || 'Page not found'}`);
+    }
+
+    // Decrypt access token
+    const accessToken = decryptToken(fbPage.encrypted_access_token);
+
+    // Prepare Generic Template payload
+    const requestBody = {
+      recipient: {
+        id: recipientPsid,
+      },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'generic',
+            elements: [
+              {
+                title: product.name,
+                image_url: product.imageUrl,
+                subtitle: `৳${product.price.toLocaleString()} | Stock: ${product.stock} units`,
+                buttons: [
+                  {
+                    type: 'postback',
+                    title: 'Order Now 🛒',
+                    payload: `ORDER_PRODUCT_${product.id}`,
+                  },
+                  {
+                    type: 'postback',
+                    title: 'View Details 📋',
+                    payload: `VIEW_DETAILS_${product.id}`,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    console.log('Sending product card:', {
+      productName: product.name,
+      productId: product.id,
+      imageUrl: product.imageUrl,
+    });
+
+    // Call Facebook Graph API
+    const apiUrl = `${GRAPH_API_BASE_URL}/${pageId}/messages?access_token=${accessToken}`;
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    // Check rate limits
+    checkRateLimits(response.headers);
+
+    // Handle errors
+    if (!response.ok) {
+      const errorData: FacebookError = await response.json();
+      console.error('Facebook API Error sending product card:', errorData);
+      throw new Error(
+        `Failed to send product card: ${errorData.error.message}`
+      );
+    }
+
+    const result: SendMessageResponse = await response.json();
+    console.log(`Product card sent successfully to ${recipientPsid}: ${result.message_id}`);
+    return result;
+  } catch (error) {
+    console.error('Error sending product card:', error);
     throw error;
   }
 }

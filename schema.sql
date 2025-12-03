@@ -75,11 +75,14 @@ CREATE TABLE public.orders (
   payment_status text DEFAULT 'unpaid'::text,
   order_number text UNIQUE,
   updated_at timestamp with time zone DEFAULT now(),
+  product_image_url text,
+  product_variations jsonb,
+  payment_last_two_digits text,
   CONSTRAINT orders_pkey PRIMARY KEY (id),
   CONSTRAINT orders_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
-  CONSTRAINT orders_fb_page_id_fkey FOREIGN KEY (fb_page_id) REFERENCES public.facebook_pages(id),
   CONSTRAINT orders_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
-  CONSTRAINT orders_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
+  CONSTRAINT orders_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id),
+  CONSTRAINT orders_fb_page_id_fkey FOREIGN KEY (fb_page_id) REFERENCES public.facebook_pages(id)
 );
 CREATE TABLE public.pre_registrations (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),

@@ -16,16 +16,28 @@ export function detectIntent(text: string): Intent {
   // Normalize: lowercase and trim whitespace
   const normalized = text.toLowerCase().trim();
 
-  // POSITIVE keywords (Bangla + English)
+  // POSITIVE keywords (Bangla + English + Banglish)
   const positiveKeywords = [
     // English
     'yes', 'yep', 'yeah', 'yup', 'ok', 'okay', 'sure', 'confirm', 'right', 
     'correct', 'good', 'fine', 'proceed', 'continue', 'accept', 'agree',
-    // Bangla (phonetic) - CRITICAL: Include all variations
+    
+    // Bangla (phonetic/Banglish) - CRITICAL: Include all variations
     'ji', 'jii', 'hae', 'haan', 'ha', 'hum', 'humm', 'thik ase', 'thik', 
     'ase', 'hobe', 'chai', 'chae',
+    
+    // ORDER-RELATED Banglish (most common phrases)
+    'order korbo', 'order koro', 'order dibo', 'order dao', 'order chai',
+    'nibo', 'nebo', 'kinbo', 'keno', 'kinte chai', 'nite chai',
+    'lagbe', 'lagbe eta', 'eta nibo',
+    
     // Bangla (Unicode)
     'হ্যাঁ', 'জি', 'ঠিক আছে', 'ঠিক', 'আছে', 'হবে', 'চাই', 'সঠিক',
+    
+    // ORDER-RELATED Bangla Unicode
+    'অর্ডার করব', 'অর্ডার করবো', 'অর্ডার দিব', 'অর্ডার দাও', 'অর্ডার চাই',
+    'নিব', 'নেব', 'নিবো', 'কিনব', 'কিনবো', 'কিনতে চাই',
+    'লাগবে', 'এটা নিব',
   ];
 
   // NEGATIVE keywords (Bangla + English)

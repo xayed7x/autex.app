@@ -31,10 +31,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
     }
 
-    // Build query
+    // Build query - join with products table to get product name
     let query = supabase
       .from('orders')
-      .select('*', { count: 'exact' })
+      .select(`
+        *,
+        products (
+          name
+        )
+      `, { count: 'exact' })
       .eq('workspace_id', workspace.id)
 
     // Apply status filter

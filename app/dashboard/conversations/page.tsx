@@ -1,14 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { TopBar } from "@/components/dashboard/top-bar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import { Search, Send, ArrowLeft, ExternalLink, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 type ConversationStatus = "IDLE" | "AWAITING_NAME" | "AWAITING_PHONE" | "AWAITING_ADDRESS" | "ORDER_COMPLETE"
 
@@ -25,6 +27,7 @@ interface Conversation {
   id: string
   customer_name: string
   customer_psid: string
+  fb_page_id: number
   current_state: ConversationStatus
   last_message_at: string
   created_at: string
@@ -32,6 +35,11 @@ interface Conversation {
   message_count: number
   last_message: Message | null
   messages?: Message[]
+  // Facebook profile data (fetched separately)
+  fb_profile?: {
+    name: string
+    profile_pic: string
+  }
 }
 
 const statusIndicator: Record<string, string> = {
@@ -60,10 +68,31 @@ export default function ConversationsPage() {
   const [mobileView, setMobileView] = useState<"list" | "chat">("list")
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [sendingMessage, setSendingMessage] = useState(false)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchConversations()
   }, [statusFilter, searchQuery])
+
+  // Polling effect for real-time message updates
+  useEffect(() => {
+    if (selectedConversation) {
+      // Start polling when a conversation is selected
+      pollingIntervalRef.current = setInterval(() => {
+        fetchConversationDetail(selectedConversation.id, true)
+      }, 5000) // Poll every 5 seconds
+    }
+
+    // Cleanup: stop polling when conversation is deselected or component unmounts
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
+    }
+  }, [selectedConversation?.id])
 
   const fetchConversations = async () => {
     try {
@@ -76,11 +105,41 @@ export default function ConversationsPage() {
       if (!response.ok) throw new Error("Failed to fetch conversations")
       
       const data = await response.json()
-      setConversations(data.conversations || [])
+      const conversationsData = data.conversations || []
+      
+      // Fetch Facebook profiles for all conversations (non-blocking)
+      const conversationsWithProfiles = await Promise.all(
+        conversationsData.map(async (conv: Conversation) => {
+          try {
+            const profileResponse = await fetch(
+              `/api/facebook/user-profile?psid=${conv.customer_psid}&pageId=${conv.fb_page_id}`
+            )
+            if (profileResponse.ok) {
+              const profileData = await profileResponse.json()
+              // Only add profile if we got valid data (not null)
+              if (profileData.name && profileData.profile_pic) {
+                return {
+                  ...conv,
+                  fb_profile: {
+                    name: profileData.name,
+                    profile_pic: profileData.profile_pic,
+                  },
+                }
+              }
+            }
+          } catch (error) {
+            // Silently fail - just use customer_name instead
+            console.debug('Could not fetch Facebook profile for', conv.customer_psid)
+          }
+          return conv
+        })
+      )
+      
+      setConversations(conversationsWithProfiles)
       
       // Auto-select first conversation if none selected
-      if (!selectedConversation && data.conversations?.length > 0) {
-        handleSelectConversation(data.conversations[0])
+      if (!selectedConversation && conversationsWithProfiles.length > 0) {
+        handleSelectConversation(conversationsWithProfiles[0])
       }
     } catch (error) {
       console.error("Error fetching conversations:", error)
@@ -89,9 +148,9 @@ export default function ConversationsPage() {
     }
   }
 
-  const fetchConversationDetail = async (id: string) => {
+  const fetchConversationDetail = async (id: string, silent = false) => {
     try {
-      setDetailLoading(true)
+      if (!silent) setDetailLoading(true)
       const response = await fetch(`/api/conversations/${id}`)
       if (!response.ok) throw new Error("Failed to fetch conversation detail")
       
@@ -100,7 +159,7 @@ export default function ConversationsPage() {
     } catch (error) {
       console.error("Error fetching conversation detail:", error)
     } finally {
-      setDetailLoading(false)
+      if (!silent) setDetailLoading(false)
     }
   }
 
@@ -127,6 +186,96 @@ export default function ConversationsPage() {
   const formatMessageTime = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+  }
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!newMessage.trim() || !selectedConversation || sendingMessage) {
+      return
+    }
+
+    const messageText = newMessage.trim()
+    const tempId = `temp-${Date.now()}`
+    
+    // Optimistic UI update
+    const optimisticMessage: Message = {
+      id: tempId,
+      sender: 'human',
+      message_text: messageText,
+      message_type: 'text',
+      created_at: new Date().toISOString(),
+    }
+
+    setSelectedConversation(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        messages: [...(prev.messages || []), optimisticMessage]
+      }
+    })
+
+    setNewMessage('')
+    setSendingMessage(true)
+
+    try {
+      const response = await fetch(`/api/conversations/${selectedConversation.id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: messageText }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to send message')
+      }
+
+      const data = await response.json()
+      
+      // Replace optimistic message with real message from server
+      setSelectedConversation(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          messages: (prev.messages || []).map(msg => 
+            msg.id === tempId ? data.message : msg
+          )
+        }
+      })
+
+      toast.success('Message sent successfully')
+    } catch (error: any) {
+      console.error('Error sending message:', error)
+      
+      // Remove optimistic message on error
+      setSelectedConversation(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          messages: (prev.messages || []).filter(msg => msg.id !== tempId)
+        }
+      })
+      
+      // Restore message text so user can retry
+      setNewMessage(messageText)
+      toast.error(error.message || 'Failed to send message')
+    } finally {
+      setSendingMessage(false)
+    }
+  }
+
+  const getSenderLabel = (sender: string) => {
+    if (sender === 'human') return 'You'
+    if (sender === 'bot') return 'Bot'
+    return 'Customer'
+  }
+
+  const getSenderBgColor = (sender: string) => {
+    if (sender === 'human') return 'bg-blue-500/10 text-foreground'
+    if (sender === 'bot') return 'bg-muted text-foreground'
+    return 'bg-primary/10 text-foreground'
   }
 
   const getOrderIdFromContext = (context: any) => {
@@ -204,19 +353,27 @@ export default function ConversationsPage() {
                     )}
                   >
                     <div className="flex items-start gap-3">
-                      <div className={cn("h-2.5 w-2.5 rounded-full mt-1.5", statusIndicator[conv.current_state] || "bg-muted-foreground/30")} />
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={conv.fb_profile?.profile_pic} alt={conv.fb_profile?.name || conv.customer_name} />
+                        <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+                          {(conv.fb_profile?.name || conv.customer_name || 'U').substring(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium text-sm truncate">
-                            {conv.customer_name || "Unknown Customer"}
+                            {conv.fb_profile?.name || conv.customer_name || "Unknown Customer"}
                           </span>
                           <span className="text-xs text-muted-foreground whitespace-nowrap">
                             {formatTime(conv.last_message_at)}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {conv.last_message?.message_text || "No messages"}
-                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <div className={cn("h-2 w-2 rounded-full flex-shrink-0", statusIndicator[conv.current_state] || "bg-muted-foreground/30")} />
+                          <p className="text-xs text-muted-foreground truncate">
+                            {conv.last_message?.message_text || "No messages"}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </button>
@@ -235,8 +392,19 @@ export default function ConversationsPage() {
                 <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileView("list")}>
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
+                <Avatar className="h-10 w-10">
+                  <AvatarImage 
+                    src={selectedConversation.fb_profile?.profile_pic} 
+                    alt={selectedConversation.fb_profile?.name || selectedConversation.customer_name} 
+                  />
+                  <AvatarFallback className="bg-primary text-primary-foreground">
+                    {(selectedConversation.fb_profile?.name || selectedConversation.customer_name || 'U').substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <div className="flex-1">
-                  <h3 className="font-semibold">{selectedConversation.customer_name || "Unknown Customer"}</h3>
+                  <h3 className="font-semibold">
+                    {selectedConversation.fb_profile?.name || selectedConversation.customer_name || "Unknown Customer"}
+                  </h3>
                   <p className="text-xs text-muted-foreground">
                     {statusLabels[selectedConversation.current_state] || selectedConversation.current_state}
                   </p>
@@ -265,17 +433,23 @@ export default function ConversationsPage() {
                       selectedConversation.messages.map((message) => (
                         <div
                           key={message.id}
-                          className={cn("flex", message.sender === "customer" ? "justify-end" : "justify-start")}
+                          className={cn("flex flex-col", message.sender === "customer" ? "items-end" : "items-start")}
                         >
+                          <span className="text-[10px] text-muted-foreground mb-1 px-1">
+                            {getSenderLabel(message.sender)}
+                          </span>
                           <div
                             className={cn(
                               "max-w-[70%] rounded-lg px-4 py-2",
-                              message.sender === "customer" ? "bg-primary/10 text-foreground" : "bg-muted text-foreground",
+                              getSenderBgColor(message.sender),
                             )}
                           >
                             <p className="text-sm whitespace-pre-line">{message.message_text}</p>
                             <p className="text-[10px] text-muted-foreground mt-1">
                               {formatMessageTime(message.created_at)}
+                              {message.id.startsWith('temp-') && (
+                                <span className="ml-2 italic">Sending...</span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -298,22 +472,36 @@ export default function ConversationsPage() {
                 )}
               </ScrollArea>
 
-              {/* Chat Input - Disabled for now as this is read-only */}
+              {/* Chat Input - Manual Messaging */}
               <div className="p-4 border-t border-border">
-                <div className="flex gap-2">
+                <form onSubmit={handleSendMessage} className="flex gap-2">
                   <Input
-                    placeholder="Manual messaging coming soon..."
+                    placeholder="Type your message..."
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     className="flex-1"
-                    disabled
+                    disabled={sendingMessage}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSendMessage(e)
+                      }
+                    }}
                   />
-                  <Button type="submit" size="icon" disabled>
-                    <Send className="h-4 w-4" />
+                  <Button 
+                    type="submit" 
+                    size="icon" 
+                    disabled={sendingMessage || !newMessage.trim()}
+                  >
+                    {sendingMessage ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
                   </Button>
-                </div>
+                </form>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Currently view-only. Customers receive automated responses via Facebook Messenger.
+                  Messages are sent directly to the customer via Facebook Messenger. Press Enter to send.
                 </p>
               </div>
             </>

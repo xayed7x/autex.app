@@ -13,6 +13,13 @@ export interface FastLaneMessages {
   phoneCollected: string;
   orderConfirmed: string;
   orderCancelled: string;
+  paymentInstructions: string;
+  paymentReview: string;
+  invalidPaymentDigits: string;
+  // Dynamic interruption messages
+  deliveryInfo: string;
+  returnPolicy: string;
+  paymentInfo: string;
 }
 
 export interface WorkspaceSettings {
@@ -56,8 +63,8 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
   },
   deliveryTime: "3-5 business days",
   paymentMethods: {
-    bkash: { enabled: true, number: "" },
-    nagad: { enabled: true, number: "" },
+    bkash: { enabled: true, number: "01915969330" },
+    nagad: { enabled: true, number: "01915969330" },
     cod: { enabled: false },
   },
   paymentMessage: "Payment করতে আমাদের bKash এ send করুন।\nScreenshot পাঠালে আমরা verify করব।",
@@ -75,6 +82,13 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
     phoneCollected: "পেয়েছি! 📱\n\nএখন আপনার ডেলিভারি ঠিকানাটি দিন। 📍\n(Example: House 123, Road 4, Dhanmondi, Dhaka)",
     orderConfirmed: "✅ অর্ডারটি কনফার্ম করা হয়েছে!\n\nআপনার অর্ডার সফলভাবে সম্পন্ন হয়েছে। শীঘ্রই আমরা আপনার সাথে যোগাযোগ করবো।\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉",
     orderCancelled: "অর্ডার cancel করা হয়েছে। 😊\n\nকোনো সমস্যা নেই! নতুন অর্ডার করতে product এর ছবি পাঠান।",
+    paymentInstructions: "✅ অর্ডার confirm হয়েছে!\n\n💰 Payment options:\n৳{totalAmount} টাকা পাঠান:\n{paymentNumber}\n\nPayment করার পর শেষের ২ ডিজিট (last 2 digits) পাঠান। 🔢\n\nExample: যদি transaction ID হয় BKC123456**78**, তাহলে পাঠান: 78",
+    paymentReview: "ধন্যবাদ {name}! 🙏\n\nআপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉",
+    invalidPaymentDigits: "⚠️ দুঃখিত! শুধু ২টা digit দিতে হবে।\n\nExample: 78 বা 45\n\nআবার চেষ্টা করুন। 🔢",
+    // Dynamic interruption messages
+    deliveryInfo: "🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳60\n• ঢাকার বাইরে: ৳120\n• Delivery সময়: 3-5 business days",
+    returnPolicy: "🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।\n\n• পণ্য অব্যবহৃত থাকতে হবে\n• Original packaging এ থাকতে হবে\n• ২ দিনের মধ্যে আমাদের জানাতে হবে",
+    paymentInfo: "💳 Payment Methods:\nআমরা নিম্নলিখিত payment methods গ্রহণ করি:\n\n• bKash: 01915969330\n• Nagad: 01915969330\n• Cash on Delivery\n\nযেকোনো method দিয়ে payment করতে পারবেন।",
   },
 };
 

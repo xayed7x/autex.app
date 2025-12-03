@@ -12,6 +12,8 @@ export interface ReplyParams {
   deliveryCharge?: number;
   totalAmount?: number;
   orderId?: string;
+  paymentNumber?: string;
+  paymentLastTwoDigits?: string;
 }
 
 /**
@@ -107,6 +109,58 @@ Confirm করতে 'YES' লিখুন। ✅`;
   },
 
   /**
+   * Payment instructions after order confirmation
+   */
+  PAYMENT_INSTRUCTIONS: (params: ReplyParams) => {
+    const { totalAmount, paymentNumber } = params;
+    return `✅ অর্ডার confirm হয়েছে!
+
+💰 Payment options:
+৳${totalAmount} টাকা পাঠান:
+${paymentNumber || '{{PAYMENT_DETAILS}}'}
+
+Payment করার পর শেষের ২ ডিজিট (last 2 digits) পাঠান। 🔢
+
+Example: যদি transaction ID হয় BKC123456**78**, তাহলে পাঠান: 78`;
+  },
+
+  /**
+   * Ask for last 2 digits of payment
+   */
+  ASK_PAYMENT_DIGITS: () => {
+    return `Payment করেছেন? ✅
+
+Transaction ID এর শেষের ২ ডিজিট পাঠান। 🔢
+
+Example: যদি transaction ID শেষে 45 থাকে, তাহলে শুধু 45 লিখুন।`;
+  },
+
+  /**
+   * Invalid payment digits format
+   */
+  INVALID_PAYMENT_DIGITS: () => {
+    return `⚠️ দুঃখিত! শুধু ২টা digit দিতে হবে।
+
+Example: 78 বা 45
+
+আবার চেষ্টা করুন। 🔢`;
+  },
+
+  /**
+   * Payment review message
+   */
+  PAYMENT_REVIEW: (params: ReplyParams) => {
+    const { name, paymentLastTwoDigits } = params;
+    return `ধন্যবাদ ${name}! 🙏
+
+আপনার payment digits (${paymentLastTwoDigits}) পেয়েছি। ✅
+
+আমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦
+
+আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉`;
+  },
+
+  /**
    * Order confirmed
    */
   ORDER_CONFIRMED: (params: ReplyParams) => {
@@ -170,6 +224,51 @@ Product খুঁজতে:
 💬 Product এর নাম লিখুন
 
 শুরু করি? 😊`;
+  },
+
+  /**
+   * Detailed product information (shown when "View Details" is clicked)
+   */
+  PRODUCT_DETAILS: (product: {
+    name: string;
+    price: number;
+    description?: string;
+    stock: number;
+    category?: string;
+    variations?: {
+      colors?: string[];
+      sizes?: string[];
+    };
+  }) => {
+    let message = `📦 ${product.name}\n\n`;
+    
+    if (product.description) {
+      message += `📝 Description:\n${product.description}\n\n`;
+    }
+    
+    message += `💰 Price: ৳${product.price.toLocaleString()}\n`;
+    message += `📊 Stock: ${product.stock} units available\n`;
+    
+    if (product.category) {
+      message += `🏷️ Category: ${product.category}\n`;
+    }
+    
+    if (product.variations?.colors && product.variations.colors.length > 0) {
+      message += `🎨 Available Colors: ${product.variations.colors.join(', ')}\n`;
+    }
+    
+    if (product.variations?.sizes && product.variations.sizes.length > 0) {
+      message += `📏 Available Sizes: ${product.variations.sizes.join(', ')}\n`;
+    }
+    
+    message += `\n✅ Stock: ${product.stock > 0 ? 'In Stock' : 'Out of Stock'}\n`;
+    message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+    message += `অর্ডার করতে:\n`;
+    message += `🔘 'Order Now' বাটনে ক্লিক করুন\n`;
+    message += `অথবা\n`;
+    message += `✍️ টাইপ করুন: "order korbo" বা "nibo"`;
+    
+    return message;
   },
 };
 

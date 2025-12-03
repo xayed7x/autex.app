@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { TopBar } from "@/components/dashboard/top-bar"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,7 @@ interface Order {
   payment_status: string
   created_at: string
   product_id?: string
+  conversation_id?: string
 }
 
 const statusConfig: Record<string, { label: string; className: string }> = {
@@ -48,6 +50,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 }
 
 export default function OrdersPage() {
+  const router = useRouter()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -278,7 +281,16 @@ export default function OrdersPage() {
                                   Mark as Completed
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => {
+                                  if (order.conversation_id) {
+                                    router.push(`/dashboard/conversations?id=${order.conversation_id}`)
+                                  } else {
+                                    toast.error('No conversation found for this order')
+                                  }
+                                }}
+                                disabled={!order.conversation_id}
+                              >
                                 <MessageSquare className="h-4 w-4 mr-2" />
                                 View Conversation
                               </DropdownMenuItem>

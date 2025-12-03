@@ -196,6 +196,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                   fastLaneResult.action === 'COLLECT_PHONE' ? 'UPDATE_CHECKOUT' :
                   fastLaneResult.action === 'COLLECT_ADDRESS' ? 'UPDATE_CHECKOUT' :
                   fastLaneResult.action === 'GREETING' ? 'SEND_RESPONSE' :
+                  fastLaneResult.action === 'CREATE_ORDER' ? 'CREATE_ORDER' :
                   'SEND_RESPONSE',
           response: fastLaneResult.response || '',
           newState: fastLaneResult.newState,
@@ -204,10 +205,10 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           reasoning: 'Fast Lane pattern match',
         };
         
-        // Special handling for order confirmation
-        if (currentState === 'CONFIRMING_ORDER' && fastLaneResult.action === 'CONFIRM') {
-          decision.action = 'CREATE_ORDER';
-        }
+        // Special handling for order confirmation - REMOVED legacy override
+        // if (currentState === 'CONFIRMING_ORDER' && fastLaneResult.action === 'CONFIRM') {
+        //   decision.action = 'CREATE_ORDER';
+        // }
         
         return await executeDecision(
           decision,
@@ -475,6 +476,30 @@ async function executeDecision(
       updatedContext.checkout = {};
       break;
     
+    case 'SEND_PRODUCT_CARD':
+      // Send product card with image using Facebook Generic Template
+      console.log('🖼️ Sending product card...');
+      if (decision.actionData?.product) {
+        const { sendProductCard } = await import('@/lib/facebook/messenger');
+        
+        try {
+          await sendProductCard(
+            input.pageId,
+            input.customerPsid,
+            decision.actionData.product
+          );
+          console.log('✅ Product card sent successfully');
+          
+          // Don't send additional text message - the card is the response
+          response = '';
+        } catch (error) {
+          console.error('❌ Failed to send product card:', error);
+          // Fallback to text-only message
+          response = `✅ Found: ${decision.actionData.product.name}\n💰 Price: ৳${decision.actionData.product.price}\n\nWould you like to order this? (YES/NO)`;
+        }
+      }
+      break;
+    
     default:
       console.warn(`⚠️ Unknown action: ${decision.action}`);
   }
@@ -492,16 +517,48 @@ async function executeDecision(
     updatedContext.checkout?.customerName || conversation.customer_name
   );
   
-  // Send response to user
-  await sendMessage(input.pageId, input.customerPsid, response);
-  
-  // Log bot message
-  await supabase.from('messages').insert({
-    conversation_id: input.conversationId,
-    sender: 'bot',
-    message_text: response,
-    message_type: 'text',
-  });
+  // Send response to user (only if not empty - product cards are sent separately)
+  if (response) {
+    // Inject payment number if placeholder exists
+    // Inject payment details if placeholder exists
+    if (response.includes('{{PAYMENT_NUMBER}}') || response.includes('{{PAYMENT_DETAILS}}')) {
+      const methods = [];
+      
+      if (settings.paymentMethods?.bkash?.enabled) {
+        methods.push(`📱 bKash: ${settings.paymentMethods.bkash.number}`);
+      }
+      
+      if (settings.paymentMethods?.nagad?.enabled) {
+        methods.push(`📱 Nagad: ${settings.paymentMethods.nagad.number}`);
+      }
+      
+      if (settings.paymentMethods?.cod?.enabled) {
+        methods.push(`🚚 Cash on Delivery Available`);
+      }
+      
+      // Fallback if nothing enabled (shouldn't happen usually)
+      if (methods.length === 0) {
+        methods.push(`📱 bKash/Nagad: 01915969330`);
+      }
+      
+      const paymentDetails = methods.join('\n');
+      
+      // Replace both old and new placeholders
+      response = response
+        .replace('{{PAYMENT_NUMBER}}', paymentDetails)
+        .replace('{{PAYMENT_DETAILS}}', paymentDetails);
+    }
+
+    await sendMessage(input.pageId, input.customerPsid, response);
+    
+    // Log bot message
+    await supabase.from('messages').insert({
+      conversation_id: input.conversationId,
+      sender: 'bot',
+      message_text: response,
+      message_type: 'text',
+    });
+  }
   
   console.log(`✅ Decision executed successfully`);
   
@@ -548,10 +605,11 @@ async function handleImageMessage(
       
       console.log(`✅ Product found: ${product.name}`);
       
-      // Create decision to add product to cart and confirm
+      // Send product card with image instead of text-only message
+      // This will be sent by the executeDecision function
       return {
-        action: 'ADD_TO_CART',
-        response: `✅ Found: ${product.name}\n💰 Price: ৳${product.price}\n\nWould you like to order this? (YES/NO)`,
+        action: 'SEND_PRODUCT_CARD',
+        response: '', // Response will be sent as product card
         newState: 'CONFIRMING_PRODUCT',
         updatedContext: {
           state: 'CONFIRMING_PRODUCT',
@@ -559,6 +617,7 @@ async function handleImageMessage(
             productId: product.id,
             productName: product.name,
             productPrice: product.price,
+            imageUrl: product.image_urls?.[0], // Store image URL
             quantity: 1,
           }],
           metadata: {
@@ -568,10 +627,16 @@ async function handleImageMessage(
           },
         },
         actionData: {
-          productId: product.id,
-          productName: product.name,
-          productPrice: product.price,
-          quantity: 1,
+          product: {
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            imageUrl: product.image_urls?.[0] || '',
+            stock: product.stock_quantity || 0,
+            category: product.category,
+            description: product.description,
+            variations: product.variations,
+          },
         },
         confidence: imageRecognitionResult.match.confidence,
         reasoning: `Image recognition (tier: ${imageRecognitionResult.match.tier})`,
@@ -633,6 +698,9 @@ async function createOrderInDb(
     status: 'pending',
     payment_status: 'unpaid',
     quantity: cartItem.quantity,
+    product_image_url: cartItem.imageUrl || null, // Store product image
+    product_variations: cartItem.variations || null, // Store variations (color, size, etc.)
+    payment_last_two_digits: context.checkout?.paymentLastTwoDigits || null, // Store payment digits
   };
   
   const { error } = await supabase.from('orders').insert(orderData);

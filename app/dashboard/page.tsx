@@ -24,6 +24,13 @@ interface DashboardStats {
   }
 }
 
+interface FacebookPage {
+  id: string
+  page_id: string
+  page_name: string
+  created_at: string
+}
+
 export default function DashboardPage() {
   const { user } = useWorkspace()
   const [stats, setStats] = useState<DashboardStats>({
@@ -34,9 +41,12 @@ export default function DashboardPage() {
     trends: { orders: 0, revenue: 0 },
   })
   const [loading, setLoading] = useState(true)
+  const [facebookPage, setFacebookPage] = useState<FacebookPage | null>(null)
+  const [pageLoading, setPageLoading] = useState(true)
 
   useEffect(() => {
     fetchStats()
+    fetchFacebookPage()
   }, [])
 
   const fetchStats = async () => {
@@ -52,6 +62,22 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }
+
+  const fetchFacebookPage = async () => {
+    try {
+      const response = await fetch('/api/facebook/pages')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.pages && data.pages.length > 0) {
+          setFacebookPage(data.pages[0])
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook page:', error)
+    } finally {
+      setPageLoading(false)
+    }
+  }
   return (
     <>
       <TopBar title="Overview" />
@@ -60,17 +86,35 @@ export default function DashboardPage() {
         {/* Welcome Section */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold">Welcome back, Code and Cortex! 👋</h2>
-            <p className="text-muted-foreground mt-1">
-              Connected Page: <span className="font-medium text-foreground">&quot;Code and Cortex&quot;</span>
-            </p>
+            {pageLoading ? (
+              <>
+                <h2 className="text-2xl font-semibold">Welcome back! 👋</h2>
+                <p className="text-muted-foreground mt-1">Loading page info...</p>
+              </>
+            ) : facebookPage ? (
+              <h2 className="text-2xl font-semibold">
+                Welcome back, {facebookPage.page_name}! 👋
+              </h2>
+            ) : (
+              <>
+                <h2 className="text-2xl font-semibold">Welcome back! 👋</h2>
+                <p className="text-muted-foreground mt-1">
+                  No Facebook page connected.{' '}
+                  <Link href="/dashboard/settings?tab=facebook" className="text-primary hover:underline">
+                    Connect now
+                  </Link>
+                </p>
+              </>
+            )}
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard/settings/pages">
-              <Settings className="h-4 w-4 mr-2" />
-              Manage
-            </Link>
-          </Button>
+          {facebookPage && (
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard/settings?tab=facebook">
+                <Settings className="h-4 w-4 mr-2" />
+                Manage
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Stats Cards */}

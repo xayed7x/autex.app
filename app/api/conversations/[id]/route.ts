@@ -3,9 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     
     // Get authenticated user
@@ -39,7 +40,7 @@ export async function GET(
           created_at
         )
       `)
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('workspace_id', workspace.id)
       .single()
 
@@ -91,9 +92,10 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     
     // Get authenticated user
@@ -120,7 +122,7 @@ export async function PATCH(
     const { data, error } = await supabase
       .from('conversations')
       .update({ current_state })
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('workspace_id', workspace.id)
       .select()
       .single()

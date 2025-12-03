@@ -86,7 +86,8 @@ export interface AIDirectorDecision {
     | 'CREATE_ORDER'           // Create order
     | 'SEARCH_PRODUCTS'        // Search for products
     | 'SHOW_HELP'              // Show help message
-    | 'RESET_CONVERSATION';    // Reset to IDLE
+    | 'RESET_CONVERSATION'     // Reset to IDLE
+    | 'SEND_PRODUCT_CARD';     // Send product card with image
   
   /** Response message to send to user */
   response: string;
@@ -109,6 +110,16 @@ export interface AIDirectorDecision {
     customerAddress?: string;
     deliveryCharge?: number;
     totalAmount?: number;
+    product?: {
+      id: string;
+      name: string;
+      price: number;
+      imageUrl: string;
+      stock: number;
+      category?: string;
+      description?: string;
+      variations?: any;
+    };
   };
   
   /** Confidence score (0-100) */

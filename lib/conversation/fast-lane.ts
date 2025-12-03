@@ -15,6 +15,57 @@
 
 import { ConversationContext, ConversationState, CartItem } from '@/types/conversation';
 import { WorkspaceSettings } from '@/lib/workspace/settings';
+import { Replies } from './replies';
+import { getInterruptionType, isDetailsRequest, isOrderIntent } from './keywords';
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Formats product details from context for display
+ * Used when customer asks about product (price, size, color, stock, etc.)
+ */
+function getProductDetailsResponse(context: ConversationContext, emoji: boolean = true): string | null {
+  // Check if there's a product in cart
+  const product = context.cart && context.cart.length > 0 ? context.cart[0] : null;
+  
+  if (!product) {
+    return null;
+  }
+  
+  const productAny = product as any; // Cast to any to access additional properties
+  const parts: string[] = [];
+  
+  // Product name and price
+  parts.push(`${emoji ? '📦' : ''} **${product.productName}**`);
+  parts.push(`${emoji ? '💰' : ''} Price: ৳${product.productPrice}`);
+  
+  // Description if available
+  if (productAny.description) {
+    parts.push(`\n${productAny.description}`);
+  }
+  
+  // Stock info if available
+  if (productAny.stock !== undefined) {
+    const stockText = productAny.stock > 0 
+      ? `${emoji ? '✅' : ''} In Stock (${productAny.stock} available)`
+      : `${emoji ? '❌' : ''} Out of Stock`;
+    parts.push(`\n${stockText}`);
+  }
+  
+  // Sizes if available
+  if (productAny.sizes && productAny.sizes.length > 0) {
+    parts.push(`\n${emoji ? '📏' : ''} Sizes: ${productAny.sizes.join(', ')}`);
+  }
+  
+  // Colors if available
+  if (productAny.colors && productAny.colors.length > 0) {
+    parts.push(`\n${emoji ? '🎨' : ''} Colors: ${productAny.colors.join(', ')}`);
+  }
+  
+  return parts.join('\n');
+}
 
 // ============================================
 // TYPES
@@ -25,7 +76,7 @@ export interface FastLaneResult {
   matched: boolean;
   
   /** Action to take (if matched) */
-  action?: 'CONFIRM' | 'DECLINE' | 'COLLECT_NAME' | 'COLLECT_PHONE' | 'COLLECT_ADDRESS' | 'GREETING';
+  action?: 'CONFIRM' | 'DECLINE' | 'COLLECT_NAME' | 'COLLECT_PHONE' | 'COLLECT_ADDRESS' | 'GREETING' | 'CREATE_ORDER';
   
   /** Response message (if matched) */
   response?: string;
@@ -56,11 +107,33 @@ const PHONE_PATTERNS = [
   /^01[3-9]\s?\d{4}\s?\d{4}$/, // 01X XXXX XXXX
 ];
 
-// Confirmation patterns
+// Confirmation patterns - COMPREHENSIVE Bangla/Banglish support
 const YES_PATTERNS = [
+  // English confirmations
   /^(yes|yep|yeah|yup|sure|ok|okay|y)$/i,
-  /^(ji|jii|hae|haan|ha|hum)$/i,
-  /^(হ্যাঁ|জি|ঠিক আছে|আছে|হুম)$/i,
+  
+  // Bangla phonetic (Banglish) - Single words
+  /^(ji|jii|hae|haan|ha|hum|humm)$/i,
+  
+  // Bangla Unicode - Single words
+  /^(হ্যাঁ|জি|ঠিক আছে|আছে|হুম|হবে)$/i,
+  
+  // ORDER-RELATED Banglish phrases (most common)
+  /^(order korbo|order koro|order dibo|order dao|order chai)$/i,
+  /^(nibo|nebo|kinbo|keno|kinte chai)$/i,
+  /^(chai|chae|lagbe|hobe)$/i,
+  /^(confirm|confirmed|confirm koro|confirm korbo)$/i,
+  
+  // ORDER-RELATED Bangla Unicode
+  /^(অর্ডার করব|অর্ডার করবো|অর্ডার দিব|অর্ডার দাও|অর্ডার চাই)$/i,
+  /^(নিব|নেব|নিবো|কিনব|কিনবো|কিনতে চাই)$/i,
+  /^(চাই|লাগবে|হবে)$/i,
+  
+  // Partial matches for common phrases (contains)
+  /order\s*korbo/i,
+  /order\s*chai/i,
+  /nite\s*chai/i,
+  /kinte\s*chai/i,
 ];
 
 const NO_PATTERNS = [
@@ -144,6 +217,9 @@ export function tryFastLane(
     
     case 'CONFIRMING_ORDER':
       return handleConfirmingOrder(trimmedInput, currentContext, settings);
+
+    case 'COLLECTING_PAYMENT_DIGITS':
+      return handleCollectingPaymentDigits(trimmedInput, currentContext, settings);
     
     default:
       return { matched: false };
@@ -164,6 +240,65 @@ function handleConfirmingProduct(
 ): FastLaneResult {
   const emoji = settings?.useEmojis ?? true;
   
+  // Check for interruptions/product questions FIRST (before YES/NO)
+  const interruptionType = getInterruptionType(input);
+  
+  if (interruptionType) {
+    let interruptionResponse = '';
+    
+    switch (interruptionType) {
+      case 'delivery':
+        interruptionResponse = settings?.fastLaneMessages?.deliveryInfo ||
+          `🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳${settings?.deliveryCharges?.insideDhaka || 60}\n• ঢাকার বাইরে: ৳${settings?.deliveryCharges?.outsideDhaka || 120}`;
+        break;
+      case 'payment':
+        interruptionResponse = settings?.fastLaneMessages?.paymentInfo ||
+          `💳 Payment Methods: bKash, Nagad, COD`;
+        break;
+      case 'return':
+        interruptionResponse = settings?.fastLaneMessages?.returnPolicy ||
+          `🔄 ২ দিনের মধ্যে ফেরত।`;
+        break;
+      case 'price':
+      case 'size':
+        const productDetails = getProductDetailsResponse(context, emoji);
+        interruptionResponse = productDetails || `Product details: Check the card above`;
+        break;
+    }
+    
+    const rePrompt = `\n\nএই product চান? (YES/NO)`;
+    const finalResponse = interruptionResponse + rePrompt;
+    
+    return {
+      matched: true,
+      action: 'CONFIRM',
+      response: emoji ? finalResponse : finalResponse.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
+      newState: 'CONFIRMING_PRODUCT',
+      updatedContext: {
+        ...context,
+        state: 'CONFIRMING_PRODUCT',
+      },
+    };
+  }
+  
+  // Check for product details request (details, colors, etc.)
+  if (isDetailsRequest(input)) {
+    const productDetails = getProductDetailsResponse(context, emoji);
+    if (productDetails) {
+      const rePrompt = `\n\nএই product চান? (YES/NO)`;
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: emoji ? (productDetails + rePrompt) : (productDetails + rePrompt).replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
+        newState: 'CONFIRMING_PRODUCT',
+        updatedContext: {
+          ...context,
+          state: 'CONFIRMING_PRODUCT',
+        },
+      };
+    }
+  }
+  
   // Check for YES
   if (YES_PATTERNS.some(pattern => pattern.test(input))) {
     const message = settings?.fastLaneMessages?.productConfirm || 
@@ -175,6 +310,7 @@ function handleConfirmingProduct(
       response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
       newState: 'COLLECTING_NAME',
       updatedContext: {
+        ...context,
         state: 'COLLECTING_NAME',
       },
     };
@@ -211,6 +347,71 @@ function handleCollectingName(
 ): FastLaneResult {
   const emoji = settings?.useEmojis ?? true;
   
+  // Check for interruptions first
+  const interruptionType = getInterruptionType(input);
+  
+  if (interruptionType) {
+    let interruptionResponse = '';
+    
+    switch (interruptionType) {
+      case 'delivery':
+        interruptionResponse = settings?.fastLaneMessages?.deliveryInfo ||
+          `🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳${settings?.deliveryCharges?.insideDhaka || 60}\n• ঢাকার বাইরে: ৳${settings?.deliveryCharges?.outsideDhaka || 120}`;
+        break;
+      case 'payment':
+        interruptionResponse = settings?.fastLaneMessages?.paymentInfo ||
+          `💳 Payment Methods:\nআমরা payment methods গ্রহণ করি: bKash, Nagad, COD`;
+        break;
+      case 'return':
+        interruptionResponse = settings?.fastLaneMessages?.returnPolicy ||
+          `🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর ২ দিনের মধ্যে ফেরত দিতে পারবেন।`;
+        break;
+      case 'price':
+      case 'size':
+        const productDetails = getProductDetailsResponse(context, emoji);
+        interruptionResponse = productDetails || `আপনি product এর details product card এ দেখতে পাবেন।`;
+        break;
+    }
+    
+    const rePrompt = `আপনার সম্পূর্ণ নামটি বলবেন? (Example: Zayed Bin Hamid)`;
+    const finalResponse = interruptionResponse + '\n\n' + rePrompt;
+    
+    return {
+      matched: true,
+      action: 'CONFIRM',
+      response: emoji ? finalResponse : finalResponse.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
+      newState: 'COLLECTING_NAME',
+      updatedContext: { state: 'COLLECTING_NAME' },
+    };
+  }
+  
+  // Check for product details request
+  if (isDetailsRequest(input)) {
+    const productDetails = getProductDetailsResponse(context, emoji);
+    if (productDetails) {
+      const rePrompt = `আপনার সম্পূর্ণ নামটি বলবেন?`;
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: emoji ? (productDetails + '\n\n' + rePrompt) : (productDetails + '\n\n' + rePrompt).replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
+        newState: 'COLLECTING_NAME',
+        updatedContext: { state: 'COLLECTING_NAME' },
+      };
+    }
+  }
+  
+  // Check for order intent
+  if (isOrderIntent(input)) {
+    const message = `আপনি ইতিমধ্যে অর্ডার করছেন! আপনার সম্পূর্ণ নামটি বলবেন?`;
+    return {
+      matched: true,
+      action: 'CONFIRM',
+      response: message,
+      newState: 'COLLECTING_NAME',
+      updatedContext: { state: 'COLLECTING_NAME' },
+    };
+  }
+  
   // Check if input looks like a name
   if (NAME_PATTERN.test(input)) {
     const name = capitalizeWords(input);
@@ -244,7 +445,7 @@ function handleCollectingName(
 }
 
 /**
- * Handles COLLECTING_PHONE state (phone number validation)
+ * Handles COLLECTING_PHONE state (phone number validation + interruption handling)
  */
 function handleCollectingPhone(
   input: string,
@@ -256,6 +457,7 @@ function handleCollectingPhone(
   // Remove spaces and check against patterns
   const cleanedInput = input.replace(/\s/g, '');
   
+  // Check if input is a valid phone number
   for (const pattern of PHONE_PATTERNS) {
     if (pattern.test(cleanedInput)) {
       // Normalize to 01XXXXXXXXX format
@@ -267,7 +469,7 @@ function handleCollectingPhone(
         matched: true,
         action: 'COLLECT_PHONE',
         response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
-        newState: 'COLLECTING_ADDRESS',
+        newState: 'COLLECTING_ADDRESS', // FIXED: Was COLLECTING_PHONE
         updatedContext: {
           state: 'COLLECTING_ADDRESS',
           checkout: {
@@ -284,7 +486,108 @@ function handleCollectingPhone(
     }
   }
   
-  return { matched: false };
+  // NOT a valid phone - check if it's an interruption (question)
+  const interruptionType = getInterruptionType(input);
+  
+  if (interruptionType) {
+    // Customer asked a question - answer it with dynamic message from settings
+    let interruptionResponse = '';
+    
+    switch (interruptionType) {
+      case 'delivery':
+        interruptionResponse = settings?.fastLaneMessages?.deliveryInfo ||
+          `🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳${settings?.deliveryCharges?.insideDhaka || 60}\n• ঢাকার বাইরে: ৳${settings?.deliveryCharges?.outsideDhaka || 120}\n• Delivery সময়: ${settings?.deliveryTime || '3-5 business days'}`;
+        break;
+      
+      case 'payment':
+        interruptionResponse = settings?.fastLaneMessages?.paymentInfo ||
+          `💳 Payment Methods:\nআমরা নিম্নলিখিত payment methods গ্রহণ করি:\n\n• bKash\n• Nagad\n• Cash on Delivery`;
+        break;
+      
+      case 'return':
+        interruptionResponse = settings?.fastLaneMessages?.returnPolicy ||
+          `🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।`;
+        break;
+      
+      case 'price':
+      case 'size':
+        // Product-specific questions - show product details from context
+        const productDetails = getProductDetailsResponse(context, emoji);
+        interruptionResponse = productDetails || 
+          `আপনি product এর details product card এ দেখতে পাবেন। 😊`;
+        break;
+      
+      default:
+        interruptionResponse = '';
+    }
+    
+    // Answer the question and re-prompt for phone number
+    const rePrompt = settings?.fastLaneMessages?.phoneCollected?.split('\n')[0] ||
+      `এখন আপনার ফোন নম্বর দিন। ${emoji ? '📱' : ''}`;
+    
+    const finalResponse = interruptionResponse + '\n\n' + rePrompt;
+    
+    return {
+      matched: true,
+      action: 'CONFIRM', // Stay in same state, just send response
+      response: emoji ? finalResponse : finalResponse.replace(/[🎉😊📱📍✅🚚💳🔄]/g, ''),
+      newState: 'COLLECTING_PHONE',
+      updatedContext: {
+        state: 'COLLECTING_PHONE',
+      },
+    };
+  }
+  
+  // Check if it's a general product details request (not covered by interruption type)
+  if (isDetailsRequest(input)) {
+    const productDetails = getProductDetailsResponse(context, emoji);
+    if (productDetails) {
+      const rePrompt = settings?.fastLaneMessages?.phoneCollected?.split('\n')[0] ||
+        `এখন আপনার ফোন নম্বর দিন। ${emoji ? '📱' : ''}`;
+      
+      const finalResponse = productDetails + '\n\n' + rePrompt;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: emoji ? finalResponse : finalResponse.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
+        newState: 'COLLECTING_PHONE',
+        updatedContext: {
+          state: 'COLLECTING_PHONE',
+        },
+      };
+    }
+  }
+  
+  // Check if it's order intent ("order", "buy", "কিনব")
+  if (isOrderIntent(input)) {
+    // Customer wants to order - move to next state (collect name)
+    const message = settings?.fastLaneMessages?.productConfirm ||
+      `দারুণ! ${emoji ? '🎉' : ''}\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`;
+    
+    return {
+      matched: true,
+      action: 'CONFIRM',
+      response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
+      newState: 'COLLECTING_NAME',
+      updatedContext: {
+        state: 'COLLECTING_NAME',
+      },
+    };
+  }
+  
+  // Not a valid phone and not an interruption - show error
+  const invalidMessage = `⚠️ দুঃখিত! সঠিক phone number দিন।\n\nExample: 01712345678`;
+  
+  return {
+    matched: true,
+    action: 'CONFIRM',
+    response: emoji ? invalidMessage : invalidMessage.replace(/[⚠️]/g, ''),
+    newState: 'COLLECTING_PHONE',
+    updatedContext: {
+      state: 'COLLECTING_PHONE',
+    },
+  };
 }
 
 /**
@@ -295,7 +598,10 @@ function handleCollectingAddress(
   context: ConversationContext,
   settings?: WorkspaceSettings
 ): FastLaneResult {
-  // Simple heuristic: address should be at least 10 characters
+  const emoji = settings?.useEmojis ?? true;
+  
+  // FIRST: Check if it's a valid address (length >= 10)
+  // This must come BEFORE interruption checks to avoid misdetecting addresses
   if (input.length >= 10) {
     const address = input.trim();
     
@@ -314,7 +620,8 @@ function handleCollectingAddress(
       context.cart,
       address,
       deliveryCharge,
-      totalAmount
+      totalAmount,
+      context.checkout.customerPhone || context.customerPhone
     );
     
     return {
@@ -341,6 +648,58 @@ function handleCollectingAddress(
     };
   }
   
+  // ONLY if NOT a valid address: Check for interruptions
+  const interruptionType = getInterruptionType(input);
+  
+  if (interruptionType) {
+    let interruptionResponse = '';
+    
+    switch (interruptionType) {
+      case 'delivery':
+        interruptionResponse = settings?.fastLaneMessages?.deliveryInfo ||
+          `🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳${settings?.deliveryCharges?.insideDhaka || 60}\n• ঢাকার বাইরে: ৳${settings?.deliveryCharges?.outsideDhaka || 120}`;
+        break;
+      case 'payment':
+        interruptionResponse = settings?.fastLaneMessages?.paymentInfo || `💳 bKash, Nagad, COD`;
+        break;
+      case 'return':
+        interruptionResponse = settings?.fastLaneMessages?.returnPolicy || `🔄 ২ দিনের মধ্যে ফেরত।`;
+        break;
+      case 'price':
+      case 'size':
+        const productDetails = getProductDetailsResponse(context, emoji);
+        interruptionResponse = productDetails || `details card এ দেখতে পাবেন।`;
+        break;
+    }
+    
+    const rePrompt = `আপনার ডেলিভারি ঠিকানাটি দিন।`;
+    const finalResponse = interruptionResponse + '\n\n' + rePrompt;
+    
+    return {
+      matched: true,
+      action: 'CONFIRM',
+      response: emoji ? finalResponse : finalResponse.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
+      newState: 'COLLECTING_ADDRESS',
+      updatedContext: { state: 'COLLECTING_ADDRESS' },
+    };
+  }
+  
+  // Check for product details request
+  if (isDetailsRequest(input)) {
+    const productDetails = getProductDetailsResponse(context, emoji);
+    if (productDetails) {
+      const rePrompt = `আপনার ডেলিভারি ঠিকানাটি দিন।`;
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: emoji ? (productDetails + '\n\n' + rePrompt) : (productDetails + '\n\n' + rePrompt).replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
+        newState: 'COLLECTING_ADDRESS',
+        updatedContext: { state: 'COLLECTING_ADDRESS' },
+      };
+    }
+  }
+  
+  // If nothing matched, let it fall back to AI
   return { matched: false };
 }
 
@@ -361,13 +720,19 @@ function handleConfirmingOrder(
     
     return {
       matched: true,
-      action: 'CONFIRM',
-      response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
-      newState: 'IDLE',
+      action: 'CONFIRM', // This will be mapped to TRANSITION_STATE in orchestrator
+      response: settings?.fastLaneMessages?.paymentInstructions 
+        ? settings.fastLaneMessages.paymentInstructions
+            .replace('{totalAmount}', context.checkout.totalAmount?.toString() || '0')
+            .replace('{paymentNumber}', '{{PAYMENT_DETAILS}}') // Placeholder for orchestrator to fill
+        : Replies.PAYMENT_INSTRUCTIONS({
+            totalAmount: context.checkout.totalAmount,
+            paymentNumber: '{{PAYMENT_DETAILS}}',
+          }),
+      newState: 'COLLECTING_PAYMENT_DIGITS',
       updatedContext: {
-        state: 'IDLE',
+        state: 'COLLECTING_PAYMENT_DIGITS',
         // Keep cart and checkout for order creation
-        // Will be cleared after order is saved
       },
     };
   }
@@ -462,35 +827,85 @@ function calculateCartTotal(cart: CartItem[]): number {
 }
 
 /**
- * Generates order summary message
+ * Generates order summary with all details
  */
 function generateOrderSummary(
   customerName: string,
   cart: CartItem[],
   address: string,
   deliveryCharge: number,
-  totalAmount: number
+  totalAmount: number,
+  phone?: string
 ): string {
   const cartTotal = calculateCartTotal(cart);
   
-  let summary = `📦 Order Summary\n`;
-  summary += `━━━━━━━━━━━━━━━━━━━━\n\n`;
-  summary += `👤 Name: ${customerName}\n`;
-  summary += `📍 Address: ${address}\n\n`;
+  const itemsList = cart
+    .map((item, idx) => {
+      const itemTotal = item.productPrice * item.quantity;
+      return `${idx + 1}. ${item.productName} \n   ৳${item.productPrice} × ${item.quantity} = ৳${itemTotal}`;
+    })
+    .join('\n\n');
   
-  summary += `🛍️ Items:\n`;
-  cart.forEach((item, index) => {
-    summary += `${index + 1}. ${item.productName}\n`;
-    summary += `   ৳${item.productPrice} × ${item.quantity} = ৳${item.productPrice * item.quantity}\n`;
-  });
+  return `📦 Order Summary
+━━━━━━━━━━━━━━━━━━━━
+
+👤 Name: ${customerName}
+${phone ? `📱 Phone: ${phone}\n` : ''}📍 Address: ${address}
+
+🛍️ Items:
+${itemsList}
+
+💰 Pricing:
+• Subtotal: ৳${cartTotal}
+• Delivery: ৳${deliveryCharge}
+• Total: ৳${totalAmount}
+
+━━━━━━━━━━━━━━━━━━━━
+Confirm this order? (YES/NO) ✅`;
+}
+
+/**
+ * Handles COLLECTING_PAYMENT_DIGITS state
+ */
+function handleCollectingPaymentDigits(
+  input: string,
+  context: ConversationContext,
+  settings?: WorkspaceSettings
+): FastLaneResult {
+  // Validate: Must be exactly 2 digits
+  const digitsPattern = /^\d{2}$/;
   
-  summary += `\n💰 Pricing:\n`;
-  summary += `• Subtotal: ৳${cartTotal}\n`;
-  summary += `• Delivery: ৳${deliveryCharge}\n`;
-  summary += `• Total: ৳${totalAmount}\n\n`;
+  if (digitsPattern.test(input)) {
+    return {
+      matched: true,
+      action: 'CREATE_ORDER',
+      response: settings?.fastLaneMessages?.paymentReview
+        ? settings.fastLaneMessages.paymentReview
+            .replace('{name}', context.checkout.customerName || 'Customer')
+            .replace('{digits}', input)
+        : Replies.PAYMENT_REVIEW({
+            name: context.checkout.customerName,
+            paymentLastTwoDigits: input,
+          }),
+      newState: 'IDLE',
+      updatedContext: {
+        state: 'IDLE',
+        checkout: {
+          ...context.checkout,
+          paymentLastTwoDigits: input,
+        }
+      },
+    };
+  }
   
-  summary += `━━━━━━━━━━━━━━━━━━━━\n`;
-  summary += `Confirm this order? (YES/NO) ✅`;
-  
-  return summary;
+  // Invalid input - show error
+  return {
+    matched: true,
+    action: 'CONFIRM', // Just send response, no state change
+    response: settings?.fastLaneMessages?.invalidPaymentDigits || Replies.INVALID_PAYMENT_DIGITS(),
+    newState: 'COLLECTING_PAYMENT_DIGITS',
+    updatedContext: {
+      state: 'COLLECTING_PAYMENT_DIGITS',
+    },
+  };
 }

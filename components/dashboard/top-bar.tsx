@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -29,13 +30,18 @@ import {
   MessageSquare,
   BarChart3,
   Bot,
-  Zap,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 
 interface TopBarProps {
   title: string
+}
+
+interface UserData {
+  email: string
+  business_name?: string
 }
 
 const navigation = [
@@ -66,10 +72,65 @@ const notifications = [
   },
 ]
 
+// Helper function to get initials from name or email
+function getInitials(name?: string, email?: string): string {
+  if (name && name.trim()) {
+    const parts = name.trim().split(' ')
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+    return name.substring(0, 2).toUpperCase()
+  }
+  
+  if (email) {
+    return email.substring(0, 2).toUpperCase()
+  }
+  
+  return 'U'
+}
+
 export function TopBar({ title }: TopBarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [userData, setUserData] = useState<UserData | null>(null)
   const pathname = usePathname()
+  const router = useRouter()
   const unreadCount = notifications.filter((n) => n.unread).length
+
+  useEffect(() => {
+    fetchUserData()
+  }, [])
+
+  const fetchUserData = async () => {
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (user) {
+        // Fetch profile data
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('business_name')
+          .eq('id', user.id)
+          .single()
+        
+        setUserData({
+          email: user.email || '',
+          business_name: profile?.business_name || undefined,
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error)
+    }
+  }
+
+  const handleLogout = async () => {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  const displayName = userData?.business_name || userData?.email || 'User'
+  const initials = getInitials(userData?.business_name, userData?.email)
 
   return (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
@@ -87,9 +148,13 @@ export function TopBar({ title }: TopBarProps) {
             <SheetContent side="left" className="w-72 p-0">
               {/* Logo */}
               <div className="flex items-center gap-2 px-6 py-5 border-b border-border">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                  <Zap className="h-4 w-4 text-primary-foreground" />
-                </div>
+                <Image
+                  src="/Autex logo trasparent (1).png"
+                  alt="Autex Logo"
+                  width={32}
+                  height={32}
+                  className="object-contain"
+                />
                 <span className="text-xl font-semibold">Autex</span>
               </div>
               {/* Navigation */}
@@ -158,9 +223,9 @@ export function TopBar({ title }: TopBarProps) {
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />
                 {unreadCount > 0 && (
-                  <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs bg-destructive text-destructive-foreground">
+                  <span className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center text-xs font-semibold text-primary">
                     {unreadCount}
-                  </Badge>
+                  </span>
                 )}
                 <span className="sr-only">Notifications</span>
               </Button>
@@ -192,28 +257,34 @@ export function TopBar({ title }: TopBarProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-sm">CC</AvatarFallback>
+                  <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+                    {initials}
+                  </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col">
-                  <span>Code and Cortex</span>
-                  <span className="text-xs text-muted-foreground font-normal">admin@codeandcortex.com</span>
+                  <span>{displayName}</span>
+                  <span className="text-xs text-muted-foreground font-normal">{userData?.email || 'Loading...'}</span>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <User className="mr-2 h-4 w-4" />
-                Profile
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/settings">
+                  <User className="mr-2 h-4 w-4" />
+                  Profile
+                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings className="mr-2 h-4 w-4" />
-                Settings
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/settings">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
+              <DropdownMenuItem className="text-destructive cursor-pointer" onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Logout
               </DropdownMenuItem>

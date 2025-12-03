@@ -15,6 +15,7 @@ export type ConversationState =
   | 'COLLECTING_NAME'
   | 'COLLECTING_PHONE'
   | 'COLLECTING_ADDRESS'
+  | 'COLLECTING_PAYMENT_DIGITS'
   | 'CONFIRMING_ORDER';
 
 // ============================================
@@ -41,6 +42,7 @@ export interface CheckoutInfo {
   deliveryCharge?: number;
   totalAmount?: number;
   paymentMethod?: 'cod' | 'bkash' | 'nagad' | 'bank';
+  paymentLastTwoDigits?: string;
 }
 
 // ============================================

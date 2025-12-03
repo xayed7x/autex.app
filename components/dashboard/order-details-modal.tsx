@@ -1,26 +1,49 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { User, Package, CreditCard, FileText, MessageSquare, Printer, X, Check, Send } from "lucide-react"
+import { toast } from "sonner"
 
 type OrderStatus = "pending" | "confirmed" | "shipped" | "cancelled"
 
 interface Order {
   id: string
-  customer: {
+  order_number?: string
+  customer_name?: string
+  customer_phone?: string
+  customer_address?: string
+  product_id?: string
+  product_details?: any
+  product_price?: number
+  product_image_url?: string
+  product_variations?: any
+  delivery_charge?: number
+  total_amount?: number
+  quantity?: number
+  status: OrderStatus
+  payment_status?: string
+  created_at?: string
+  updated_at?: string
+  conversation_id?: string
+  // Joined product data from API
+  products?: {
+    name: string
+  }
+  payment_last_two_digits?: string
+  // Legacy fields for backward compatibility
+  customer?: {
     name: string
     phone: string
     location: string
   }
-  products: { name: string; quantity: number }[]
-  amount: number
-  status: OrderStatus
-  timeAgo: string
-  paymentVerified: boolean
+  amount?: number
+  timeAgo?: string
+  paymentVerified?: boolean
 }
 
 interface OrderDetailsModalProps {
@@ -39,30 +62,74 @@ const statusConfig: Record<OrderStatus, { label: string; className: string }> = 
   cancelled: { label: "Cancelled", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
 }
 
-const timeline = [
-  { event: "Order Created", time: "7:45 PM" },
-  { event: "AI Identified Product", time: "7:46 PM" },
-  { event: "Customer Confirmed", time: "7:48 PM" },
-  { event: "Awaiting Payment", time: "7:50 PM" },
-]
-
 export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalProps) {
+  const router = useRouter()
+  
   if (!order) return null
 
-  const deliveryCharge = 60
-  const subtotal = order.amount - deliveryCharge
+  // Get product name from joined data
+  const productName = order.products?.name || 'Unknown Product'
+  
+  // Handle navigation to conversation
+  const handleViewChat = () => {
+    console.log('🔘 View Chat History clicked!')
+    console.log('Conversation ID:', order.conversation_id)
+    
+    if (order.conversation_id) {
+      console.log('✅ Navigating to:', `/dashboard/conversations?id=${order.conversation_id}`)
+      router.push(`/dashboard/conversations?id=${order.conversation_id}`)
+      onClose() // Close modal after navigation
+    } else {
+      console.log('❌ No conversation_id found')
+    }
+  }
+  
+  // Handle order status update
+  const handleConfirmOrder = async () => {
+    try {
+      const response = await fetch(`/api/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      })
+      
+      if (response.ok) {
+        toast.success('Order confirmed successfully!')
+        onClose() // Close modal
+        // Refresh the page to show updated status
+        window.location.reload()
+      } else {
+        toast.error('Failed to confirm order')
+      }
+    } catch (error) {
+      console.error('Error confirming order:', error)
+      toast.error('Failed to confirm order')
+    }
+  }
+
+  // Handle both legacy and new data formats
+  const customerName = order.customer_name || order.customer?.name || 'N/A'
+  const customerPhone = order.customer_phone || order.customer?.phone || 'N/A'
+  const customerAddress = order.customer_address || order.customer?.location || 'N/A'
+  const deliveryCharge = order.delivery_charge || 60
+  const totalAmount = order.total_amount || order.amount || 0
+  const subtotal = totalAmount - deliveryCharge
+  const orderNumber = order.order_number || order.id.substring(0, 8)
+  const paymentVerified = order.payment_status === 'paid' || order.paymentVerified || false
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle className="font-mono text-xl">Order #{order.id}</DialogTitle>
+            <DialogTitle className="font-mono text-xl">Order #{orderNumber}</DialogTitle>
             <Badge variant="secondary" className={cn("text-sm px-3 py-1", statusConfig[order.status].className)}>
               {statusConfig[order.status].label}
             </Badge>
           </div>
-          <p className="text-sm text-muted-foreground">Created: Nov 29, 2025 - 7:45 PM | Source: Facebook Messenger</p>
+          <p className="text-sm text-muted-foreground">
+            Created: {order.created_at ? new Date(order.created_at).toLocaleString() : order.timeAgo || 'N/A'} | Source: Facebook Messenger
+          </p>
         </DialogHeader>
 
         <div className="space-y-4 mt-4">
@@ -77,20 +144,16 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
             <CardContent className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Name:</span>
-                <span className="font-medium">{order.customer.name}</span>
+                <span className="font-medium">{customerName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Phone:</span>
-                <span className="font-mono">{order.customer.phone}</span>
+                <span className="font-mono">{customerPhone}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Address:</span>
-                <span>House 45, Road 12, {order.customer.location}, Dhaka</span>
+                <span>{customerAddress}</span>
               </div>
-              <Button variant="outline" size="sm" className="w-full mt-3 bg-transparent">
-                <MessageSquare className="h-4 w-4 mr-2" />
-                View Chat History
-              </Button>
             </CardContent>
           </Card>
 
@@ -103,20 +166,30 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              {order.products.map((product, index) => (
-                <div key={index} className="flex items-center gap-3">
+              <div className="flex items-center gap-3">
+                {order.product_image_url ? (
+                  <img
+                    src={order.product_image_url}
+                    alt={productName}
+                    className="h-12 w-12 rounded-lg object-cover"
+                  />
+                ) : (
                   <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">
                     IMG
                   </div>
-                  <div className="flex-1">
-                    <p className="font-medium">{product.name}</p>
-                    <p className="text-xs text-muted-foreground">Size: M, Color: Red</p>
-                  </div>
-                  <p className="font-mono">
-                    ৳{(subtotal / order.products.length).toLocaleString()} x {product.quantity}
+                )}
+                <div className="flex-1">
+                  <p className="font-medium">{productName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {order.product_variations?.size && `Size: ${order.product_variations.size}`}
+                    {order.product_variations?.color && `${order.product_variations?.size ? ', ' : ''}Color: ${order.product_variations.color}`}
+                    {!order.product_variations?.size && !order.product_variations?.color && 'No variations'}
                   </p>
                 </div>
-              ))}
+                <p className="font-mono">
+                  ৳{order.product_price?.toLocaleString() || 0} x {order.quantity || 1}
+                </p>
+              </div>
               <div className="border-t border-border pt-3 space-y-1">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal:</span>
@@ -124,11 +197,11 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                 </div>
                 <div className="flex justify-between text-muted-foreground">
                   <span>Delivery Charge:</span>
-                  <span className="font-mono">৳{deliveryCharge}</span>
+                  <span className="font-mono">৳{deliveryCharge.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between font-semibold text-base pt-2 border-t border-border">
                   <span>Total:</span>
-                  <span className="font-mono">৳{order.amount.toLocaleString()}</span>
+                  <span className="font-mono">৳{totalAmount.toLocaleString()}</span>
                 </div>
               </div>
             </CardContent>
@@ -145,23 +218,28 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status:</span>
-                <span className={order.paymentVerified ? "text-green-600" : "text-yellow-600"}>
-                  {order.paymentVerified ? "Payment Verified" : "Awaiting Payment"}
+                <span className={paymentVerified ? "text-green-600" : "text-yellow-600"}>
+                  {paymentVerified ? "Payment Verified" : "Awaiting Payment"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Method:</span>
                 <span>bKash</span>
               </div>
-              {!order.paymentVerified && (
+              {!paymentVerified && (
                 <>
-                  <div className="h-24 rounded-lg bg-muted/50 border border-dashed border-border flex items-center justify-center text-sm text-muted-foreground">
-                    No screenshot uploaded yet
+                  <div className="rounded-lg bg-muted/50 border border-border p-4">
+                    <p className="text-xs text-muted-foreground mb-2">Last 2 Digits (from customer)</p>
+                    <div className="flex items-center justify-center">
+                      {order.payment_last_two_digits ? (
+                        <div className="bg-background border border-primary/20 text-primary font-mono text-2xl font-bold px-4 py-2 rounded-md shadow-sm">
+                          {order.payment_last_two_digits}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground italic">Not provided</span>
+                      )}
+                    </div>
                   </div>
-                  <Button variant="outline" size="sm" className="w-full bg-transparent">
-                    <Send className="h-4 w-4 mr-2" />
-                    Request Payment Screenshot
-                  </Button>
                 </>
               )}
             </CardContent>
@@ -177,13 +255,28 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {timeline.map((item, index) => (
-                  <div key={index} className="flex items-center gap-3 text-sm">
-                    <div className="h-2 w-2 rounded-full bg-primary" />
-                    <span>{item.event}</span>
-                    <span className="text-muted-foreground ml-auto">{item.time}</span>
-                  </div>
-                ))}
+                <div className="flex items-center gap-3 text-sm">
+                  <div className="h-2 w-2 rounded-full bg-primary" />
+                  <span>Order Created</span>
+                  <span className="text-muted-foreground ml-auto">
+                    {order.created_at 
+                      ? new Date(order.created_at).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })
+                      : 'N/A'
+                    }
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <div className="h-2 w-2 rounded-full bg-muted-foreground" />
+                  <span>Source</span>
+                  <span className="text-muted-foreground ml-auto">Facebook Messenger</span>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -191,36 +284,66 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
 
         {/* Footer Actions */}
         <div className="flex flex-wrap gap-2 mt-6 pt-4 border-t border-border">
+          {/* Primary actions */}
           {order.status === "pending" && (
-            <Button>
+            <Button onClick={handleConfirmOrder} className="cursor-pointer">
               <Check className="h-4 w-4 mr-2" />
               Confirm Order
             </Button>
           )}
           {order.status === "confirmed" && (
-            <Button>
+            <Button className="cursor-pointer">
               <Package className="h-4 w-4 mr-2" />
               Mark Shipped
             </Button>
           )}
           <Button
             variant="outline"
-            className="text-destructive border-destructive/50 hover:bg-destructive/10 bg-transparent"
+            className="text-destructive border-destructive/50 hover:bg-destructive/10 bg-transparent cursor-pointer"
           >
             <X className="h-4 w-4 mr-2" />
             Cancel
           </Button>
-          <Button variant="outline">
+          
+          {/* View Chat History */}
+          {order.conversation_id ? (
+            <button
+              type="button"
+              onClick={() => {
+                console.log('🔘 RAW BUTTON CLICKED!')
+                console.log('Conversation ID:', order.conversation_id)
+                if (order.conversation_id) {
+                  router.push(`/dashboard/conversations?id=${order.conversation_id}`)
+                  onClose()
+                }
+              }}
+              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 cursor-pointer"
+            >
+              <MessageSquare className="h-4 w-4 mr-2" />
+              View Chat History
+            </button>
+          ) : (
+            <Button variant="outline" disabled>
+              <MessageSquare className="h-4 w-4 mr-2" />
+              No Conversation
+            </Button>
+          )}
+          
+          {/* Full width break - forces next buttons to new line */}
+          <div className="w-full" />
+          
+          {/* Coming Soon features - On separate line */}
+          <Button variant="outline" disabled className="opacity-50 cursor-not-allowed">
             <FileText className="h-4 w-4 mr-2" />
-            Add Note
+            Add Note (Coming Soon)
           </Button>
-          <Button variant="outline">
+          <Button 
+            variant="outline"
+            disabled
+            className="opacity-50 cursor-not-allowed"
+          >
             <Printer className="h-4 w-4 mr-2" />
-            Print Invoice
-          </Button>
-          <Button variant="outline">
-            <Send className="h-4 w-4 mr-2" />
-            Send Message
+            Print Invoice (Coming Soon)
           </Button>
         </div>
       </DialogContent>

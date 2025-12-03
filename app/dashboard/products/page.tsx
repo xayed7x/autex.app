@@ -227,45 +227,59 @@ export default function ProductsPage() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {products.map((product) => (
-                <Card key={product.id} className="bg-card border border-border shadow-sm overflow-hidden group">
-                  <div className="aspect-square relative bg-muted">
+                <Card key={product.id} className="bg-card border border-border shadow-sm overflow-hidden">
+                  {/* Fixed height image */}
+                  <div className="h-48 relative bg-muted">
                     <img
                       src={product.image_urls?.[0] || "/placeholder.svg"}
                       alt={product.name}
                       className={`w-full h-full object-cover ${product.stock_quantity === 0 ? "opacity-50" : ""}`}
                     />
                     {product.stock_quantity === 0 && (
-                      <Badge variant="destructive" className="absolute top-2 right-2">
+                      <Badge variant="destructive" className="absolute top-2 right-2 text-xs px-2 py-0.5">
                         Out of Stock
                       </Badge>
                     )}
                   </div>
-                  <CardContent className="p-4">
-                    <h3 className="font-semibold text-sm mb-1">{product.name}</h3>
-                    <p className="font-mono text-lg font-semibold mb-2">৳{product.price.toLocaleString()}</p>
+                  
+                  {/* Card content */}
+                  <CardContent className="p-3 space-y-2">
+                    {/* Product name */}
+                    <h3 className="font-semibold text-sm line-clamp-1">{product.name}</h3>
+                    
+                    {/* Price */}
+                    <p className="font-semibold text-lg">৳{product.price.toLocaleString()}</p>
+                    
+                    {/* Category */}
                     {product.category && (
-                      <p className="text-xs text-muted-foreground mb-1">Category: {product.category}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Category: {product.category}
+                      </p>
                     )}
-                    <p className="text-xs text-muted-foreground mb-3">
+                    
+                    {/* Stock */}
+                    <p className="text-xs text-muted-foreground">
                       Stock: {product.stock_quantity} {product.stock_quantity === 1 ? "unit" : "units"}
                     </p>
-                    <div className="flex gap-2">
+                    
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-1">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="flex-1 bg-transparent"
+                        className="flex-1 h-9"
                         onClick={() => handleEditProduct(product)}
                       >
-                        <Pencil className="h-3 w-3 mr-1" />
+                        <Pencil className="h-3.5 w-3.5 mr-1.5" />
                         Edit
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        className="text-destructive border-destructive/50 hover:bg-destructive/10 bg-transparent"
+                        className="h-9 px-3"
                         onClick={() => handleDeleteProduct(product.id)}
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>
                   </CardContent>

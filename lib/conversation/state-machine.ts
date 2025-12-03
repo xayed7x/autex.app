@@ -15,6 +15,7 @@ export type ConversationState =
   | 'COLLECTING_NAME'
   | 'COLLECTING_PHONE'
   | 'COLLECTING_ADDRESS'
+  | 'COLLECTING_PAYMENT_DIGITS'
   | 'CONFIRMING_ORDER';
 
 /**
@@ -30,6 +31,7 @@ export interface ConversationContext {
   customerAddress?: string;
   deliveryCharge?: number;
   totalAmount?: number;
+  paymentLastTwoDigits?: string;
 }
 
 /**
@@ -91,6 +93,9 @@ export async function processMessage(
 
       case 'COLLECTING_ADDRESS':
         return await handleCollectingAddressState(currentContext, text);
+
+      case 'COLLECTING_PAYMENT_DIGITS':
+        return await handleCollectingPaymentDigitsState(currentContext, text);
 
       case 'CONFIRMING_ORDER':
         return await handleConfirmingOrderState(currentContext, text);
@@ -424,17 +429,16 @@ async function handleConfirmingOrderState(
     // CRITICAL: Pass the full context with customer data to webhook router
     // The webhook router will use this context to create the order
     return {
-      reply: Replies.ORDER_CONFIRMED({
-        orderId: 'PENDING', // Will be replaced by webhook router
-        name: context.customerName,
-        deliveryCharge: context.deliveryCharge,
+      reply: Replies.PAYMENT_INSTRUCTIONS({
+        totalAmount: context.totalAmount,
+        paymentNumber: '{{PAYMENT_NUMBER}}', // Will be replaced by orchestrator
       }),
-      newState: 'IDLE',
+      newState: 'COLLECTING_PAYMENT_DIGITS',
       context: {
-        ...context, // Preserve all customer data for order creation
-        state: 'IDLE', // Update state to IDLE
+        ...context,
+        state: 'COLLECTING_PAYMENT_DIGITS',
       },
-      action: 'CREATE_ORDER', // Signal to webhook router to create order
+      // action: 'CREATE_ORDER', // REMOVED: Order creation now happens after payment digits
     };
   } else if (intent === 'NEGATIVE') {
     console.log('❌ User cancelled order');
@@ -450,6 +454,54 @@ async function handleConfirmingOrderState(
       context,
     };
   }
+}
+
+/**
+ * COLLECTING_PAYMENT_DIGITS State: Collect last 2 digits of payment
+ */
+async function handleCollectingPaymentDigitsState(
+  context: ConversationContext,
+  text?: string
+): Promise<ProcessMessageResult> {
+  console.log('💰 [COLLECTING_PAYMENT_DIGITS] Current context:', JSON.stringify(context, null, 2));
+
+  if (!text) {
+    return {
+      reply: Replies.ASK_PAYMENT_DIGITS(),
+      newState: 'COLLECTING_PAYMENT_DIGITS',
+      context,
+    };
+  }
+
+  // Validate: Must be exactly 2 digits
+  const digitsPattern = /^\d{2}$/;
+  const cleanText = text.trim();
+  
+  if (!digitsPattern.test(cleanText)) {
+    console.log(`❌ [COLLECTING_PAYMENT_DIGITS] Invalid input: "${cleanText}"`);
+    return {
+      reply: Replies.INVALID_PAYMENT_DIGITS(),
+      newState: 'COLLECTING_PAYMENT_DIGITS',
+      context,
+    };
+  }
+
+  console.log(`✅ [COLLECTING_PAYMENT_DIGITS] Valid digits collected: ${cleanText}`);
+
+  // Success! Create order
+  return {
+    reply: Replies.PAYMENT_REVIEW({
+      name: context.customerName,
+      paymentLastTwoDigits: cleanText,
+    }),
+    newState: 'IDLE',
+    context: {
+      ...context,
+      state: 'IDLE',
+      paymentLastTwoDigits: cleanText,
+    },
+    action: 'CREATE_ORDER', // Now trigger order creation
+  };
 }
 
 /**

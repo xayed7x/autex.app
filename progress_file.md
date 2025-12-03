@@ -2695,3 +2695,376 @@ See `CHANGELOG_2025-12-03.md` for complete detailed breakdown.
  Order summary shows complete customer info including phone
 
 ---
+
+## December 3, 2025: Quick Form Order Collection & Interactive Bot Preview
+
+### Overview
+Implemented a new configurable order collection system giving business owners the choice between conversational (sequential) and quick form (single message) customer information gathering. Also enhanced the bot preview feature to guide users to test in real Facebook Messenger.
+
+### 1. Order Collection Style Feature
+
+#### Problem Solved
+- Conversational flow (name  phone  address) works great for engagement but takes 3+ messages
+- Some businesses prefer faster checkout with all info collected in one message  
+- Need to support both approaches based on business preference
+
+#### Solution: Configurable Order Collection Modes
+
+**Two Modes Available:**
+1. **Conversational Flow (Default)** - Sequential collection (unchanged)
+2. **Quick Form (New)** - Single message collection with multi-strategy parsing
+
+#### Implementation Highlights
+- **Database**: 3 new columns (order_collection_style, quick_form_prompt, quick_form_error)
+- **Parser**: Multi-strategy (labeled format + positional detection + phone regex)
+- **Languages**: Supports English, Bangla, Banglish
+- **Cache**: Automatic invalidation on save for immediate updates
+- **Postback**: Fixed Order Now button to respect settings
+
+#### Files Modified (8 total)
+- migrations/add_order_collection_style.sql
+- lib/workspace/settings.ts, types/conversation.ts
+- app/dashboard/ai-setup/page.tsx, app/api/settings/ai/route.ts
+- lib/conversation/fast-lane.ts, app/api/webhooks/facebook/route.ts
+
+### 2. Interactive Bot Preview
+
+#### Enhancement
+Replaced static preview with real Messenger testing guide:
+- Direct m.me link button
+- Dynamic checklist based on current settings
+- Testing tips and warnings
+- Shows order collection mode, language mix, etc.
+
+### 3. UI Improvements
+- Moved Order Collection Style to top of AI Setup
+- Removed unused Tone Selection and Product Matching Confidence
+- Cleaner, more focused interface
+
+### Impact
+ Quick Form: 2 messages vs 4+ for checkout
+ Flexible input parsing (labeled or line-by-line)
+ Real-time settings updates
+ Zero breaking changes (backward compatible)
+ Multi-tenant support
+
+---
+
+## Embedded Test Chat Widget (2025-12-03)
+
+### Overview
+Implemented a fully functional **Embedded Test Chat Widget** within the AI Setup dashboard. This allows users to test their bot's logic, image recognition, and order flow directly without leaving the dashboard or needing a personal Facebook account.
+
+### Features Implemented
+
+#### 1. Embedded Chat Interface
+- **Component**: `TestChatWidget` (`components/chat/test-chat-widget.tsx`)
+- **UI**: 
+  - Familiar chat interface with message bubbles
+  - Auto-scrolling message history
+  - Typing indicators
+  - "Clear Chat" functionality
+  - Responsive design (fits in 80vh dialog)
+- **Integration**: Replaced "Open Messenger" button in AI Setup dialog
+
+#### 2. Test Bot API (`/api/test-bot`)
+- **Endpoint**: `POST /api/test-bot`
+- **Logic**: 
+  - Reuses the **exact same orchestrator** (`processMessage`) as the live bot
+  - Ensures 100% feature parity (Fast Lane, AI Director, Order Flow)
+  - **Test Mode**: Skips actual Facebook API calls (`sendMessage`, `sendProductCard`)
+  - **Data Isolation**: Marks all test conversations and orders with `is_test: true`
+
+#### 3. Image Upload & Recognition (Phase 2)
+- **Endpoint**: `POST /api/test-bot/upload-image`
+- **Functionality**:
+  - Users can upload product images directly in the chat
+  - Images are uploaded to Cloudinary (required for OpenAI Vision)
+  - Bot processes images using the 3-Tier Recognition System
+  - Returns product matches just like the live bot
+
+#### 4. Data Isolation & Safety
+- **Database**: Added `is_test` column to `conversations` and `orders` tables
+- **Safety**: Test data is excluded from analytics and production order lists
+- **Duplicate Handling**: Smartly handles existing test conversations to prevent errors
+
+### Technical Achievements
+- ✅ **Code Reuse**: Zero duplication of bot logic. The test bot runs the same code as production.
+- ✅ **Secure Testing**: No risk of spamming real customers or Facebook pages.
+- ✅ **Full Simulation**: Tests everything from "Hi" to "Order Confirmed".
+- ✅ **Native Experience**: Fast, responsive, and integrated directly into the workflow.
+
+### Files Created/Modified
+- `app/api/test-bot/route.ts` (New)
+- `app/api/test-bot/upload-image/route.ts` (New)
+- `components/chat/test-chat-widget.tsx` (New)
+- `app/dashboard/ai-setup/page.tsx` (Modified)
+- `lib/conversation/orchestrator.ts` (Modified for test mode)
+- `migrations/add_is_test_to_conversations.sql` (New)
+
+---
+
+## Embedded Chat Widget - Phase 3 & 4 (Product Cards & Simulation)
+
+### Overview
+Completed the advanced features of the test widget, enabling full e-commerce simulation with interactive product cards and a safe order flow that mimics production without polluting the database.
+
+### Features Implemented
+
+#### 1. Interactive Product Cards
+**File**: \components/chat/product-card.tsx\
+- **Rich UI**: Displays product image, name, price, and category in a structured card.
+- **Action Buttons**: 'Order Now' and 'View Details' buttons that simulate postback events.
+- **Integration**: Clicking 'Order Now' triggers the actual order workflow in the state machine.
+
+#### 2. Order Flow Simulation
+**File**: \lib/conversation/orchestrator.ts\
+- **Safe Testing**: 'Order Now' flow runs exactly as it would for a real customer.
+- **No DB Pollution**: Final order creation is intercepted in test mode.
+- **Fake Order IDs**: Generates realistic-looking 'TEST-XXXX' order numbers for confirmation messages.
+
+#### 3. UI & UX Improvements
+- **Multi-line Input**: Replaced single-line input with \Textarea\ to support Shift+Enter for addresses.
+- **Bug Fix**: Fixed 'YES' matching 's' (size) keyword bug in \keywords.ts\.
+
+### Technical Achievements
+-  **Full Simulation**: Sellers can test the complete purchase journey safely.
+-  **Visual Parity**: Widget now supports rich media templates like Messenger.
+-  **Bug Free**: Resolved critical keyword detection issues.
+
+
+ 
+ # #   D a y   6 :   P r o d u c t   M a n a g e m e n t   E n h a n c e m e n t s   ( 2 0 2 5 - 1 2 - 0 3 ) 
+ 
+ 
+ 
+ # # #   O v e r v i e w 
+ 
+ E n h a n c e d   t h e   P r o d u c t   M a n a g e m e n t   S y s t e m   b y   a d d i n g   s u p p o r t   f o r   p r o d u c t   v a r i a t i o n s   ( C o l o r s   a n d   S i z e s )   a n d   f i x i n g   n a v i g a t i o n   i s s u e s   i n   t h e   d a s h b o a r d . 
+ 
+ 
+ 
+ # # #   F e a t u r e s   I m p l e m e n t e d 
+ 
+ 
+ 
+ # # # #   1 .   P r o d u c t   V a r i a t i o n s   ( C o l o r s   &   S i z e s ) 
+ 
+ -   * * D a t a b a s e * * :   A d d e d   ` c o l o r s `   ( t e x t [ ] )   a n d   ` s i z e s `   ( t e x t [ ] )   c o l u m n s   t o   t h e   ` p r o d u c t s `   t a b l e   v i a   m i g r a t i o n . 
+ 
+ -   * * A P I * * :   U p d a t e d   ` P O S T   / a p i / p r o d u c t s `   a n d   ` P A T C H   / a p i / p r o d u c t s / [ i d ] `   t o   h a n d l e   c r e a t i o n   a n d   u p d a t e s   o f   t h e s e   n e w   f i e l d s . 
+ 
+ -   * * V a l i d a t i o n * * :   U p d a t e d   Z o d   s c h e m a s   i n   ` l i b / v a l i d a t i o n s / p r o d u c t . t s `   t o   v a l i d a t e   o p t i o n a l   a r r a y   i n p u t s . 
+ 
+ -   * * U I * * :   A d d e d   " C o l o r s "   a n d   " S i z e s "   i n p u t   f i e l d s   t o   t h e   ` P r o d u c t F o r m `   c o m p o n e n t ,   a l l o w i n g   u s e r s   t o   e n t e r   c o m m a - s e p a r a t e d   v a l u e s   ( e . g . ,   " R e d ,   B l u e " ,   " S ,   M ,   L " ) . 
+ 
+ 
+ 
+ # # # #   2 .   D a s h b o a r d   N a v i g a t i o n   F i x 
+ 
+ -   * * I s s u e * * :   T h e   " A d d   P r o d u c t "   q u i c k   a c t i o n   l i n k   i n   t h e   d a s h b o a r d   o v e r v i e w   w a s   b r o k e n   ( 4 0 4 ) . 
+ 
+ -   * * F i x * * : 
+ 
+     -   U p d a t e d   t h e   l i n k   t o   p o i n t   t o   ` / d a s h b o a r d / p r o d u c t s ? a c t i o n = n e w ` . 
+ 
+     -   I m p l e m e n t e d   q u e r y   p a r a m e t e r   h a n d l i n g   i n   ` P r o d u c t s P a g e `   t o   a u t o m a t i c a l l y   o p e n   t h e   " A d d   P r o d u c t "   m o d a l   w h e n   ` ? a c t i o n = n e w `   i s   p r e s e n t . 
+ 
+ 
+ 
+ # # #   F i l e s   M o d i f i e d 
+ 
+ -   ` m i g r a t i o n s / a d d _ c o l o r s _ s i z e s _ t o _ p r o d u c t s . s q l `   ( N e w ) 
+ 
+ -   ` l i b / v a l i d a t i o n s / p r o d u c t . t s ` 
+ 
+ -   ` a p p / a p i / p r o d u c t s / r o u t e . t s ` 
+ 
+ -   ` a p p / a p i / p r o d u c t s / [ i d ] / r o u t e . t s ` 
+ 
+ -   ` c o m p o n e n t s / p r o d u c t s / p r o d u c t - f o r m . t s x ` 
+ 
+ -   ` a p p / d a s h b o a r d / p r o d u c t s / p a g e . t s x ` 
+ 
+ -   ` c o m p o n e n t s / d a s h b o a r d / q u i c k - a c t i o n s . t s x ` 
+ 
+ 
+ 
+ # # #   C u s t o m e r   P r o f i l e   I n t e g r a t i o n 
+ 
+ -   * * F e a t u r e * * :   F e t c h   a n d   d i s p l a y   c u s t o m e r ' s   F a c e b o o k   p r o f i l e   p i c t u r e   a n d   n a m e . 
+ 
+ -   * * I m p l e m e n t a t i o n * * : 
+ 
+     -   A d d e d   ` c u s t o m e r _ p r o f i l e _ p i c _ u r l `   t o   ` c o n v e r s a t i o n s `   t a b l e . 
+ 
+     -   U p d a t e d   F a c e b o o k   w e b h o o k   t o   f e t c h   p r o f i l e   p i c t u r e   o n   n e w   c o n v e r s a t i o n   c r e a t i o n . 
+ 
+     -   U p d a t e d   ` C o n v e r s a t i o n s P a g e `   t o   d i s p l a y   t h e   s t o r e d   p r o f i l e   p i c t u r e   i n   t h e   l i s t   a n d   c h a t   h e a d e r . 
+ 
+ 
+ 
+ # # #   K n o w n   I s s u e :   F a c e b o o k   P r o f i l e   F e t c h i n g 
+ 
+ -   * * S t a t u s * * :   I m p l e m e n t e d   b u t   f a i l i n g   i n   p r o d u c t i o n / d e v   e n v i r o n m e n t . 
+ 
+ -   * * E r r o r * * :   ` G r a p h M e t h o d E x c e p t i o n `   ( C o d e   1 0 0 ,   S u b c o d e   3 3 )   -   " U n s u p p o r t e d   g e t   r e q u e s t .   O b j e c t   w i t h   I D   ' . . . '   d o e s   n o t   e x i s t ,   c a n n o t   b e   l o a d e d   d u e   t o   m i s s i n g   p e r m i s s i o n s ,   o r   d o e s   n o t   s u p p o r t   t h i s   o p e r a t i o n . " 
+ 
+ -   * * A n a l y s i s * * : 
+ 
+     -   C o d e   u p d a t e d   t o   r e q u e s t   ` p a g e s _ s h o w _ l i s t ` ,   ` p u b l i c _ p r o f i l e ` ,   ` e m a i l ` . 
+ 
+     -   A P I   v e r s i o n   u p d a t e d   t o   ` v 2 1 . 0 `   a c r o s s   a l l   a u t h   a n d   w e b h o o k   r o u t e s . 
+ 
+     -   T o k e n   e x c h a n g e   a n d   s t o r a g e   l o g i c   v e r i f i e d . 
+ 
+     -   * * L i k e l y   C a u s e * * :   T h e   F a c e b o o k   A p p   o r   P a g e   c o n f i g u r a t i o n   p r e v e n t s   a c c e s s   t o   t h e   u s e r ' s   p r o f i l e   v i a   t h e   A P I ,   p o s s i b l y   d u e   t o : 
+ 
+         -   A p p   R e v i e w   r e q u i r e m e n t s   ( A d v a n c e d   A c c e s s   n e e d e d   f o r   ` p a g e s _ s h o w _ l i s t ` ) . 
+ 
+         -   B u s i n e s s   V e r i f i c a t i o n   s t a t u s . 
+ 
+         -   T e s t   U s e r   r o l e   l i m i t a t i o n s   ( i f   u s i n g   a   t e s t   u s e r ) . 
+ 
+         -   P a g e   s e t t i n g s   r e s t r i c t i n g   A P I   a c c e s s . 
+ 
+ -   * * N e x t   S t e p s * * : 
+ 
+     -   V e r i f y   F a c e b o o k   A p p   s e t t i n g s   i n   M e t a   D e v e l o p e r   D a s h b o a r d . 
+## Day 6: Product Management Enhancements (2025-12-03)
+
+
+
+### Overview
+
+Enhanced the Product Management System by adding support for product variations (Colors and Sizes) and fixing navigation issues in the dashboard.
+
+
+
+### Features Implemented
+
+
+
+#### 1. Product Variations (Colors & Sizes)
+
+- **Database**: Added `colors` (text[]) and `sizes` (text[]) columns to the `products` table via migration.
+
+- **API**: Updated `POST /api/products` and `PATCH /api/products/[id]` to handle creation and updates of these new fields.
+
+- **Validation**: Updated Zod schemas in `lib/validations/product.ts` to validate optional array inputs.
+
+- **UI**: Added "Colors" and "Sizes" input fields to the `ProductForm` component, allowing users to enter comma-separated values (e.g., "Red, Blue", "S, M, L").
+
+
+
+#### 2. Dashboard Navigation Fix
+
+- **Issue**: The "Add Product" quick action link in the dashboard overview was broken (404).
+
+- **Fix**:
+
+  - Updated the link to point to `/dashboard/products?action=new`.
+
+  - Implemented query parameter handling in `ProductsPage` to automatically open the "Add Product" modal when `?action=new` is present.
+
+
+
+### Files Modified
+
+- `migrations/add_colors_sizes_to_products.sql` (New)
+
+- `lib/validations/product.ts`
+
+- `app/api/products/route.ts`
+
+- `app/api/products/[id]/route.ts`
+
+- `components/products/product-form.tsx`
+
+- `app/dashboard/products/page.tsx`
+
+- `components/dashboard/quick-actions.tsx`
+
+
+
+### Customer Profile Integration
+
+- **Feature**: Fetch and display customer's Facebook profile picture and name.
+
+- **Implementation**:
+
+  - Added `customer_profile_pic_url` to `conversations` table.
+
+  - Updated Facebook webhook to fetch profile picture on new conversation creation.
+
+  - Updated `ConversationsPage` to display the stored profile picture in the list and chat header.
+
+
+
+### Known Issue: Facebook Profile Fetching
+
+- **Status**: Implemented but failing in production/dev environment.
+
+- **Error**: `GraphMethodException` (Code 100, Subcode 33) - "Unsupported get request. Object with ID '...' does not exist, cannot be loaded due to missing permissions, or does not support this operation."
+
+- **Analysis**:
+
+  - Code updated to request `pages_show_list`, `public_profile`, `email`.
+
+  - API version updated to `v21.0` across all auth and webhook routes.
+
+  - Token exchange and storage logic verified.
+
+  - **Likely Cause**: The Facebook App or Page configuration prevents access to the user's profile via the API, possibly due to:
+
+    - App Review requirements (Advanced Access needed for `pages_show_list`).
+
+    - Business Verification status.
+
+    - Test User role limitations (if using a test user).
+
+    - Page settings restricting API access.
+
+- **Next Steps**:
+
+  - Verify Facebook App settings in Meta Developer Dashboard.
+
+  - Ensure `pages_show_list` has Advanced Access.
+
+  - Check Business Verification status.
+
+  - Retest with a different Facebook account/page if possible.
+
+---
+
+## Day 6: Dashboard Notifications & Real-time Updates (2025-12-04)
+
+### Overview
+Implemented dynamic, real-time notifications and order list updates to enhance the seller dashboard experience.
+
+### Features Implemented
+
+#### 1. Dynamic Notifications
+- **File**: `components/dashboard/top-bar.tsx`
+- **Functionality**:
+    - Replaced static notification data with real-time data from the `orders` table.
+    - Fetches the 5 most recent orders on load.
+    - Subscribes to `INSERT` events on the `orders` table to show new orders instantly.
+    - Clicking a notification navigates to `/dashboard/orders`.
+
+#### 2. Toast Alerts
+- **File**: `components/dashboard/top-bar.tsx`
+- **Functionality**:
+    - Integrated `sonner` toast notifications.
+    - Displays a "New Order Received! 🎉" toast when a new order arrives.
+    - Toast includes order number and customer name.
+
+#### 3. Real-time Order List
+- **File**: `app/dashboard/orders/page.tsx`
+- **Functionality**:
+    - Added real-time subscription to the `orders` table.
+    - Automatically updates the order list (insert, update, delete) without requiring a page refresh.
+    - Ensures consistency between the notification badge and the order list.
+
+### ⚠️ Known Issues / Deferred
+- **Notification Badge**: The unread count badge logic works but might need further refinement for "read" status persistence (currently resets on reload or relies on "recent" logic). The user has requested to defer this fix.

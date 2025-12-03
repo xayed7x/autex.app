@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 import { TopBar } from "@/components/dashboard/top-bar"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -64,6 +65,35 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchOrders()
   }, [statusFilter, searchQuery, dateRange, currentPage])
+
+  // Real-time subscription
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('orders-page-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newOrder = payload.new as Order
+          // Only add if it matches current filters (basic check)
+          if (statusFilter === 'all' || statusFilter === newOrder.status) {
+             setOrders((prev) => [newOrder, ...prev])
+             setTotal((prev) => prev + 1)
+          }
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedOrder = payload.new as Order
+          setOrders((prev) => prev.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)))
+        } else if (payload.eventType === 'DELETE') {
+           const deletedId = payload.old.id
+           setOrders((prev) => prev.filter((order) => order.id !== deletedId))
+           setTotal((prev) => prev - 1)
+        }
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [statusFilter])
 
   const fetchOrders = async () => {
     setLoading(true)

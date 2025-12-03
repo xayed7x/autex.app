@@ -34,6 +34,7 @@ import {
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { useToast } from "@/hooks/use-toast"
 
 interface TopBarProps {
   title: string
@@ -54,23 +55,19 @@ const navigation = [
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ]
 
-const notifications = [
-  {
-    id: 1,
-    title: "New order received",
-    description: "Order #12350 from Fatima Begum",
-    time: "2 min ago",
-    unread: true,
-  },
-  { id: 2, title: "Payment confirmed", description: "Order #12349 payment verified", time: "15 min ago", unread: true },
-  {
-    id: 3,
-    title: "Low stock alert",
-    description: "Red Saree has only 3 items left",
-    time: "1 hour ago",
-    unread: false,
-  },
-]
+import { formatDistanceToNow } from "date-fns"
+
+interface Notification {
+  id: string
+  title: string
+  description: string
+  time: string
+  unread: boolean
+  link: string
+}
+
+
+
 
 // Helper function to get initials from name or email
 function getInitials(name?: string, email?: string): string {
@@ -92,9 +89,69 @@ function getInitials(name?: string, email?: string): string {
 export function TopBar({ title }: TopBarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userData, setUserData] = useState<UserData | null>(null)
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const pathname = usePathname()
   const router = useRouter()
+  const { toast } = useToast()
   const unreadCount = notifications.filter((n) => n.unread).length
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5)
+      
+      if (data) {
+        const formatted: Notification[] = data.map(order => ({
+          id: order.id,
+          title: "New order received",
+          description: `Order #${order.order_number || 'N/A'} from ${order.customer_name}`,
+          time: formatDistanceToNow(new Date(order.created_at), { addSuffix: true }),
+          unread: false,
+          link: `/dashboard/orders`
+        }))
+        setNotifications(formatted)
+      }
+    }
+
+    fetchNotifications()
+
+    const supabase = createClient()
+    const channel = supabase
+      .channel('realtime-orders')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
+         const newOrder = payload.new as any
+         const newNotification: Notification = {
+           id: newOrder.id,
+           title: "New order received",
+           description: `Order #${newOrder.order_number || 'N/A'} from ${newOrder.customer_name}`,
+           time: "Just now",
+           unread: true,
+           link: `/dashboard/orders`
+         }
+         
+         setNotifications(prev => [newNotification, ...prev].slice(0, 5))
+         
+         toast({
+           title: "New Order Received! 🎉",
+           description: `Order #${newOrder.order_number || 'N/A'} from ${newOrder.customer_name}`,
+           action: (
+             <div 
+               className="h-full w-full absolute inset-0 cursor-pointer" 
+               onClick={() => router.push('/dashboard/orders')}
+             />
+           ),
+         })
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   useEffect(() => {
     fetchUserData()
@@ -234,7 +291,11 @@ export function TopBar({ title }: TopBarProps) {
               <DropdownMenuLabel>Notifications</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {notifications.map((notification) => (
-                <DropdownMenuItem key={notification.id} className="flex flex-col items-start gap-1 p-3 cursor-pointer">
+                <DropdownMenuItem 
+                  key={notification.id} 
+                  className="flex flex-col items-start gap-1 p-3 cursor-pointer"
+                  onClick={() => router.push(notification.link)}
+                >
                   <div className="flex items-center gap-2 w-full">
                     <span className={cn("font-medium text-sm", notification.unread && "text-primary")}>
                       {notification.title}

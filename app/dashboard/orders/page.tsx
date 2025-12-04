@@ -51,6 +51,8 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   cancelled: { label: "Cancelled", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
 }
 
+import { OrdersSkeleton } from "@/components/skeletons/orders-skeleton"
+
 export default function OrdersPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -151,6 +153,10 @@ export default function OrdersPage() {
     }
   }
 
+  if (loading) {
+    return <OrdersSkeleton />
+  }
+
   return (
     <RequireFacebookPage>
       <TopBar title="Orders" />
@@ -220,15 +226,6 @@ export default function OrdersPage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Loading State */}
-        {loading && (
-          <Card className="bg-card border border-border shadow-sm">
-            <CardContent className="p-8 text-center text-muted-foreground">
-              Loading orders...
-            </CardContent>
-          </Card>
-        )}
 
         {/* Empty State */}
         {!loading && orders.length === 0 && (

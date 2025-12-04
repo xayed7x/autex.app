@@ -42,6 +42,8 @@ interface PaginationData {
 
 import { useSearchParams } from 'next/navigation';
 
+import { ProductsSkeleton } from "@/components/skeletons/products-skeleton"
+
 export default function ProductsPage() {
   const searchParams = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
@@ -157,6 +159,10 @@ export default function ProductsPage() {
   // Get unique categories from products
   const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
 
+  if (isLoading) {
+    return <ProductsSkeleton />
+  }
+
   return (
     <RequireFacebookPage>
       <TopBar title="Products" />
@@ -230,12 +236,7 @@ export default function ProductsPage() {
         </Card>
 
         {/* Products Grid */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-muted-foreground">Loading products...</div>
-          </div>
-        ) : (
-          <>
+        <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {products.map((product) => (
                 <Card key={product.id} className="bg-card border border-border shadow-sm overflow-hidden">
@@ -344,7 +345,7 @@ export default function ProductsPage() {
               </div>
             )}
           </>
-        )}
+
       </div>
 
       {/* Product Form Modal */}

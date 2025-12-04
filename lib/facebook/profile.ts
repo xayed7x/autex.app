@@ -24,16 +24,23 @@ export async function fetchFacebookProfile(
     const { data: pageData } = await supabase
       .from('facebook_pages')
       .select('encrypted_access_token')
-      .eq('id', parseInt(pageId))
+      .eq('id', pageId)
       .single();
     
     if (!pageData) {
-      console.error(`❌ [PROFILE] Page not found: ${pageId}`);
+      console.error(`❌ [PROFILE] Page not found in DB: ${pageId}`);
       return null;
     }
 
     const accessToken = decryptToken(pageData.encrypted_access_token);
-    const profileUrl = `https://graph.facebook.com/v21.0/${psid}?fields=name,picture&access_token=${accessToken}`;
+    
+    // Generate App Secret Proof (Best Practice & Required if enabled in App Settings)
+    const { generateAppSecretProof } = await import('@/lib/facebook/crypto-utils');
+    const appSecretProof = generateAppSecretProof(accessToken);
+    const proofParam = appSecretProof ? `&appsecret_proof=${appSecretProof}` : '';
+
+    // Use v21.0 with name and picture
+    const profileUrl = `https://graph.facebook.com/v21.0/${psid}?fields=name,picture&access_token=${accessToken}${proofParam}`;
     
     console.log(`🔍 [PROFILE] Fetching for PSID: ${psid} using Page ID: ${pageId}`);
     
@@ -41,15 +48,28 @@ export async function fetchFacebookProfile(
     
     if (!response.ok) {
       const errorText = await response.text();
+      
+      // Specific handling for "Object does not exist" (Code 100, Subcode 33)
+      // This is common for users who have strict privacy settings or during Dev Mode testing
+      if (errorText.includes('"code":100') && errorText.includes('"subcode":33')) {
+        console.log(`ℹ️ [PROFILE] User ${psid} has privacy settings restricting access. Using default profile.`);
+        return {
+          name: 'Facebook User',
+          profile_pic: undefined // UI will show default avatar
+        };
+      }
+      
       console.error(`❌ [PROFILE] Fetch failed: ${response.status} - ${errorText}`);
       return null;
     }
 
     const data = await response.json();
-    console.log(`✅ [PROFILE] Fetched: ${data.name}`);
+    const fullName = data.name || 'Facebook User';
+    
+    console.log(`✅ [PROFILE] Fetched: ${fullName}`);
 
     return {
-      name: data.name,
+      name: fullName,
       profile_pic: data.picture?.data?.url
     };
   } catch (error) {

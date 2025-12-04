@@ -95,3 +95,22 @@ export function generateStateToken(): string {
 export function generateRandomString(length: number = 16): string {
   return crypto.randomBytes(length).toString('hex');
 }
+
+/**
+ * Generates App Secret Proof for Facebook API calls
+ * Required when "Require App Secret Proof" is enabled in App Dashboard
+ * @param accessToken - The access token being used
+ * @returns HMAC-SHA256 hash
+ */
+export function generateAppSecretProof(accessToken: string): string {
+  const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
+  if (!FACEBOOK_APP_SECRET) {
+    console.warn('⚠️ FACEBOOK_APP_SECRET not set, cannot generate appsecret_proof');
+    return '';
+  }
+  
+  return crypto
+    .createHmac('sha256', FACEBOOK_APP_SECRET)
+    .update(accessToken)
+    .digest('hex');
+}

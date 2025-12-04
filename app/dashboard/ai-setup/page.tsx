@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
 
+import { AISetupSkeleton } from "@/components/skeletons/ai-setup-skeleton"
+
 export default function AISetupPage() {
   // State for all settings
   const [loading, setLoading] = useState(true)
@@ -97,7 +99,7 @@ export default function AISetupPage() {
   })
 
   // Order Collection Style
-  const [orderCollectionStyle, setOrderCollectionStyle] = useState<'conversational' | 'quick_form'>('conversational')
+  const [orderCollectionStyle, setOrderCollectionStyle] = useState<'conversational' | 'quick_form'>('quick_form')
   const [quickFormPrompt, setQuickFormPrompt] = useState('দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:')
   const [quickFormError, setQuickFormError] = useState('দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা')
 
@@ -277,6 +279,10 @@ export default function AISetupPage() {
     toast.success("Settings reset to default")
   }
 
+  if (loading) {
+    return <AISetupSkeleton />
+  }
+
   return (
     <RequireFacebookPage>
       <TopBar title="AI Setup" />
@@ -357,31 +363,31 @@ export default function AISetupPage() {
             <CardContent className="space-y-4">
               <RadioGroup value={orderCollectionStyle} onValueChange={(value) => setOrderCollectionStyle(value as 'conversational' | 'quick_form')}>
                 <div className="flex items-start space-x-3 space-y-0">
-                  <RadioGroupItem value="conversational" id="conversational" />
-                  <div className="space-y-1">
-                    <Label htmlFor="conversational" className="font-medium">
-                      Conversational Flow (Default)
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      Ask for name, phone, and address in separate, sequential steps. More human-like interaction.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-3 space-y-0">
                   <RadioGroupItem value="quick_form" id="quick_form" />
                   <div className="space-y-1">
                     <Label htmlFor="quick_form" className="font-medium">
-                      Quick Form
+                      Quick Form (Default)
                     </Label>
                     <p className="text-sm text-muted-foreground">
                       Ask for all information in a single message. Faster checkout for customers.
                     </p>
                   </div>
                 </div>
+                <div className="flex items-start space-x-3 space-y-0">
+                  <RadioGroupItem value="conversational" id="conversational" />
+                  <div className="space-y-1">
+                    <Label htmlFor="conversational" className="font-medium">
+                      Conversational Flow
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Ask for name, phone, and address in separate, sequential steps. More human-like interaction.
+                    </p>
+                  </div>
+                </div>
               </RadioGroup>
 
               {orderCollectionStyle === 'quick_form' && (
-                <>
+                <div className="space-y-4 pt-2 border-t border-border mt-2">
                   <div className="space-y-2">
                     <Label htmlFor="quick_form_prompt">Quick Form Prompt Message</Label>
                     <Textarea
@@ -409,7 +415,64 @@ export default function AISetupPage() {
                       Shown when the bot cannot parse the customer's information. Include format examples.
                     </p>
                   </div>
-                </>
+                </div>
+              )}
+
+              {orderCollectionStyle === 'conversational' && (
+                <div className="space-y-4 pt-2 border-t border-border mt-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="product-confirm">Product Confirmation (Ask for Name)</Label>
+                    <Textarea
+                      id="product-confirm"
+                      rows={3}
+                      value={fastLaneMessages.product_confirm}
+                      onChange={(e) => setFastLaneMessages({...fastLaneMessages, product_confirm: e.target.value})}
+                      placeholder="Message when user confirms product..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown when user says YES. Should ask for their name.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="name-collected">Name Collected (Ask for Phone)</Label>
+                    <Textarea
+                      id="name-collected"
+                      rows={3}
+                      value={fastLaneMessages.name_collected}
+                      onChange={(e) => setFastLaneMessages({...fastLaneMessages, name_collected: e.target.value})}
+                      placeholder="Message after collecting name..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown after user gives name. Should ask for phone number. Use {"{name}"}.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone-collected">Phone Collected (Ask for Address)</Label>
+                    <Textarea
+                      id="phone-collected"
+                      rows={3}
+                      value={fastLaneMessages.phone_collected}
+                      onChange={(e) => setFastLaneMessages({...fastLaneMessages, phone_collected: e.target.value})}
+                      placeholder="Message after collecting phone..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown after user gives phone. Should ask for delivery address.
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="product-decline">Product Decline Message</Label>
+                    <Textarea
+                      id="product-decline"
+                      rows={2}
+                      value={fastLaneMessages.product_decline}
+                      onChange={(e) => setFastLaneMessages({...fastLaneMessages, product_decline: e.target.value})}
+                      placeholder="Message when user declines product..."
+                    />
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -714,65 +777,7 @@ export default function AISetupPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="product-confirm">Product Confirmation</Label>
-              <Textarea
-                id="product-confirm"
-                rows={3}
-                value={fastLaneMessages.product_confirm}
-                onChange={(e) => setFastLaneMessages({...fastLaneMessages, product_confirm: e.target.value})}
-                placeholder="Message when user confirms product..."
-                className="mt-1.5"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Shown when user says YES to a product
-              </p>
-            </div>
-
-            <div>
-              <Label htmlFor="product-decline">Product Decline</Label>
-              <Textarea
-                id="product-decline"
-                rows={2}
-                value={fastLaneMessages.product_decline}
-                onChange={(e) => setFastLaneMessages({...fastLaneMessages, product_decline: e.target.value})}
-                placeholder="Message when user declines product..."
-                className="mt-1.5"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Shown when user says NO to a product
-              </p>
-            </div>
-
-            <div>
-              <Label htmlFor="name-collected">Name Collected</Label>
-              <Textarea
-                id="name-collected"
-                rows={3}
-                value={fastLaneMessages.name_collected}
-                onChange={(e) => setFastLaneMessages({...fastLaneMessages, name_collected: e.target.value})}
-                placeholder="Message after collecting name..."
-                className="mt-1.5"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Use {"{name}"} placeholder for customer name
-              </p>
-            </div>
-
-            <div>
-              <Label htmlFor="phone-collected">Phone Collected</Label>
-              <Textarea
-                id="phone-collected"
-                rows={3}
-                value={fastLaneMessages.phone_collected}
-                onChange={(e) => setFastLaneMessages({...fastLaneMessages, phone_collected: e.target.value})}
-                placeholder="Message after collecting phone..."
-                className="mt-1.5"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Shown after user provides phone number
-              </p>
-            </div>
+            {/* Conversational steps moved to Order Collection Style */}
 
             <div>
               <Label htmlFor="order-confirmed">Order Confirmed</Label>
@@ -899,7 +904,7 @@ export default function AISetupPage() {
         </Collapsible>
 
         {/* Footer Actions */}
-        <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-border">
+        <div className="sticky bottom-[3.8rem] lg:bottom-0 z-10 -mx-4 lg:-mx-6 -mb-4 lg:-mb-6 p-4 lg:p-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t border-border flex flex-col sm:flex-row sm:justify-end gap-3 mt-6">
           <Button size="lg" className="sm:order-2" onClick={handleSave} disabled={saving}>
             {saving ? (
               <>

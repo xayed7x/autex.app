@@ -48,6 +48,8 @@ interface UsageData {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 const USD_TO_BDT = 120; // Approximate exchange rate
 
+import { AdminSkeleton } from "@/components/skeletons/admin-skeleton"
+
 export default function AdminDashboardPage() {
   const [data, setData] = useState<UsageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -87,14 +89,7 @@ export default function AdminDashboardPage() {
   }
 
   if (loading) {
-    return (
-      <>
-        <TopBar title="Admin Dashboard" />
-        <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </>
-    )
+    return <AdminSkeleton />
   }
 
   return (
@@ -202,9 +197,9 @@ export default function AdminDashboardPage() {
                           nameKey="type"
                           label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
                             const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                            const x = cx + radius * Math.cos(-midAngle * Math.PI / 180);
-                            const y = cy + radius * Math.sin(-midAngle * Math.PI / 180);
-                            return percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : '';
+                            const x = cx + radius * Math.cos(-(midAngle || 0) * Math.PI / 180);
+                            const y = cy + radius * Math.sin(-(midAngle || 0) * Math.PI / 180);
+                            return (percent || 0) > 0.05 ? `${((percent || 0) * 100).toFixed(0)}%` : '';
                           }}
                         >
                           {data.breakdown.map((entry, index) => (

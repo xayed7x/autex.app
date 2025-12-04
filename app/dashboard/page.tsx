@@ -32,6 +32,8 @@ interface FacebookPage {
   created_at: string
 }
 
+import { DashboardSkeleton } from "@/components/skeletons/dashboard-skeleton"
+
 export default function DashboardPage() {
   const { user } = useWorkspace()
   const [stats, setStats] = useState<DashboardStats>({
@@ -79,6 +81,11 @@ export default function DashboardPage() {
       setPageLoading(false)
     }
   }
+
+  if (loading) {
+    return <DashboardSkeleton />
+  }
+
   return (
     <RequireFacebookPage>
       <TopBar title="Overview" />

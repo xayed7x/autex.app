@@ -55,6 +55,8 @@ const statusLabels: Record<string, string> = {
   ORDER_COMPLETE: "Completed",
 }
 
+import { ConversationsSkeleton } from "@/components/skeletons/conversations-skeleton"
+
 export default function ConversationsPage() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
@@ -265,6 +267,10 @@ export default function ConversationsPage() {
     }
   }
 
+  if (loading) {
+    return <ConversationsSkeleton />
+  }
+
   return (
     <RequireFacebookPage>
       <TopBar title="Conversations" />
@@ -308,11 +314,7 @@ export default function ConversationsPage() {
 
           {/* Conversation List */}
           <div className="flex-1 overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center p-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : conversations.length === 0 ? (
+            {conversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-8 text-center">
                 <p className="text-sm text-muted-foreground">No conversations found</p>
                 <p className="text-xs text-muted-foreground mt-1">

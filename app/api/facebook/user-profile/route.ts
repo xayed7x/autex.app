@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     const { data: fbPage, error: pageError } = await supabaseAdmin
       .from('facebook_pages')
       .select('encrypted_access_token')
-      .eq('id', parseInt(pageId))
+      .eq('id', pageId)
       .eq('workspace_id', workspace.id)
       .single();
 
@@ -64,9 +64,8 @@ export async function GET(request: Request) {
     const accessToken = decryptToken(fbPage.encrypted_access_token);
 
     // Fetch user profile from Facebook Messenger Platform API
-    // Note: For PSIDs, we need to use the Messenger Platform API, not Graph API
-    // The endpoint is: /{psid}?fields=name,profile_pic&access_token={page_access_token}
-    const graphUrl = `https://graph.facebook.com/v19.0/${psid}?fields=name,profile_pic&access_token=${accessToken}`;
+    // Using v21.0 and standard fields
+    const graphUrl = `https://graph.facebook.com/v21.0/${psid}?fields=name,picture&access_token=${accessToken}`;
     
     const response = await fetch(graphUrl);
     
@@ -74,21 +73,20 @@ export async function GET(request: Request) {
       const error = await response.json();
       console.error('Facebook Graph API error:', error);
       
-      // Return fallback data instead of erroring
-      // This allows the UI to still work even if profile fetch fails
       return NextResponse.json({
         name: null,
         profile_pic: null,
         psid: psid,
-        error: 'Could not fetch profile - user may have blocked the page or revoked permissions',
+        error: error.error?.message || 'Could not fetch profile',
       });
     }
 
     const profileData = await response.json();
+    const fullName = profileData.name || null;
 
     return NextResponse.json({
-      name: profileData.name || null,
-      profile_pic: profileData.profile_pic || null,
+      name: fullName,
+      profile_pic: profileData.picture?.data?.url || null,
       psid: psid,
     });
 

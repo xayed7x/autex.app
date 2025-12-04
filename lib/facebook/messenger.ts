@@ -7,7 +7,7 @@ import {
   RateLimitInfo,
 } from '@/types/facebook';
 
-const GRAPH_API_VERSION = 'v19.0';
+const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 /**
@@ -38,7 +38,7 @@ export async function sendMessage(
     const { data: fbPage, error: pageError } = await supabase
       .from('facebook_pages')
       .select('encrypted_access_token, workspace_id')
-      .eq('id', parseInt(pageId))
+      .eq('id', pageId)
       .single();
 
     if (pageError || !fbPage) {
@@ -176,7 +176,7 @@ export async function sendProductCard(
     const { data: fbPage, error: pageError } = await supabase
       .from('facebook_pages')
       .select('encrypted_access_token')
-      .eq('id', parseInt(pageId))
+      .eq('id', pageId)
       .single();
 
     if (pageError || !fbPage) {

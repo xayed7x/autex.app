@@ -160,7 +160,7 @@ async function processMessagingEvent(
           const { data: fbPage } = await supabase
             .from('facebook_pages')
             .select('workspace_id')
-            .eq('id', parseInt(pageId))
+            .eq('id', pageId)
             .single();
           
           if (!fbPage) return;
@@ -179,7 +179,7 @@ async function processMessagingEvent(
           let { data: conversation } = await supabase
             .from('conversations')
             .select('*')
-            .eq('fb_page_id', parseInt(pageId))
+            .eq('fb_page_id', pageId)
             .eq('customer_psid', customerPsid)
             .single();
           
@@ -193,7 +193,7 @@ async function processMessagingEvent(
               .from('conversations')
               .insert({
                 workspace_id: fbPage.workspace_id,
-                fb_page_id: parseInt(pageId),
+                fb_page_id: pageId as unknown as number,
                 customer_psid: customerPsid,
                 customer_name: profile?.name || 'Unknown Customer',
                 customer_profile_pic_url: profile?.profile_pic,
@@ -280,7 +280,7 @@ async function processMessagingEvent(
           const { data: fbPage } = await supabase
             .from('facebook_pages')
             .select('id, workspace_id')
-            .eq('id', parseInt(pageId))
+            .eq('id', pageId)
             .single();
 
           if (fbPage) {
@@ -423,7 +423,7 @@ async function processMessagingEvent(
     const { data: fbPage, error: pageError } = await supabase
       .from('facebook_pages')
       .select('id, workspace_id')
-      .eq('id', parseInt(pageId))
+      .eq('id', pageId)
       .single();
 
     if (pageError || !fbPage) {

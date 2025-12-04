@@ -48,6 +48,8 @@ interface Notification {
   link: string
 }
 
+import { SettingsSkeleton } from "@/components/skeletons/settings-skeleton"
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general")
   const [loading, setLoading] = useState(true)
@@ -163,14 +165,7 @@ export default function SettingsPage() {
   }
 
   if (loading) {
-    return (
-      <>
-        <TopBar title="Settings" />
-        <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </>
-    )
+    return <SettingsSkeleton />
   }
 
   return (

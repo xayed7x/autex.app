@@ -3226,3 +3226,103 @@ Refined the dashboard to be fully dynamic and multi-tenant, ensuring data isolat
 - ✅ **Seamless Onboarding**: Protected routes guide users naturally to connect their page.
 - ✅ **Consistent UI/UX**: Header and Settings page share the same dynamic data logic.
 - ✅ **Real-time Multi-tenancy**: Notifications work correctly in a multi-tenant environment.
+
+## Day 7: Facebook Profile Fetching Fix (2025-12-05)
+
+### Overview
+Resolved a critical issue where the application failed to fetch the customer's name and profile picture (GraphMethodException), preventing personalized interactions.
+
+### Root Cause Analysis
+1.  **Missing Permission**: The pages_read_user_content permission was missing from the OAuth scope. This permission is explicitly required in newer Graph API versions to access user profile data via the Messenger API.
+2.  **API Version Mismatch**: The application was using an older API version. Updated to v21.0.
+3.  **Page ID Precision**: Large Facebook Page IDs (bigint) were being parsed as integers (parseInt), causing potential precision loss and 'Object not found' errors.
+
+### Fix Implementation
+1.  **Updated OAuth Scopes**: Added pages_read_user_content to app/auth/facebook/connect/route.ts.
+2.  **Updated Profile Fetching**: Modified lib/facebook/profile.ts to use v21.0 and request first_name,last_name,picture fields.
+3.  **Removed Integer Parsing**: Removed parseInt(pageId) from all Facebook-related files (messenger.ts, webhooks/route.ts, etc.) to handle IDs as strings.
+4.  **Improved Error Handling**: Added specific logging for 'Object does not exist' errors to help diagnose permission/role issues.
+
+### Action Required
+**Users must Disconnect and Reconnect their Facebook page** in the dashboard to grant the new pages_read_user_content permission.
+
+### Files Modified
+- app/auth/facebook/connect/route.ts
+- lib/facebook/profile.ts
+- app/api/facebook/user-profile/route.ts
+- lib/facebook/messenger.ts
+- app/api/webhooks/facebook/route.ts
+
+
+## Day 7: UI/UX Refinements & Feature Enhancements (2025-12-05)
+
+### Overview
+Focused on polishing the user experience, enhancing the dashboard with real-time features, and implementing critical business tools like the Admin Dashboard and Manual Chat.
+
+### Features Implemented
+
+#### 1. Skeleton Loaders (Performance UX)
+- **Objective**: Replace generic spinners with skeleton loaders for a smoother perceived loading experience.
+- **Implementation**:
+    - Created reusable skeleton components: `DashboardSkeleton`, `OrdersSkeleton`, `ProductsSkeleton`, `ConversationsSkeleton`, `AISetupSkeleton`, `SettingsSkeleton`, `AnalyticsSkeleton`, `AdminSkeleton`.
+    - Integrated into `loading.tsx` and `page.tsx` for all dashboard routes.
+    - Updated `layout.tsx` to use `DashboardSkeleton` for global loading.
+- **Result**: Eliminated layout shifts and provided a premium, app-like feel during data fetching.
+
+#### 2. Admin AI Usage Dashboard
+- **Objective**: Track and visualize OpenAI usage costs.
+- **Implementation**:
+    - Created `app/dashboard/admin/page.tsx` with charts and stats.
+    - Visualizes total investment, cost per call, and cost distribution by feature (Tier 3, Auto-tagging, etc.).
+    - Uses `Recharts` for interactive area and pie charts.
+    - Converts USD costs to BDT for local relevance.
+
+#### 3. Manual Chat / Human Takeover
+- **Objective**: Allow sellers to intervene in bot conversations.
+- **Implementation**:
+    - Added "Manual Chat" interface in `app/dashboard/conversations`.
+    - Implemented `POST /api/conversations/send` to send messages as the page via Graph API.
+    - Added real-time polling to show customer replies instantly.
+    - Optimistic UI updates for immediate feedback.
+
+#### 4. Embedded Chat Widget (Test Mode)
+- **Objective**: Enable safe bot testing without using personal Facebook accounts.
+- **Implementation**:
+    - Created `TestChatWidget` in `app/dashboard/ai-setup`.
+    - Simulates the full bot lifecycle (Fast Lane, AI Director, Order Flow).
+    - Uses `is_test` flag to isolate test data from production analytics.
+    - Supports image uploads and product card interactions.
+
+#### 5. Static Pages & Legal Compliance
+- **Objective**: Add necessary legal pages for the application.
+- **Implementation**:
+    - Created `app/privacy-policy/page.tsx` and `app/terms/page.tsx`.
+    - Styled to match the landing page branding.
+
+#### 6. Pricing & Landing Page Enhancements
+- **Objective**: Optimize the pricing section for conversion.
+- **Implementation**:
+    - Updated pricing models (Starter, Pro, Business).
+    - Added "Founder Offer" with special pricing.
+    - Enhanced UI with animated gradients and pulsing effects for the Pro plan.
+
+#### 7. Bug Fixes & Refinements
+- **Order Quantity Bug**: Fixed issue where AI incorrectly set order quantity to 2.
+- **Build Errors**: Resolved `colorthief` and `mini-css-extract-plugin` build issues.
+- **Settings Page Artifacts**: Cleaned up placeholder text and fixed Notifications tab logic.
+- **Search Functionality**: Made search bars interactive across Overview, Orders, and Products pages.
+
+### Files Created/Modified
+- `components/skeletons/*.tsx` (8 new files)
+- `app/dashboard/**/loading.tsx` (8 new/modified files)
+- `app/dashboard/admin/page.tsx`
+- `app/dashboard/conversations/page.tsx`
+- `app/privacy-policy/page.tsx`
+- `app/terms/page.tsx`
+- `progress_file.md`
+
+### Technical Achievements
+- **Perceived Performance**: Skeleton screens significantly improve the "feel" of the app.
+- **Operational Visibility**: Admin dashboard provides crucial insights into AI costs.
+- **Hybrid Support**: Manual chat enables a seamless mix of AI automation and human support.
+- **Testability**: Embedded widget allows rapid iteration on bot logic without external dependencies.

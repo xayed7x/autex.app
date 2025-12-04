@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { invalidateSettingsCache } from '@/lib/workspace/settings-cache'
 
 export async function GET(request: Request) {
   try {
@@ -84,6 +85,9 @@ export async function POST(request: Request) {
       payment_message: body.paymentMessage,
       behavior_rules: body.behaviorRules,
       fast_lane_messages: body.fastLaneMessages,
+      order_collection_style: body.order_collection_style,
+      quick_form_prompt: body.quick_form_prompt,
+      quick_form_error: body.quick_form_error,
       updated_at: new Date().toISOString()
     }
 
@@ -99,8 +103,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Invalidate cache (if we had a way to call the server-side cache invalidation from here)
-    // For now, we rely on the cache TTL or manual invalidation if needed
+    // Invalidate cache so the bot gets the new settings immediately
+    invalidateSettingsCache(workspace.id)
 
     return NextResponse.json({ success: true, settings: data })
   } catch (error) {

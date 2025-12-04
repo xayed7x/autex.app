@@ -39,6 +39,8 @@ const productFormSchema = z.object({
   description: z.string().optional(),
   category: z.string().optional(),
   stock_quantity: z.string().optional(),
+  colors: z.string().optional(),
+  sizes: z.string().optional(),
 });
 
 type ProductFormValues = z.infer<typeof productFormSchema>;
@@ -51,6 +53,8 @@ interface Product {
   description?: string | null;
   category?: string | null;
   image_urls?: string[];
+  colors?: string[] | null;
+  sizes?: string[] | null;
 }
 
 interface ProductFormProps {
@@ -90,6 +94,8 @@ export function ProductForm({
         description: product.description || '',
         category: product.category || '',
         stock_quantity: product.stock_quantity?.toString() || '0',
+        colors: product.colors?.join(', ') || '',
+        sizes: product.sizes?.join(', ') || '',
       });
       setImagePreview(product.image_urls?.[0] || null);
       setImageFile(null);
@@ -100,6 +106,8 @@ export function ProductForm({
         description: '',
         category: '',
         stock_quantity: '0',
+        colors: '',
+        sizes: '',
       });
       setImagePreview(null);
       setImageFile(null);
@@ -133,6 +141,8 @@ export function ProductForm({
       if (values.description) formData.append('description', values.description);
       if (values.category) formData.append('category', values.category);
       if (values.stock_quantity) formData.append('stock_quantity', values.stock_quantity);
+      if (values.colors) formData.append('colors', values.colors);
+      if (values.sizes) formData.append('sizes', values.sizes);
 
       if (imageFile) {
         formData.append('image', imageFile);
@@ -258,6 +268,38 @@ export function ProductForm({
                     <FormControl>
                       <Input type="number" placeholder="0" {...field} />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="colors"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Colors (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Red, Blue, Green" {...field} />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">Comma separated</p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="sizes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Sizes (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="S, M, L, XL" {...field} />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">Comma separated</p>
                     <FormMessage />
                   </FormItem>
                 )}

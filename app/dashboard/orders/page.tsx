@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { TopBar } from "@/components/dashboard/top-bar"
 import { Card, CardContent } from "@/components/ui/card"
@@ -28,6 +28,7 @@ import {
   ChevronRight,
 } from "lucide-react"
 import { OrderDetailsModal } from "@/components/dashboard/order-details-modal"
+import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
 
 interface Order {
   id: string
@@ -52,15 +53,24 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 
 export default function OrdersPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState("")
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || "")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [dateRange, setDateRange] = useState("all")
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
+
+  // Update search query when URL param changes
+  useEffect(() => {
+    const query = searchParams.get('search')
+    if (query !== null && query !== searchQuery) {
+      setSearchQuery(query)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     fetchOrders()
@@ -142,7 +152,7 @@ export default function OrdersPage() {
   }
 
   return (
-    <>
+    <RequireFacebookPage>
       <TopBar title="Orders" />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -417,6 +427,6 @@ export default function OrdersPage() {
 
       {/* Order Details Modal */}
       <OrderDetailsModal order={selectedOrder} open={!!selectedOrder} onClose={() => setSelectedOrder(null)} />
-    </>
+    </RequireFacebookPage>
   )
 }

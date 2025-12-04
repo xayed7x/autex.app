@@ -119,6 +119,8 @@ export interface AIDirectorDecision {
       category?: string;
       description?: string;
       variations?: any;
+      colors?: string[];
+      sizes?: string[];
     };
   };
   

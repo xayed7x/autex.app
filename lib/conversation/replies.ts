@@ -235,6 +235,8 @@ Product খুঁজতে:
     description?: string;
     stock: number;
     category?: string;
+    colors?: string[];
+    sizes?: string[];
     variations?: {
       colors?: string[];
       sizes?: string[];
@@ -253,12 +255,16 @@ Product খুঁজতে:
       message += `🏷️ Category: ${product.category}\n`;
     }
     
-    if (product.variations?.colors && product.variations.colors.length > 0) {
-      message += `🎨 Available Colors: ${product.variations.colors.join(', ')}\n`;
+    // Check for colors in top-level array or variations object
+    const colors = product.colors || product.variations?.colors;
+    if (colors && colors.length > 0) {
+      message += `🎨 Available Colors: ${colors.join(', ')}\n`;
     }
     
-    if (product.variations?.sizes && product.variations.sizes.length > 0) {
-      message += `📏 Available Sizes: ${product.variations.sizes.join(', ')}\n`;
+    // Check for sizes in top-level array or variations object
+    const sizes = product.sizes || product.variations?.sizes;
+    if (sizes && sizes.length > 0) {
+      message += `📏 Available Sizes: ${sizes.join(', ')}\n`;
     }
     
     message += `\n✅ Stock: ${product.stock > 0 ? 'In Stock' : 'Out of Stock'}\n`;

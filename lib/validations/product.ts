@@ -10,6 +10,8 @@ export const createProductSchema = z.object({
   category: z.string().optional(),
   stock_quantity: z.number().int().min(0, 'Stock quantity cannot be negative').optional(),
   variations: z.record(z.any()).optional(), // JSON object for variations
+  colors: z.array(z.string()).optional(),
+  sizes: z.array(z.string()).optional(),
 });
 
 /**
@@ -44,6 +46,12 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
     variations: formData.get('variations')
       ? JSON.parse(formData.get('variations') as string)
       : undefined,
+    colors: formData.get('colors')
+      ? (formData.get('colors') as string).split(',').map(s => s.trim()).filter(Boolean)
+      : undefined,
+    sizes: formData.get('sizes')
+      ? (formData.get('sizes') as string).split(',').map(s => s.trim()).filter(Boolean)
+      : undefined,
   };
 
   return createProductSchema.parse(data);
@@ -66,6 +74,12 @@ export function validateProductUpdateFormData(formData: FormData): UpdateProduct
   }
   if (formData.has('variations')) {
     data.variations = JSON.parse(formData.get('variations') as string);
+  }
+  if (formData.has('colors')) {
+    data.colors = (formData.get('colors') as string).split(',').map((s: string) => s.trim()).filter(Boolean);
+  }
+  if (formData.has('sizes')) {
+    data.sizes = (formData.get('sizes') as string).split(',').map((s: string) => s.trim()).filter(Boolean);
   }
 
   return updateProductSchema.parse(data);

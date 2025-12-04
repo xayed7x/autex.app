@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
       .from('facebook_pages')
       .select('id, page_name, created_at')
       .eq('workspace_id', workspaceData.workspace_id)
+      .eq('status', 'connected')
       .order('created_at', { ascending: false });
     
     if (pagesError) {
@@ -126,10 +127,10 @@ export async function DELETE(request: NextRequest) {
     // For now, we'll just delete from database
     // Facebook will automatically stop sending webhooks when the app is uninstalled
     
-    // Delete page from database
+    // Soft delete page (update status to disconnected)
     const { error: deleteError } = await supabase
       .from('facebook_pages')
-      .delete()
+      .update({ status: 'disconnected' })
       .eq('id', pageId)
       .eq('workspace_id', workspaceData.workspace_id);
     

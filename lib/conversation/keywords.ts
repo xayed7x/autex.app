@@ -16,6 +16,9 @@ export type InterruptionType =
   | 'payment'
   | 'return'
   | 'size'
+  | 'urgency'
+  | 'objection'
+  | 'seller'
   | null;
 
 // ============================================
@@ -32,7 +35,22 @@ const DELIVERY_KEYWORDS = [
   // Banglish
   'deliver', 'ডেলিভারি', 'চার্জ', 'খরচ',
   'কত লাগবে', 'time lagbe', 'সময়', 'somoy',
-  'got the product', 'get', 'receive', 'পেতে'
+  'got the product', 'get', 'receive', 'পেতে',
+  // NEW: Time-specific queries
+  'আজকে পাব', 'ajke pabo', 'today', 'tomorrow', 'আগামীকাল', 'agamikal',
+  'কাল পাব', 'kal pabo', 'this week', 'এই সপ্তাহে',
+  // NEW: Delivery method queries  
+  'কুরিয়ার', 'courier service', 'pathao', 'পাঠাও', 'ecourier', 'ই-কুরিয়ার',
+  'redx', 'রেডএক্স', 'sundorban', 'সুন্দরবন',
+  // NEW: Location-specific
+  'ঢাকার বাইরে', 'dhakar baire', 'outside dhaka', 'আমার এলাকায়', 'amar elakay',
+  'mirpur', 'মিরপুর', 'uttara', 'উত্তরা', 'gulshan', 'গুলশান',
+  'dhanmondi', 'ধানমন্ডি', 'mohakhali', 'মহাখালী',
+  // NEW: Cost concerns
+  'বেশি লাগবে', 'beshi lagbe', 'কম খরচ', 'kom khoroch', 'free delivery',
+  'ফ্রি ডেলিভারি', 'delivery free', 'কত টাকা ডেলিভারি',
+  // NEW: Tracking
+  'ট্র্যাক', 'track', 'কোথায়', 'kothay', 'location', 'পাঠালো', 'pathalo'
 ];
 
 const PRICE_KEYWORDS = [
@@ -41,7 +59,12 @@ const PRICE_KEYWORDS = [
   // Bangla
   'কত', 'দাম', 'টাকা', 'কত টাকা', 'কিতা', 'dam',
   // Banglish
-  'dam koto', 'koto taka', 'dam ki'
+  'dam koto', 'koto taka', 'dam ki',
+  // NEW: Price objections
+  'দাম বেশি', 'dam beshi', 'expensive', 'চড়া', 'chora',
+  'কমাতে পারবেন', 'kamate parben', 'discount', 'ডিসকাউন্ট',
+  'কম দাম', 'kom dam', 'cheaper', 'সস্তা', 'sosta',
+  'দর কষাকষি', 'dor koshakoshi', 'bargain', 'negotiate'
 ];
 
 const PAYMENT_KEYWORDS = [
@@ -52,7 +75,25 @@ const PAYMENT_KEYWORDS = [
   // Banglish  
   'kivabe', 'kemon kore', 'কেমন করে',
   // Methods
-  'বিকাশ', 'নগদ', 'bkash', 'nagad', 'bikash', 'nogod'
+  'বিকাশ', 'নগদ', 'bkash', 'nagad', 'bikash', 'nogod',
+  // NEW: Payment concerns
+  'নিরাপদ', 'safe', 'secure', 'সিকিউর', 'বিশ্বাস', 'trust',
+  'ঠকাবে না', 'thokabe na', 'reliable', 'ভরসা', 'vorosa',
+  // NEW: Cash on Delivery (COD)
+  'হাতে হাতে', 'hate hate', 'cash on delivery', 'cod', 'সিওডি',
+  'দেখে দেব', 'dekhe debo', 'দেখে টাকা', 'dekhe taka',
+  'প্রোডাক্ট দেখে', 'product dekhe', 'হাতে পেয়ে', 'hate peye',
+  // NEW: Mobile banking specifics
+  'বিকাশ নম্বর', 'bkash number', 'নগদ নম্বর', 'nagad number',
+  'কোন নাম্বার', 'kon number', 'কোন নম্বরে', 'kon nombore',
+  'মার্চেন্ট', 'merchant', 'পার্সোনাল', 'personal',
+  'সেন্ড মানি', 'send money', 'পাঠাব', 'pathabo',
+  // NEW: Payment timing
+  'আগে দিতে হবে', 'age dite hobe', 'advance', 'আগাম', 'agam',
+  'পরে দেব', 'pore debo', 'later', 'প্রোডাক্ট পেয়ে', 'product peye',
+  // NEW: Payment problems
+  'পেমেন্ট হচ্ছে না', 'payment hocche na', 'failed', 'ফেইল',
+  'কাটছে না', 'katche na', 'declined', 'রিজেক্ট', 'reject'
 ];
 
 const RETURN_KEYWORDS = [
@@ -61,7 +102,20 @@ const RETURN_KEYWORDS = [
   // Bangla
   'ফেরত', 'বদল', 'ফিরিয়ে', 'পরিবর্তন', 'ফেরতযোগ্য',
   // Banglish
-  'ferot', 'firat', 'change kora', 'বদলানো'
+  'ferot', 'firat', 'change kora', 'বদলানো',
+  // NEW: Condition-based returns
+  'নষ্ট হলে', 'noshto hole', 'ভাঙা', 'vanga', 'damaged', 'ডেমেজ',
+  'ছেঁড়া', 'chera', 'defect', 'ডিফেক্ট', 'problem', 'সমস্যা',
+  'মেলে না', 'mele na', 'দেখতে খারাপ', 'dekhte kharap',
+  // NEW: Return process
+  'কিভাবে ফেরত', 'kivabe ferot', 'return korbo', 'ফেরত দিব', 'ferot dibo',
+  'কোথায় দেব', 'kothay debo', 'কুরিয়ার', 'courier', 'পাঠাব', 'pathabo',
+  // NEW: Time concerns
+  'কত দিন', 'koto din', 'সময় আছে', 'somoy ache', 'deadline',
+  'এক্সপায়ার', 'expire', 'শেষ', 'shesh',
+  // NEW: Money back
+  'টাকা ফেরত', 'taka ferot', 'refund', 'রিফান্ড', 'ফেরত পাব', 'ferot pabo',
+  'money back', 'মানি ব্যাক'
 ];
 
 const SIZE_KEYWORDS = [
@@ -72,7 +126,20 @@ const SIZE_KEYWORDS = [
   // Banglish
   'choto', 'boro', 'মিডিয়াম', 'লার্জ',
   // Variations
-  'available', 'আছে', 'পাওয়া যায়', 'stock'
+  'available', 'আছে', 'পাওয়া যায়', 'stock',
+  // NEW: Fitting concerns
+  'মানাবে', 'manabe', 'fit', 'ফিট', 'পড়া যাবে', 'pora jabe',
+  'ঢোকাবে', 'dhokabe', 'আমার জন্য', 'amar jonno',
+  'সাইজ ছোট', 'size choto', 'সাইজ বড়', 'size boro',
+  // NEW: Measurement specifics
+  'লম্বা', 'lomba', 'length', 'চওড়া', 'chora', 'width',
+  'ইঞ্চি', 'inch', 'সেন্টিমিটার', 'cm', 'মাপ', 'map',
+  'কত ইঞ্চি', 'koto inch', 'measurement', 'মেজারমেন্ট',
+  // NEW: Weight/Material
+  'ওজন', 'ojon', 'weight', 'ভারী', 'vari', 'heavy',
+  'হালকা', 'halka', 'light', 'মোটা', 'mota', 'thick',
+  'পাতলা', 'patla', 'thin', 'material', 'ম্যাটেরিয়াল',
+  'কাপড়', 'kapor', 'fabric', 'কি দিয়ে', 'ki diye'
 ];
 
 // Product detail keywords (View Details equivalents)
@@ -85,7 +152,22 @@ const DETAILS_KEYWORDS = [
   'dekhao', 'bolo', 'জানাও', 'janao',
   // Color/variation questions
   'color', 'colour', 'রঙ', 'রং', 'কালার',
-  'red', 'blue', 'black', 'white', 'লাল', 'নীল', 'কালো', 'সাদা'
+  'red', 'blue', 'black', 'white', 'লাল', 'নীল', 'কালো', 'সাদা',
+  // NEW: Quality/Authenticity
+  'অরিজিনাল', 'original', 'আসল', 'asol', 'নকল', 'nokol', 'fake',
+  'quality', 'কোয়ালিটি', 'ভালো', 'valo', 'good', 'খারাপ', 'kharap',
+  'দামি', 'dami', 'expensive', 'সস্তা', 'sosta', 'cheap',
+  'brand', 'ব্র্যান্ড', 'company', 'কোম্পানি',
+  // NEW: Comparison
+  'অন্য', 'onno', 'আরেকটা', 'arekta', 'another', 'different',
+  'similar', 'একই রকম', 'eki rokom', 'same', 'মতো', 'moto',
+  'better', 'ভালো কোনটা', 'valo konota', 'which one', 'কোনটা নিব',
+  'compare', 'তুলনা', 'tulona', 'মিল', 'mil',
+  // NEW: Availability Urgency
+  'শেষ হয়ে যাবে', 'shesh hoye jabe', 'stock out', 'শেষ', 'shesh',
+  'আছে তো', 'ache to', 'পাওয়া যাচ্ছে', 'pawa jacche', 'available',
+  'নতুন আসবে', 'notun asbe', 'restock', 'আবার আসবে', 'abar asbe',
+  'কবে পাব', 'kobe pabo', 'when available'
 ];
 
 // Order/Buy keywords (Order Now equivalents)
@@ -98,6 +180,53 @@ const ORDER_KEYWORDS = [
   'kinbo', 'nibo', 'nite chai', 'lagbe', 'দাও'
 ];
 
+// NEW: Urgency & Availability
+const URGENCY_KEYWORDS = [
+  // Immediate need
+  'এখনই লাগবে', 'ekhoni lagbe', 'urgent', 'জরুরি', 'joruri',
+  'তাড়াতাড়ি', 'taratari', 'fast', 'দ্রুত', 'druto',
+  'আজকেই', 'ajkei', 'today', 'রাতেই', 'ratei',
+  // Stock anxiety
+  'শেষ হয়ে যাবে', 'shesh hoye jabe', 'শেষ হচ্ছে', 'shesh hocche',
+  'কয়টা আছে', 'koyta ache', 'how many left', 'বাকি আছে', 'baki ache',
+  'লাস্ট পিস', 'last piece', 'শেষ টা', 'shesh ta',
+  // Pre-order/Waiting
+  'কবে আসবে', 'kobe asbe', 'pre order', 'প্রি অর্ডার',
+  'বুকিং', 'booking', 'reserve', 'রিজার্ভ', 'রাখা', 'rakha',
+  'waiting', 'অপেক্ষা', 'opekkha'
+];
+
+// NEW: Objections & Concerns
+const OBJECTION_KEYWORDS = [
+  // Trust/Scam concerns
+  'ঠকাবে না তো', 'thokabe na to', 'scam', 'ফেক', 'fake',
+  'বিশ্বাস করব কি', 'biswas korbo ki', 'trust করা যায়', 'trust kora jay',
+  'নিরাপদ', 'safe', 'secure', 'সিকিউর',
+  // Price objections (also in PRICE_KEYWORDS but explicit here for intent)
+  'দাম বেশি', 'dam beshi', 'expensive', 'চড়া', 'chora',
+  'কমাতে পারবেন', 'kamate parben', 'discount', 'ডিসকাউন্ট',
+  'কম দাম', 'kom dam', 'cheaper', 'সস্তা', 'sosta',
+  'দর কষাকষি', 'dor koshakoshi', 'bargain', 'negotiate',
+  // Decision delay
+  'পরে অর্ডার করব', 'pore order korbo', 'ভাবতে হবে', 'vabte hobe',
+  'দেখি', 'dekhi', 'think', 'চিন্তা', 'chinta',
+  'স্বামীকে জিজ্ঞেস', 'swamike jiggesh', 'ask husband',
+  'বাসায় জিজ্ঞেস', 'basay jiggesh', 'ask family'
+];
+
+// NEW: Seller Questions
+const SELLER_KEYWORDS = [
+  // Business info
+  'দোকান কোথায়', 'dokan kothay', 'shop location', 'ঠিকানা', 'thikana',
+  'address', 'এড্রেস', 'office', 'অফিস', 'showroom', 'শোরুম',
+  // Contact
+  'ফোন নম্বর', 'phone number', 'নাম্বার', 'number', 'যোগাযোগ', 'jogajog',
+  'contact', 'কন্টাক্ট', 'কল করব', 'call korbo', 'হোয়াটসঅ্যাপ', 'whatsapp',
+  // Business hours
+  'কখন খোলা', 'kokhon khola', 'open', 'বন্ধ', 'bondho', 'closed',
+  'সময়', 'somoy', 'hours', 'রাতে খোলা', 'rate khola'
+];
+
 // ============================================
 // DETECTION FUNCTIONS
 // ============================================
@@ -107,7 +236,17 @@ const ORDER_KEYWORDS = [
  */
 function containsKeywords(text: string, keywords: string[]): boolean {
   const lowerText = text.toLowerCase().trim();
-  return keywords.some(keyword => lowerText.includes(keyword.toLowerCase()));
+  return keywords.some(keyword => {
+    // If keyword is very short (<= 2 chars), require word boundary to avoid false positives
+    // Example: "YES" should not match "s" (size)
+    if (keyword.length <= 2) {
+      // Escape special regex characters if any (though unlikely for short keywords)
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+      return regex.test(lowerText);
+    }
+    return lowerText.includes(keyword.toLowerCase());
+  });
 }
 
 /**
@@ -120,6 +259,9 @@ export function getInterruptionType(text: string): InterruptionType {
   if (containsKeywords(text, PAYMENT_KEYWORDS)) return 'payment';
   if (containsKeywords(text, RETURN_KEYWORDS)) return 'return';
   if (containsKeywords(text, SIZE_KEYWORDS)) return 'size';
+  if (containsKeywords(text, URGENCY_KEYWORDS)) return 'urgency';
+  if (containsKeywords(text, OBJECTION_KEYWORDS)) return 'objection';
+  if (containsKeywords(text, SELLER_KEYWORDS)) return 'seller';
   return null;
 }
 
@@ -156,4 +298,7 @@ export {
   SIZE_KEYWORDS,
   DETAILS_KEYWORDS,
   ORDER_KEYWORDS,
+  URGENCY_KEYWORDS,
+  OBJECTION_KEYWORDS,
+  SELLER_KEYWORDS,
 };

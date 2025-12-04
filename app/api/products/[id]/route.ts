@@ -112,6 +112,8 @@ export async function PATCH(
         ...updateData,
         ...(imageUrl && { image_urls: [imageUrl] }),
         ...(imageHash && { image_hash: imageHash }),
+        ...(updateData.colors && { colors: updateData.colors }),
+        ...(updateData.sizes && { sizes: updateData.sizes }),
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)

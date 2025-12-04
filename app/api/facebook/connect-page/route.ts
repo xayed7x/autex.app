@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
     const { data: existingPages, error: checkError } = await supabase
       .from('facebook_pages')
       .select('id, page_name')
-      .eq('workspace_id', workspaceId);
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'connected');
     
     if (checkError) {
       console.error('❌ Error checking existing pages:', checkError);
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
     
     // Step 1: Exchange for long-lived page access token
     console.log('🔄 Exchanging for long-lived token...');
-    const tokenUrl = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
+    const tokenUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
     tokenUrl.searchParams.set('grant_type', 'fb_exchange_token');
     tokenUrl.searchParams.set('client_id', FACEBOOK_APP_ID);
     tokenUrl.searchParams.set('client_secret', FACEBOOK_APP_SECRET);
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
         workspace_id: workspaceId,
         page_name: pageName,
         encrypted_access_token: encryptedToken,
+        status: 'connected',
       }, {
         onConflict: 'id',
       })
@@ -149,7 +151,7 @@ export async function POST(request: NextRequest) {
     
     // Step 4: Subscribe page to webhook
     console.log('🔔 Subscribing to webhook...');
-    const webhookUrl = new URL(`https://graph.facebook.com/v19.0/${pageId}/subscribed_apps`);
+    const webhookUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
     webhookUrl.searchParams.set('access_token', longLivedToken);
     webhookUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,feed');
     

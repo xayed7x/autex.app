@@ -16,7 +16,8 @@ export type ConversationState =
   | 'COLLECTING_PHONE'
   | 'COLLECTING_ADDRESS'
   | 'COLLECTING_PAYMENT_DIGITS'
-  | 'CONFIRMING_ORDER';
+  | 'CONFIRMING_ORDER'
+  | 'AWAITING_CUSTOMER_DETAILS';  // NEW: Quick form state
 
 // ============================================
 // CART ITEM

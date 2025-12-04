@@ -16,6 +16,10 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
 
+    const category = searchParams.get('category') || 'all';
+    const stock = searchParams.get('stock') || 'all';
+    const sort = searchParams.get('sort') || 'recent';
+
     // Get authenticated user
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -45,12 +49,41 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('products')
       .select('*', { count: 'exact' })
-      .eq('workspace_id', workspace.id)
-      .order('created_at', { ascending: false });
+      .eq('workspace_id', workspace.id);
 
-    // Add search filter if provided
+    // Apply filters
     if (search) {
       query = query.ilike('name', `%${search}%`);
+    }
+
+    if (category !== 'all') {
+      query = query.eq('category', category);
+    }
+
+    if (stock === 'instock') {
+      query = query.gt('stock_quantity', 0);
+    } else if (stock === 'outofstock') {
+      query = query.eq('stock_quantity', 0);
+    }
+
+    // Apply sorting
+    switch (sort) {
+      case 'name-asc':
+        query = query.order('name', { ascending: true });
+        break;
+      case 'name-desc':
+        query = query.order('name', { ascending: false });
+        break;
+      case 'price-low':
+        query = query.order('price', { ascending: true });
+        break;
+      case 'price-high':
+        query = query.order('price', { ascending: false });
+        break;
+      case 'recent':
+      default:
+        query = query.order('created_at', { ascending: false });
+        break;
     }
 
     // Add pagination
@@ -283,6 +316,8 @@ export async function POST(request: NextRequest) {
         image_hashes: imageHashes, // Multi-hash for Tier 1
         visual_features: visualFeatures as any, // For Tier 2
         search_keywords: searchKeywords, // Magic Upload keywords for Tier 3
+        colors: productData.colors || [],
+        sizes: productData.sizes || [],
       })
       .select()
       .single();

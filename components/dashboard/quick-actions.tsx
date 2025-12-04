@@ -14,7 +14,7 @@ export function QuickActions() {
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
         <Button asChild className="w-full justify-start gap-2">
-          <Link href="/dashboard/products/new">
+          <Link href="/dashboard/products?action=new">
             <Plus className="h-4 w-4" />
             Add Product
           </Link>

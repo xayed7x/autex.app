@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { User, Facebook, Bell, CreditCard, Save, Loader2, AlertCircle, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { createClient } from "@/lib/supabase/client"
+import { formatDistanceToNow } from "date-fns"
 
 interface SettingsData {
   user: {
@@ -37,6 +39,15 @@ interface SettingsData {
   } | null
 }
 
+interface Notification {
+  id: string
+  title: string
+  description: string
+  time: string
+  unread: boolean
+  link: string
+}
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general")
   const [loading, setLoading] = useState(true)
@@ -46,6 +57,7 @@ export default function SettingsPage() {
     business_name: ""
   })
   const { toast } = useToast()
+  const [notifications, setNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
     fetchSettings()
@@ -59,9 +71,14 @@ export default function SettingsPage() {
       
       const settingsData = await response.json()
       setData(settingsData)
+      const businessName = settingsData.user.business_name || ""
+      const isDefaultName = businessName.trim().toLowerCase() === 'code and cortex'
+      
       setFormData({
-        business_name: settingsData.user.business_name || ""
+        business_name: isDefaultName ? "" : businessName
       })
+      
+      fetchNotifications(settingsData.workspace?.id)
     } catch (error) {
       console.error("Error fetching settings:", error)
       toast({
@@ -71,6 +88,48 @@ export default function SettingsPage() {
       })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchNotifications = async (workspaceId?: string) => {
+    if (!workspaceId) return
+
+    try {
+      const supabase = createClient()
+      
+      // Get connected page
+      const { data: page } = await supabase
+        .from('facebook_pages')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('status', 'connected')
+        .single()
+      
+      if (page) {
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('workspace_id', workspaceId)
+          .eq('fb_page_id', page.id)
+          .order('created_at', { ascending: false })
+          .limit(10)
+        
+        if (orders) {
+          const formatted: Notification[] = orders.map(order => ({
+            id: order.id,
+            title: "New order received",
+            description: `Order #${order.order_number || 'N/A'} from ${order.customer_name}`,
+            time: formatDistanceToNow(new Date(order.created_at), { addSuffix: true }),
+            unread: false,
+            link: `/dashboard/orders`
+          }))
+          setNotifications(formatted)
+        }
+      } else {
+        setNotifications([])
+      }
+    } catch (error) {
+      console.error("Error fetching notifications:", error)
     }
   }
 
@@ -160,7 +219,7 @@ export default function SettingsPage() {
                       id="business-name"
                       value={formData.business_name}
                       onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                      placeholder="e.g., Code and Cortex"
+                      placeholder="Autex AI"
                       className="mt-1.5"
                     />
                     <p className="text-xs text-muted-foreground">
@@ -221,21 +280,45 @@ export default function SettingsPage() {
           <TabsContent value="notifications" className="mt-6">
             <Card className="bg-card border border-border shadow-sm">
               <CardHeader>
-                <CardTitle>Notification Preferences</CardTitle>
-                <CardDescription>Manage your notification settings</CardDescription>
+                <CardTitle>Notifications</CardTitle>
+                <CardDescription>Recent alerts and updates</CardDescription>
               </CardHeader>
-              <CardContent className="py-12 text-center">
-                <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
-                  <Bell className="h-8 w-8 text-muted-foreground" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">Notifications</h3>
-                <p className="text-muted-foreground mb-4">
-                  Notification preferences will be available here
-                </p>
-                <Badge variant="secondary">Coming Soon</Badge>
+              <CardContent>
+                {notifications.length > 0 ? (
+                  <div className="space-y-4">
+                    {notifications.map((notification) => (
+                      <div 
+                        key={notification.id} 
+                        className="flex items-start gap-4 p-4 rounded-lg border border-border bg-muted/30"
+                      >
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <Bell className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium text-sm">{notification.title}</p>
+                            <span className="text-xs text-muted-foreground">{notification.time}</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{notification.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center">
+                    <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
+                      <Bell className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-lg font-semibold mb-2">No Notifications</h3>
+                    <p className="text-muted-foreground">
+                      You're all caught up! Connect a Facebook page to receive order alerts.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
+
 
           {/* Billing Tab */}
           <TabsContent value="billing" className="mt-6">

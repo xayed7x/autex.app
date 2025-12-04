@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     
     // Step 1: Exchange code for user access token
     console.log('🔄 Exchanging code for access token...');
-    const tokenUrl = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
+    const tokenUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
     tokenUrl.searchParams.set('client_id', FACEBOOK_APP_ID);
     tokenUrl.searchParams.set('client_secret', FACEBOOK_APP_SECRET);
     tokenUrl.searchParams.set('code', code);
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
     
     // Step 2: Fetch user's Facebook pages
     console.log('🔄 Fetching user pages...');
-    const pagesUrl = new URL('https://graph.facebook.com/v19.0/me/accounts');
+    const pagesUrl = new URL('https://graph.facebook.com/v21.0/me/accounts');
     pagesUrl.searchParams.set('access_token', tokenData.access_token);
     
     const pagesResponse = await fetch(pagesUrl.toString());

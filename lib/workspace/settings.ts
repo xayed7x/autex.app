@@ -20,6 +20,9 @@ export interface FastLaneMessages {
   deliveryInfo: string;
   returnPolicy: string;
   paymentInfo: string;
+  urgencyResponse: string;
+  objectionResponse: string;
+  sellerInfo: string;
 }
 
 export interface WorkspaceSettings {
@@ -48,6 +51,9 @@ export interface WorkspaceSettings {
     sendConfirmation: boolean;
   };
   fastLaneMessages: FastLaneMessages;
+  order_collection_style: 'conversational' | 'quick_form';
+  quick_form_prompt: string;
+  quick_form_error: string;
 }
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -89,7 +95,13 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
     deliveryInfo: "🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳60\n• ঢাকার বাইরে: ৳120\n• Delivery সময়: 3-5 business days",
     returnPolicy: "🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।\n\n• পণ্য অব্যবহৃত থাকতে হবে\n• Original packaging এ থাকতে হবে\n• ২ দিনের মধ্যে আমাদের জানাতে হবে",
     paymentInfo: "💳 Payment Methods:\nআমরা নিম্নলিখিত payment methods গ্রহণ করি:\n\n• bKash: 01915969330\n• Nagad: 01915969330\n• Cash on Delivery\n\nযেকোনো method দিয়ে payment করতে পারবেন।",
+    urgencyResponse: "🚀 চিন্তার কারণ নেই! আমরা দ্রুত ডেলিভারি নিশ্চিত করি।\nঢাকার মধ্যে ২-৩ দিন এবং বাইরে ৩-৫ দিনের মধ্যে পেয়ে যাবেন।",
+    objectionResponse: "✨ আমাদের প্রতিটি পণ্য ১০০% অথেনটিক এবং হাই কোয়ালিটি।\nআপনি নিশ্চিন্তে অর্ডার করতে পারেন, পছন্দ না হলে রিটার্ন করার সুযোগ তো থাকছেই!",
+    sellerInfo: "🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330\n⏰ আমরা প্রতিদিন সকাল ১০টা থেকে রাত ১০টা পর্যন্ত খোলা আছি।",
   },
+  order_collection_style: 'conversational',
+  quick_form_prompt: 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:',
+  quick_form_error: 'দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা',
 };
 
 /**
@@ -138,6 +150,9 @@ export async function loadWorkspaceSettings(
       paymentMessage: (settings as any).payment_message || DEFAULT_SETTINGS.paymentMessage,
       behaviorRules: ((settings as any).behavior_rules as any) || DEFAULT_SETTINGS.behaviorRules,
       fastLaneMessages: ((settings as any).fast_lane_messages as any) || DEFAULT_SETTINGS.fastLaneMessages,
+      order_collection_style: (settings as any).order_collection_style || DEFAULT_SETTINGS.order_collection_style,
+      quick_form_prompt: (settings as any).quick_form_prompt || DEFAULT_SETTINGS.quick_form_prompt,
+      quick_form_error: (settings as any).quick_form_error || DEFAULT_SETTINGS.quick_form_error,
     };
   } catch (error) {
     console.error('Error loading workspace settings:', error);

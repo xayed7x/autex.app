@@ -221,6 +221,9 @@ export function tryFastLane(
     case 'COLLECTING_PAYMENT_DIGITS':
       return handleCollectingPaymentDigits(trimmedInput, currentContext, settings);
     
+    case 'AWAITING_CUSTOMER_DETAILS':  // NEW: Quick form state
+      return handleAwaitingCustomerDetails(trimmedInput, currentContext, settings);
+    
     default:
       return { matched: false };
   }
@@ -258,6 +261,18 @@ function handleConfirmingProduct(
       case 'return':
         interruptionResponse = settings?.fastLaneMessages?.returnPolicy ||
           `🔄 ২ দিনের মধ্যে ফেরত।`;
+        break;
+      case 'urgency':
+        interruptionResponse = settings?.fastLaneMessages?.urgencyResponse ||
+          `🚀 চিন্তার কারণ নেই! আমরা দ্রুত ডেলিভারি নিশ্চিত করি।\nঢাকার মধ্যে ২-৩ দিন এবং বাইরে ৩-৫ দিনের মধ্যে পেয়ে যাবেন।`;
+        break;
+      case 'objection':
+        interruptionResponse = settings?.fastLaneMessages?.objectionResponse ||
+          `✨ আমাদের প্রতিটি পণ্য ১০০% অথেনটিক এবং হাই কোয়ালিটি।\nআপনি নিশ্চিন্তে অর্ডার করতে পারেন, পছন্দ না হলে রিটার্ন করার সুযোগ তো থাকছেই!`;
+        break;
+      case 'seller':
+        interruptionResponse = settings?.fastLaneMessages?.sellerInfo ||
+          `🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330\n⏰ আমরা প্রতিদিন সকাল ১০টা থেকে রাত ১০টা পর্যন্ত খোলা আছি।`;
         break;
       case 'price':
       case 'size':
@@ -301,19 +316,44 @@ function handleConfirmingProduct(
   
   // Check for YES
   if (YES_PATTERNS.some(pattern => pattern.test(input))) {
-    const message = settings?.fastLaneMessages?.productConfirm || 
-      `${emoji ? 'দারুণ! 🎉' : 'দারুণ!'}\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`;
+    // Debug: Log the order collection style being used
+    console.log(`🔍 [ORDER_COLLECTION] Style: ${settings?.order_collection_style || 'undefined'}`);
+    console.log(`🔍 [ORDER_COLLECTION] Settings object:`, settings ? 'exists' : 'null');
     
-    return {
-      matched: true,
-      action: 'CONFIRM',
-      response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
-      newState: 'COLLECTING_NAME',
-      updatedContext: {
-        ...context,
-        state: 'COLLECTING_NAME',
-      },
-    };
+    // Fork based on order collection style
+    if (settings?.order_collection_style === 'quick_form') {
+      console.log('✅ [QUICK_FORM] Activating quick form mode!');
+      // Quick Form: Ask for all details in one message
+      const message = settings.quick_form_prompt || 
+        'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
+        newState: 'AWAITING_CUSTOMER_DETAILS',
+        updatedContext: {
+          ...context,
+          state: 'AWAITING_CUSTOMER_DETAILS',
+        },
+      };
+    } else {
+      console.log('ℹ️ [CONVERSATIONAL] Using conversational flow (default)');
+      // Conversational: Sequential collection
+      const message = settings?.fastLaneMessages?.productConfirm || 
+        `${emoji ? 'দারুণ! 🎉' : 'দারুণ!'}\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
+        newState: 'COLLECTING_NAME',
+        updatedContext: {
+          ...context,
+          state: 'COLLECTING_NAME',
+        },
+      };
+    }
   }
   
   // Check for NO
@@ -365,6 +405,18 @@ function handleCollectingName(
       case 'return':
         interruptionResponse = settings?.fastLaneMessages?.returnPolicy ||
           `🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর ২ দিনের মধ্যে ফেরত দিতে পারবেন।`;
+        break;
+      case 'urgency':
+        interruptionResponse = settings?.fastLaneMessages?.urgencyResponse ||
+          `🚀 চিন্তার কারণ নেই! আমরা দ্রুত ডেলিভারি নিশ্চিত করি।\nঢাকার মধ্যে ২-৩ দিন এবং বাইরে ৩-৫ দিনের মধ্যে পেয়ে যাবেন।`;
+        break;
+      case 'objection':
+        interruptionResponse = settings?.fastLaneMessages?.objectionResponse ||
+          `✨ আমাদের প্রতিটি পণ্য ১০০% অথেনটিক এবং হাই কোয়ালিটি।\nআপনি নিশ্চিন্তে অর্ডার করতে পারেন, পছন্দ না হলে রিটার্ন করার সুযোগ তো থাকছেই!`;
+        break;
+      case 'seller':
+        interruptionResponse = settings?.fastLaneMessages?.sellerInfo ||
+          `🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330\n⏰ আমরা প্রতিদিন সকাল ১০টা থেকে রাত ১০টা পর্যন্ত খোলা আছি।`;
         break;
       case 'price':
       case 'size':
@@ -509,6 +561,19 @@ function handleCollectingPhone(
           `🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।`;
         break;
       
+      case 'urgency':
+        interruptionResponse = settings?.fastLaneMessages?.urgencyResponse ||
+          `🚀 চিন্তার কারণ নেই! আমরা দ্রুত ডেলিভারি নিশ্চিত করি।\nঢাকার মধ্যে ২-৩ দিন এবং বাইরে ৩-৫ দিনের মধ্যে পেয়ে যাবেন।`;
+        break;
+      case 'objection':
+        interruptionResponse = settings?.fastLaneMessages?.objectionResponse ||
+          `✨ আমাদের প্রতিটি পণ্য ১০০% অথেনটিক এবং হাই কোয়ালিটি।\nআপনি নিশ্চিন্তে অর্ডার করতে পারেন, পছন্দ না হলে রিটার্ন করার সুযোগ তো থাকছেই!`;
+        break;
+      case 'seller':
+        interruptionResponse = settings?.fastLaneMessages?.sellerInfo ||
+          `🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330\n⏰ আমরা প্রতিদিন সকাল ১০টা থেকে রাত ১০টা পর্যন্ত খোলা আছি।`;
+        break;
+
       case 'price':
       case 'size':
         // Product-specific questions - show product details from context
@@ -664,6 +729,18 @@ function handleCollectingAddress(
         break;
       case 'return':
         interruptionResponse = settings?.fastLaneMessages?.returnPolicy || `🔄 ২ দিনের মধ্যে ফেরত।`;
+        break;
+      case 'urgency':
+        interruptionResponse = settings?.fastLaneMessages?.urgencyResponse ||
+          `🚀 চিন্তার কারণ নেই! আমরা দ্রুত ডেলিভারি নিশ্চিত করি।\nঢাকার মধ্যে ২-৩ দিন এবং বাইরে ৩-৫ দিনের মধ্যে পেয়ে যাবেন।`;
+        break;
+      case 'objection':
+        interruptionResponse = settings?.fastLaneMessages?.objectionResponse ||
+          `✨ আমাদের প্রতিটি পণ্য ১০০% অথেনটিক এবং হাই কোয়ালিটি।\nআপনি নিশ্চিন্তে অর্ডার করতে পারেন, পছন্দ না হলে রিটার্ন করার সুযোগ তো থাকছেই!`;
+        break;
+      case 'seller':
+        interruptionResponse = settings?.fastLaneMessages?.sellerInfo ||
+          `🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330\n⏰ আমরা প্রতিদিন সকাল ১০টা থেকে রাত ১০টা পর্যন্ত খোলা আছি।`;
         break;
       case 'price':
       case 'size':
@@ -906,6 +983,135 @@ function handleCollectingPaymentDigits(
     newState: 'COLLECTING_PAYMENT_DIGITS',
     updatedContext: {
       state: 'COLLECTING_PAYMENT_DIGITS',
+    },
+  };
+}
+
+/**
+ * Handles AWAITING_CUSTOMER_DETAILS state (Quick Form mode)
+ * Parses name, phone, and address from a single customer message
+ * Uses multi-strategy parsing for flexibility
+ */
+function handleAwaitingCustomerDetails(
+  input: string,
+  context: ConversationContext,
+  settings?: WorkspaceSettings
+): FastLaneResult {
+  const emoji = settings?.useEmojis ?? true;
+  const text = input.trim();
+  
+  let name: string | null = null;
+  let phone: string | null = null;
+  let address: string | null = null;
+  
+  // STRATEGY 1: Try labeled format (নাম:, Name:, etc.)
+  const nameMatch = text.match(/(?:নাম|Name)\s*[:\-]\s*([^\n]+)/i);
+  const phoneMatch = text.match(/(?:ফোন|Phone|Mobile|মোবাইল)\s*[:\-]\s*([^\n]+)/i);
+  const addressMatch = text.match(/(?:ঠিকানা|Address)\s*[:\-]\s*([\s\S]+?)(?=(?:নাম|Name|ফোন|Phone|$))/i);
+  
+  if (nameMatch) name = nameMatch[1].trim();
+  if (phoneMatch) phone = phoneMatch[1].trim();
+  if (addressMatch) address = addressMatch[1].trim();
+  
+  // STRATEGY 2: If labeled parsing failed, try positional parsing
+  if (!name || !phone || !address) {
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    
+    if (lines.length >= 3) {
+      // Identify phone by pattern (most reliable)
+      const phoneIndex = lines.findIndex(line => 
+        /01[3-9]\d{8}|^\+?880/.test(line.replace(/\D/g, ''))
+      );
+      
+      if (phoneIndex !== -1) {
+        phone = lines[phoneIndex];
+        if (phoneIndex > 0 && !name) {
+          name = lines[0];
+        }
+        if (phoneIndex < lines.length - 1 && !address) {
+          address = lines.slice(phoneIndex + 1).join('\n');
+        }
+      } else {
+        if (!name) name = lines[0];
+        if (!phone) phone = lines[1];
+        if (!address) address = lines.slice(2).join('\n');
+      }
+    } else if (lines.length === 2) {
+      const phoneIndex = lines.findIndex(line => 
+        /01[3-9]\d{8}|^\+?880/.test(line.replace(/\D/g, ''))
+      );
+      if (phoneIndex !== -1) {
+        phone = lines[phoneIndex];
+        name = lines[1 - phoneIndex];
+      }
+    }
+  }
+  
+  // Normalize and validate phone
+  if (phone) {
+    phone = normalizePhone(phone);
+  }
+  const isPhoneValid = phone ? PHONE_PATTERNS.some(p => p.test(phone)) : false;
+  
+  // SUCCESS: All fields extracted and phone is valid
+  if (name && isPhoneValid && address) {
+    const deliveryCharge = address.toLowerCase().includes('dhaka') || address.toLowerCase().includes('ঢাকা')
+      ? (settings?.deliveryCharges?.insideDhaka || 60)
+      : (settings?.deliveryCharges?.outsideDhaka || 120);
+    
+    const cartTotal = calculateCartTotal(context.cart);
+    const totalAmount = cartTotal + deliveryCharge;
+    
+    const orderSummary = generateOrderSummary(
+      name,
+      context.cart,
+      address,
+      deliveryCharge,
+      totalAmount,
+      phone || undefined
+    );
+    
+    return {
+      matched: true,
+      action: 'COLLECT_ADDRESS',
+      response: orderSummary,
+      newState: 'CONFIRMING_ORDER',
+      updatedContext: {
+        ...context,
+        state: 'CONFIRMING_ORDER',
+        checkout: {
+          ...context.checkout,
+          customerName: name,
+          customerPhone: phone,
+          customerAddress: address,
+          deliveryCharge,
+          totalAmount,
+        },
+        customerName: name,
+        customerPhone: phone,
+        customerAddress: address,
+        deliveryCharge,
+        totalAmount,
+      },
+    };
+  }
+  
+  // FAILURE: Log and re-prompt
+  console.log(`[QUICK_FORM_PARSE_FAILURE] Conversation: ${context.metadata?.startedAt || 'unknown'}`);
+  console.log(`Input: "${text}"`);
+  console.log(`Parsed - Name: ${name || 'null'}, Phone: ${phone || 'null'} (valid: ${isPhoneValid}), Address: ${address || 'null'}`);
+  
+  const errorMsg = settings?.quick_form_error || 
+    `দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। ${emoji ? '😔' : ''}\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা`;
+  
+  return {
+    matched: true,
+    action: 'CONFIRM',
+    response: emoji ? errorMsg : errorMsg.replace(/😔/g, ''),
+    newState: 'AWAITING_CUSTOMER_DETAILS',
+    updatedContext: {
+      ...context,
+      state: 'AWAITING_CUSTOMER_DETAILS',
     },
   };
 }

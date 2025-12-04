@@ -15,6 +15,7 @@ const REDIRECT_URI = process.env.NEXT_PUBLIC_APP_URL
 
 // Required Facebook permissions
 const SCOPES = [
+  'public_profile',
   'pages_show_list',
   'pages_messaging',
   'pages_manage_metadata',
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     console.log('🔐 Generated state token for user:', user.id);
     
     // Build Facebook OAuth URL
-    const authUrl = new URL('https://www.facebook.com/v19.0/dialog/oauth');
+    const authUrl = new URL('https://www.facebook.com/v21.0/dialog/oauth');
     authUrl.searchParams.set('client_id', FACEBOOK_APP_ID);
     authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
     authUrl.searchParams.set('state', stateToken);

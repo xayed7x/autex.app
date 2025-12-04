@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
@@ -43,6 +43,7 @@ interface TopBarProps {
 interface UserData {
   email: string
   business_name?: string
+  avatar_url?: string
 }
 
 const navigation = [
@@ -96,87 +97,134 @@ export function TopBar({ title }: TopBarProps) {
   const unreadCount = notifications.filter((n) => n.unread).length
 
   useEffect(() => {
-    const fetchNotifications = async () => {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5)
-      
-      if (data) {
-        const formatted: Notification[] = data.map(order => ({
-          id: order.id,
-          title: "New order received",
-          description: `Order #${order.order_number || 'N/A'} from ${order.customer_name}`,
-          time: formatDistanceToNow(new Date(order.created_at), { addSuffix: true }),
-          unread: false,
-          link: `/dashboard/orders`
-        }))
-        setNotifications(formatted)
-      }
-    }
-
-    fetchNotifications()
-
-    const supabase = createClient()
-    const channel = supabase
-      .channel('realtime-orders')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
-         const newOrder = payload.new as any
-         const newNotification: Notification = {
-           id: newOrder.id,
-           title: "New order received",
-           description: `Order #${newOrder.order_number || 'N/A'} from ${newOrder.customer_name}`,
-           time: "Just now",
-           unread: true,
-           link: `/dashboard/orders`
-         }
-         
-         setNotifications(prev => [newNotification, ...prev].slice(0, 5))
-         
-         toast({
-           title: "New Order Received! 🎉",
-           description: `Order #${newOrder.order_number || 'N/A'} from ${newOrder.customer_name}`,
-           action: (
-             <div 
-               className="h-full w-full absolute inset-0 cursor-pointer" 
-               onClick={() => router.push('/dashboard/orders')}
-             />
-           ),
-         })
-      })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    fetchData()
   }, [])
 
-  useEffect(() => {
-    fetchUserData()
-  }, [])
-
-  const fetchUserData = async () => {
+  const fetchData = async () => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       
-      if (user) {
-        // Fetch profile data
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('business_name')
-          .eq('id', user.id)
-          .single()
-        
-        setUserData({
-          email: user.email || '',
-          business_name: profile?.business_name || undefined,
-        })
+      if (!user) return
+
+      // 1. Get Workspace
+      const { data: workspace } = await supabase
+        .from('workspaces')
+        .select('id')
+        .eq('owner_id', user.id)
+        .single()
+
+      if (!workspace) return
+
+      // 2. Get Connected Page
+      const { data: page } = await supabase
+        .from('facebook_pages')
+        .select('page_name, id')
+        .eq('workspace_id', workspace.id)
+        .eq('status', 'connected')
+        .single()
+
+      // 3. Get User Profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('business_name')
+        .eq('id', user.id)
+        .single()
+      
+      // 4. Get User Avatar
+      const { data: publicUser } = await supabase
+        .from('users')
+        .select('avatar_url')
+        .eq('id', user.id)
+        .single()
+
+      // Determine Display Name
+      // Priority: Connected Page Name -> Business Name -> "Autex AI"
+      let displayName = 'Autex AI'
+      
+      const isDefaultName = (name?: string) => {
+        if (!name) return true
+        const normalized = name.trim().toLowerCase()
+        return normalized === 'code and cortex' || normalized === 'code & cortex'
       }
+
+      if (page?.page_name) {
+        displayName = page.page_name
+      } else if (profile?.business_name && !isDefaultName(profile.business_name)) {
+        displayName = profile.business_name
+      }
+
+      setUserData({
+        email: user.email || '',
+        business_name: displayName,
+        avatar_url: publicUser?.avatar_url || undefined,
+      })
+
+      // 5. Fetch Notifications (Orders) for this Workspace & Page
+      if (page) {
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('workspace_id', workspace.id)
+          .eq('fb_page_id', page.id) // Filter by connected page
+          .order('created_at', { ascending: false })
+          .limit(5)
+        
+        if (orders) {
+          const formatted: Notification[] = orders.map(order => ({
+            id: order.id,
+            title: "New order received",
+            description: `Order #${order.order_number || 'N/A'} from ${order.customer_name}`,
+            time: formatDistanceToNow(new Date(order.created_at), { addSuffix: true }),
+            unread: false,
+            link: `/dashboard/orders`
+          }))
+          setNotifications(formatted)
+        }
+
+        // 6. Subscribe to Realtime Orders for this Page
+        const channel = supabase
+          .channel(`realtime-orders-${page.id}`)
+          .on('postgres_changes', { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'orders',
+            filter: `fb_page_id=eq.${page.id}` // Filter realtime events by page
+          }, (payload) => {
+             const newOrder = payload.new as any
+             const newNotification: Notification = {
+               id: newOrder.id,
+               title: "New order received",
+               description: `Order #${newOrder.order_number || 'N/A'} from ${newOrder.customer_name}`,
+               time: "Just now",
+               unread: true,
+               link: `/dashboard/orders`
+             }
+             
+             setNotifications(prev => [newNotification, ...prev].slice(0, 5))
+             
+             toast({
+               title: "New Order Received! 🎉",
+               description: `Order #${newOrder.order_number || 'N/A'} from ${newOrder.customer_name}`,
+               action: (
+                 <div 
+                   className="h-full w-full absolute inset-0 cursor-pointer" 
+                   onClick={() => router.push('/dashboard/orders')}
+                 />
+               ),
+             })
+          })
+          .subscribe()
+
+        return () => {
+          supabase.removeChannel(channel)
+        }
+      } else {
+        setNotifications([]) // Clear notifications if no page connected
+      }
+
     } catch (error) {
-      console.error('Error fetching user data:', error)
+      console.error('Error fetching data:', error)
     }
   }
 
@@ -186,8 +234,8 @@ export function TopBar({ title }: TopBarProps) {
     router.push('/login')
   }
 
-  const displayName = userData?.business_name || userData?.email || 'User'
-  const initials = getInitials(userData?.business_name, userData?.email)
+  const displayName = userData?.business_name || 'Autex AI'
+  const initials = getInitials(displayName, userData?.email)
 
   return (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
@@ -262,7 +310,22 @@ export function TopBar({ title }: TopBarProps) {
         <div className="hidden md:flex flex-1 max-w-md mx-4">
           <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search orders, products..." className="pl-9 bg-muted/50" />
+            <Input 
+              placeholder={pathname.includes('/products') ? "Search products..." : "Search orders..."}
+              className="pl-9 bg-muted/50" 
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const query = e.currentTarget.value
+                  if (!query.trim()) return
+                  
+                  if (pathname.includes('/products')) {
+                    router.push(`/dashboard/products?search=${encodeURIComponent(query)}`)
+                  } else {
+                    router.push(`/dashboard/orders?search=${encodeURIComponent(query)}`)
+                  }
+                }
+              }}
+            />
           </div>
         </div>
 
@@ -318,6 +381,7 @@ export function TopBar({ title }: TopBarProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-full">
                 <Avatar className="h-8 w-8">
+                  <AvatarImage src={userData?.avatar_url} alt={displayName} />
                   <AvatarFallback className="bg-primary text-primary-foreground text-sm">
                     {initials}
                   </AvatarFallback>

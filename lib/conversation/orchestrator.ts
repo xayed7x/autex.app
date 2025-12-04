@@ -47,6 +47,9 @@ export interface ProcessMessageInput {
   
   /** Conversation ID */
   conversationId: string;
+  
+  /** Test mode - skips Facebook API calls (optional) */
+  isTestMode?: boolean;
 }
 
 export interface ProcessMessageResult {
@@ -64,6 +67,9 @@ export interface ProcessMessageResult {
   
   /** Order number (if created) */
   orderNumber?: string;
+
+  /** Product card data (for test bot) */
+  productCard?: any;
 }
 
 // ============================================
@@ -252,11 +258,14 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         // Send user-friendly fallback message
         const fallbackMessage = "দুঃখিত, আমাদের একটা technical সমস্যা হয়েছে। একটু পরে আবার try করুন। 🙏";
         
-        await sendMessage(
-          input.pageId,
-          input.customerPsid,
-          fallbackMessage
-        );
+        // Skip Facebook API call in test mode
+        if (!input.isTestMode) {
+          await sendMessage(
+            input.pageId,
+            input.customerPsid,
+            fallbackMessage
+          );
+        }
         
         // Log bot's fallback message
         await supabase.from('messages').insert({
@@ -299,12 +308,14 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
   } catch (error) {
     console.error('❌ Orchestrator error:', error);
     
-    // Send error message to user
-    await sendMessage(
-      input.pageId,
-      input.customerPsid,
-      'দুঃখিত! কিছু একটা সমস্যা হয়েছে। 😔 আবার চেষ্টা করুন।'
-    );
+    // Send error message to user (skip in test mode)
+    if (!input.isTestMode) {
+      await sendMessage(
+        input.pageId,
+        input.customerPsid,
+        'দুঃখিত! কিছু একটা সমস্যা হয়েছে। 😔 আবার চেষ্টা করুন।'
+      );
+    }
     
     throw error;
   } finally {
@@ -341,6 +352,7 @@ async function executeDecision(
   let updatedContext = { ...conversation.context, ...decision.updatedContext };
   let orderCreated = false;
   let orderNumber: string | undefined;
+  let productCard: any = undefined;
   
   // Execute action
   switch (decision.action) {
@@ -405,13 +417,23 @@ async function executeDecision(
     case 'CREATE_ORDER':
       // Create order in database
       console.log('📦 Creating order...');
-      orderNumber = await createOrderInDb(
-        supabase,
-        input.workspaceId,
-        input.fbPageId,
-        input.conversationId,
-        updatedContext
-      );
+      
+      if (input.isTestMode) {
+        console.log('🧪 Test mode: Skipping DB insert for order');
+        // Generate fake order number for simulation
+        const timestamp = Date.now().toString().slice(-4);
+        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+        orderNumber = `TEST-${timestamp}${random}`;
+      } else {
+        orderNumber = await createOrderInDb(
+          supabase,
+          input.workspaceId,
+          input.fbPageId,
+          input.conversationId,
+          updatedContext
+        );
+      }
+      
       orderCreated = true;
       
       // Replace PENDING with actual order number in response
@@ -480,21 +502,32 @@ async function executeDecision(
       // Send product card with image using Facebook Generic Template
       console.log('🖼️ Sending product card...');
       if (decision.actionData?.product) {
-        const { sendProductCard } = await import('@/lib/facebook/messenger');
-        
-        try {
-          await sendProductCard(
-            input.pageId,
-            input.customerPsid,
-            decision.actionData.product
-          );
-          console.log('✅ Product card sent successfully');
+        // Store product data for return
+        productCard = decision.actionData.product;
+
+        // Skip Facebook API in test mode
+        if (!input.isTestMode) {
+          const { sendProductCard } = await import('@/lib/facebook/messenger');
           
-          // Don't send additional text message - the card is the response
-          response = '';
-        } catch (error) {
-          console.error('❌ Failed to send product card:', error);
-          // Fallback to text-only message
+          try {
+            await sendProductCard(
+              input.pageId,
+              input.customerPsid,
+              decision.actionData.product
+            );
+            console.log('✅ Product card sent successfully');
+            
+            // Don't send additional text message - the card is the response
+            response = '';
+          } catch (error) {
+            console.error('❌ Failed to send product card:', error);
+            // Fallback to text-only message
+            response = `✅ Found: ${decision.actionData.product.name}\n💰 Price: ৳${decision.actionData.product.price}\n\nWould you like to order this? (YES/NO)`;
+          }
+        } else {
+          // In test mode, we still want to return the product card data
+          // But we can also set a fallback text response just in case the frontend doesn't handle cards yet
+          console.log('🧪 Test mode: Returning product card data');
           response = `✅ Found: ${decision.actionData.product.name}\n💰 Price: ৳${decision.actionData.product.price}\n\nWould you like to order this? (YES/NO)`;
         }
       }
@@ -549,7 +582,12 @@ async function executeDecision(
         .replace('{{PAYMENT_DETAILS}}', paymentDetails);
     }
 
-    await sendMessage(input.pageId, input.customerPsid, response);
+    // Skip Facebook API call in test mode
+    if (!input.isTestMode) {
+      await sendMessage(input.pageId, input.customerPsid, response);
+    } else {
+      console.log('🧪 Test mode: Skipping Facebook API call');
+    }
     
     // Log bot message
     await supabase.from('messages').insert({
@@ -568,6 +606,7 @@ async function executeDecision(
     updatedContext,
     orderCreated,
     orderNumber,
+    productCard,
   };
 }
 
@@ -636,6 +675,8 @@ async function handleImageMessage(
             category: product.category,
             description: product.description,
             variations: product.variations,
+            colors: product.colors,
+            sizes: product.sizes,
           },
         },
         confidence: imageRecognitionResult.match.confidence,

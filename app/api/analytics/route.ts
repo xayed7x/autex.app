@@ -88,7 +88,7 @@ export async function GET(request: Request) {
     // Get top products
     const { data: topProductsData, error: topProductsError } = await supabase
       .from('orders')
-      .select('product_id, total_amount, product_details')
+      .select('product_id, total_amount, product_details, products(name)')
       .eq('workspace_id', workspace.id)
       .gte('created_at', startDate.toISOString())
       .not('product_id', 'is', null)
@@ -105,8 +105,11 @@ export async function GET(request: Request) {
       if (!productId) return
       
       if (!productStats[productId]) {
+        // @ts-ignore - Supabase types might not automatically infer the joined table structure perfectly without full generation
+        const productName = order.products?.name || order.product_details?.name || 'Unknown Product'
+        
         productStats[productId] = {
-          name: order.product_details?.name || 'Unknown Product',
+          name: productName,
           revenue: 0,
           count: 0,
         }

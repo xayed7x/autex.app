@@ -8,7 +8,8 @@ import { LRUCache } from 'lru-cache';
 import { loadWorkspaceSettings, WorkspaceSettings, getDeliveryCharge } from './settings';
 
 // Re-export for convenience
-export { WorkspaceSettings, getDeliveryCharge };
+export type { WorkspaceSettings };
+export { getDeliveryCharge };
 
 // Cache configuration
 const settingsCache = new LRUCache<string, WorkspaceSettings>({

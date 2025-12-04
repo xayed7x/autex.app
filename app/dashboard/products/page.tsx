@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { AddProductModal } from '@/components/dashboard/add-product-modal';
+import { RequireFacebookPage } from '@/components/dashboard/require-facebook-page';
 
 interface Product {
   id: string;
@@ -39,7 +40,10 @@ interface PaginationData {
   totalPages: number;
 }
 
+import { useSearchParams } from 'next/navigation';
+
 export default function ProductsPage() {
+  const searchParams = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<PaginationData>({
     page: 1,
@@ -48,13 +52,20 @@ export default function ProductsPage() {
     totalPages: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
   const [sortBy, setSortBy] = useState('recent');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
+
+  // Open add modal if query param is present
+  useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setIsAddModalOpen(true);
+    }
+  }, [searchParams]);
 
   const fetchProducts = useCallback(async (page: number = 1, search: string = '', category: string = 'all', stock: string = 'all', sort: string = 'recent') => {
     try {
@@ -147,7 +158,7 @@ export default function ProductsPage() {
   const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
 
   return (
-    <>
+    <RequireFacebookPage>
       <TopBar title="Products" />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -364,6 +375,6 @@ export default function ProductsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </RequireFacebookPage>
   );
 }

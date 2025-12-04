@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Package, Wallet, MessageSquare, Bot, Settings } from "lucide-react"
 import Link from "next/link"
 import { useWorkspace } from "@/lib/workspace-provider"
+import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
 
 interface DashboardStats {
   ordersToday: number
@@ -79,7 +80,7 @@ export default function DashboardPage() {
     }
   }
   return (
-    <>
+    <RequireFacebookPage>
       <TopBar title="Overview" />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -118,7 +119,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <StatsCard
             title="Orders Today"
             value={loading ? "..." : stats.ordersToday.toString()}
@@ -149,14 +150,6 @@ export default function DashboardPage() {
             comparison="vs last week"
             icon={MessageSquare}
           />
-          <StatsCard
-            title="AI Cost This Month"
-            value={loading ? "..." : `৳${stats.aiCostThisMonth.toFixed(2)}`}
-            trend={{ value: "-12%", direction: "down", isPositive: true }}
-            comparison="vs last month"
-            icon={Bot}
-            isCurrency
-          />
         </div>
 
         {/* Alerts */}
@@ -182,6 +175,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-    </>
+    </RequireFacebookPage>
   )
 }

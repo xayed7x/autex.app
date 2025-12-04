@@ -3068,3 +3068,161 @@ Implemented dynamic, real-time notifications and order list updates to enhance t
 
 ### ⚠️ Known Issues / Deferred
 - **Notification Badge**: The unread count badge logic works but might need further refinement for "read" status persistence (currently resets on reload or relies on "recent" logic). The user has requested to defer this fix.
+ 
+ - - - 
+ 
+ 
+ 
+ # #   D a y   6 :   A n a l y t i c s   R e f i n e m e n t s   ( 2 0 2 5 - 1 2 - 0 4 ) 
+ 
+ 
+ 
+ # # #   O v e r v i e w 
+ 
+ R e f i n e d   t h e   a n a l y t i c s   d a s h b o a r d   w i t h   h i g h - c o n t r a s t   c h a r t s   f o r   b e t t e r   v i s i b i l i t y   i n   b o t h   l i g h t   a n d   d a r k   m o d e s ,   a n d   f i x e d   d a t a   a c c u r a c y   i s s u e s   i n   t h e   " T o p   P e r f o r m i n g   P r o d u c t s "   s e c t i o n . 
+ 
+ 
+ 
+ # # #   F e a t u r e s   I m p l e m e n t e d 
+ 
+ 
+ 
+ # # # #   1 .   H i g h - C o n t r a s t   C h a r t   C o l o r s 
+ 
+ -   * * F i l e s * * :   ` a p p / g l o b a l s . c s s ` ,   ` a p p / d a s h b o a r d / a n a l y t i c s / p a g e . t s x ` 
+ 
+ -   * * P r o b l e m * * :   P r e v i o u s   c h a r t   c o l o r s   w e r e   t o o   f a i n t   i n   l i g h t   m o d e   a n d   i n v i s i b l e   i n   d a r k   m o d e . 
+ 
+ -   * * S o l u t i o n * * : 
+ 
+         -   D e f i n e d   n e w   C S S   v a r i a b l e s   ( ` - - c h a r t - 1 `   t o   ` - - c h a r t - 5 ` )   w i t h   h i g h - c o n t r a s t   H S L   v a l u e s . 
+ 
+         -   * * L i g h t   M o d e * * :   B r i g h t   B l u e ,   T e a l ,   P u r p l e ,   G r e e n ,   O r a n g e . 
+ 
+         -   * * D a r k   M o d e * * :   L i g h t e r / B r i g h t e r   v a r i a n t s   o f   t h e   s a m e   c o l o r s   f o r   v i s i b i l i t y   a g a i n s t   d a r k   b a c k g r o u n d s . 
+ 
+         -   U p d a t e d   ` R e v e n u e   O v e r   T i m e `   c h a r t   t o   u s e   * * B r i g h t   B l u e * *   ( ` - - c h a r t - 1 ` )   i n s t e a d   o f   t h e   g e n e r i c   p r i m a r y   c o l o r . 
+ 
+         -   U p d a t e d   ` O r d e r s   O v e r   T i m e `   c h a r t   t o   u s e   * * T e a l * *   ( ` - - c h a r t - 2 ` )   f o r   v i s u a l   d i f f e r e n t i a t i o n . 
+ 
+ 
+ 
+ # # # #   2 .   S h a d c n   U I   C h a r t   I n t e g r a t i o n 
+ 
+ -   * * F i l e * * :   ` a p p / d a s h b o a r d / a n a l y t i c s / p a g e . t s x ` 
+ 
+ -   * * R e f a c t o r * * :   R e p l a c e d   r a w   ` R e c h a r t s `   i m p l e m e n t a t i o n   w i t h   S h a d c n   U I ' s   ` C h a r t C o n t a i n e r ` ,   ` C h a r t T o o l t i p ` ,   a n d   ` C h a r t T o o l t i p C o n t e n t ` . 
+ 
+ -   * * B e n e f i t s * * : 
+ 
+         -   C o n s i s t e n t   t o o l t i p   s t y l i n g   w i t h   t h e   r e s t   o f   t h e   a p p . 
+ 
+         -   B e t t e r   r e s p o n s i v e n e s s   a n d   l a y o u t   c o n t r o l . 
+ 
+         -   C e n t r a l i z e d   c o n f i g u r a t i o n   f o r   l a b e l s   a n d   c o l o r s . 
+ 
+ 
+ 
+ # # # #   3 .   T o p   P r o d u c t s   D a t a   F i x 
+ 
+ -   * * F i l e * * :   ` a p p / a p i / a n a l y t i c s / r o u t e . t s ` 
+ 
+ -   * * P r o b l e m * * :   " T o p   P e r f o r m i n g   P r o d u c t s "   l i s t   w a s   s h o w i n g   i n c o r r e c t   o r   m i s s i n g   n a m e s   ( e . g . ,   " U n k n o w n   P r o d u c t " )   b e c a u s e   i t   r e l i e d   o n   ` p r o d u c t _ d e t a i l s `   f r o m   t h e   o r d e r ,   w h i c h   m i g h t   b e   i n c o m p l e t e . 
+ 
+ -   * * S o l u t i o n * * : 
+ 
+         -   U p d a t e d   t h e   d a t a b a s e   q u e r y   t o   * * j o i n   t h e   ` p r o d u c t s `   t a b l e * * . 
+ 
+         -   N o w   f e t c h e s   t h e   c a n o n i c a l   ` n a m e `   d i r e c t l y   f r o m   t h e   ` p r o d u c t s `   t a b l e . 
+ 
+         -   F a l l b a c k   l o g i c :   ` p r o d u c t s . n a m e `   - >   ` o r d e r . p r o d u c t _ d e t a i l s . n a m e `   - >   " U n k n o w n   P r o d u c t " . 
+ 
+         -   E n s u r e s   a c c u r a t e   r e p o r t i n g   e v e n   i f   t h e   o r d e r   s n a p s h o t   d a t a   i s   m e s s y . 
+ 
+ 
+#### 4. Interactive Global Search
+- **Files**: components/dashboard/top-bar.tsx, pp/dashboard/orders/page.tsx, pp/dashboard/products/page.tsx
+- **Feature**: Implemented a context-aware global search bar in the top navigation.
+- **Behavior**:
+    - **Context-Aware**: Detects if the user is on the Products page or elsewhere.
+    - **Redirects**: Automatically redirects to the relevant page (/dashboard/products or /dashboard/orders) with the search query.
+    - **Deep Linking**: Both Orders and Products pages now initialize their search state from the URL query parameter, allowing for shareable search results.
+
+#### 5. Advanced Product Filtering & Sorting (AV Level Features)
+- **File**: pp/api/products/route.ts
+- **Feature**: Implemented backend logic for advanced filtering and sorting.
+- **Capabilities**:
+    - **Category Filtering**: Filter products by specific categories.
+    - **Stock Status**: Filter by 'In Stock' or 'Out of Stock'.
+    - **Sorting**:
+        - **Name**: A-Z (
+ame-asc) and Z-A (
+ame-desc).
+        - **Price**: Low to High (price-low) and High to Low (price-high).
+        - **Recency**: Recently Added (ecent - default).
+
+#### 6. Colors and Sizes in Product Card
+- **Files**: `lib/conversation/orchestrator.ts`, `lib/conversation/replies.ts`, `app/api/webhooks/facebook/route.ts`
+- **Feature**: Display available colors and sizes in the product details message.
+- **Functionality**:
+    - **Orchestrator**: Passes `colors` and `sizes` from the product data to the decision object.
+    - **Webhook**: Passes top-level `colors` and `sizes` columns when handling "View Details" postbacks.
+    - **Reply Template**: `PRODUCT_DETAILS` template updated to check for and list available colors and sizes.
+    - **User Experience**: Customers now see "🎨 Available Colors" and "📏 Available Sizes" in the chat when viewing product details.
+
+#### 7. Fast Lane Keyword Enhancement
+- **Files**: `lib/conversation/keywords.ts`, `lib/conversation/fast-lane.ts`, `lib/workspace/settings.ts`
+- **Feature**: Significantly expanded keyword detection and added new interruption categories.
+- **Details**:
+    - **Expanded Lists**: Added comprehensive keyword lists for Delivery, Payment, Returns, Product Details, and Order Intent, including English, Bangla, and Banglish variations.
+    - **New Categories**:
+        - **Urgency**: Detects queries about fast delivery or immediate need (e.g., "urgent", "ajke pabo").
+        - **Objections**: Handles trust issues, price concerns, and decision delays (e.g., "original?", "dam beshi").
+        - **Seller Questions**: Answers questions about shop location, contact info, and hours.
+    - **Fast Lane Logic**: Updated `fast-lane.ts` to detect these new categories during any state (e.g., while collecting name/address) and provide instant, relevant responses without calling the AI.
+    - **Configurable Responses**: Added new fields (`urgencyResponse`, `objectionResponse`, `sellerInfo`) to `WorkspaceSettings` with sensible defaults.
+
+## Day 6: Dynamic Dashboard & Multi-tenancy (2025-12-04)
+
+### Overview
+Refined the dashboard to be fully dynamic and multi-tenant, ensuring data isolation and robust handling of Facebook page connections. Implemented strict access controls and dynamic UI elements that adapt to the user's connected business context.
+
+### Features Implemented
+
+#### 1. Dynamic Multi-tenancy & Data Isolation
+- **Workspace-Aware Data Fetching**: All dashboard data (orders, products, notifications) is now strictly filtered by `workspace_id` and the connected `fb_page_id`.
+- **Legacy Data Handling**: Implemented logic to ignore legacy default values (e.g., "Code and Cortex") and prioritize user-defined business names or connected page names.
+- **Robust Backend Persistence**: Confirmed that the backend architecture (webhooks, order processing) continues to save data to the database independently of the frontend state, ensuring no data loss even if the user is disconnected from the dashboard.
+
+#### 2. Enforced Facebook Connection
+- **Protected Routes**: Implemented `RequireFacebookPage` component to restrict access to data-heavy pages (Orders, Products, Conversations, Analytics) when no Facebook page is connected.
+- **Direct OAuth Flow**: The "Connect Page" prompt on protected pages now directly initiates the OAuth flow (`/auth/facebook/connect`), providing a seamless user experience.
+- **Visual Feedback**: Clear, user-friendly prompts guide users to connect their page to unlock dashboard features.
+
+#### 3. Dynamic Settings & Header
+- **Dynamic Header**:
+    - **Business Name**: Prioritizes the connected Facebook Page name, falling back to the user's profile business name, and finally to "Autex AI".
+    - **Avatar**: Displays the user's profile picture fetched from the database, with a fallback to initials.
+- **Settings Page**:
+    - **Dynamic Fields**: "Business Name" and "Account Email" fields now reflect real-time data from the `profiles` and `users` tables.
+    - **Notifications Tab**: Implemented a fully functional notifications tab that mirrors the header's notification logic, showing recent orders filtered by the connected page.
+
+#### 4. Real-time Notification System
+- **Multi-tenant Notifications**: The notification bell and settings tab now fetch and display real-time order alerts specific to the current workspace and connected page.
+- **Real-time Subscriptions**: Supabase real-time channels are dynamically subscribed to based on the connected `fb_page_id`, ensuring users only receive relevant alerts.
+
+### Files Created/Modified
+
+**New Components**:
+- `components/dashboard/require-facebook-page.tsx` - Route protection component
+
+**Modified Files**:
+- `app/dashboard/settings/page.tsx` - Added notifications tab, dynamic fields
+- `components/dashboard/top-bar.tsx` - Dynamic avatar, business name, multi-tenant notifications
+- `app/dashboard/*` - Wrapped key pages with protection logic
+
+### Technical Achievements
+- ✅ **Strict Data Isolation**: Users only see data relevant to their connected page.
+- ✅ **Seamless Onboarding**: Protected routes guide users naturally to connect their page.
+- ✅ **Consistent UI/UX**: Header and Settings page share the same dynamic data logic.
+- ✅ **Real-time Multi-tenancy**: Notifications work correctly in a multi-tenant environment.

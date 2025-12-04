@@ -13,7 +13,7 @@ import { Slider } from "@/components/ui/slider"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Bot,
@@ -27,8 +27,10 @@ import {
   RotateCcw,
   Eye,
   Plus,
+  ExternalLink,
   AlertTriangle,
 } from "lucide-react"
+import { TestChatWidget } from "@/components/chat/test-chat-widget"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +42,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
 
 export default function AISetupPage() {
   // State for all settings
@@ -92,6 +95,11 @@ export default function AISetupPage() {
     return_policy: "🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।\n\n• পণ্য অব্যবহৃত থাকতে হবে\n• Original packaging এ থাকতে হবে\n• ২ দিনের মধ্যে আমাদের জানাতে হবে",
     payment_info: "💳 Payment Methods:\nআমরা নিম্নলিখিত payment methods গ্রহণ করি:\n\n• bKash: 01915969330\n• Nagad: 01915969330\n• Cash on Delivery\n\nযেকোনো method দিয়ে payment করতে পারবেন।"
   })
+
+  // Order Collection Style
+  const [orderCollectionStyle, setOrderCollectionStyle] = useState<'conversational' | 'quick_form'>('conversational')
+  const [quickFormPrompt, setQuickFormPrompt] = useState('দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:')
+  const [quickFormError, setQuickFormError] = useState('দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা')
 
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
@@ -146,6 +154,11 @@ export default function AISetupPage() {
           if (s.fast_lane_messages) {
             setFastLaneMessages({ ...fastLaneMessages, ...s.fast_lane_messages })
           }
+          
+          // Order Collection Style
+          setOrderCollectionStyle(s.order_collection_style || 'conversational')
+          setQuickFormPrompt(s.quick_form_prompt || quickFormPrompt)
+          setQuickFormError(s.quick_form_error || quickFormError)
         }
       } catch (error) {
         console.error("Error fetching settings:", error)
@@ -188,7 +201,10 @@ export default function AISetupPage() {
           sendConfirmation
         },
         showImageConfirmation,
-        fastLaneMessages
+        fastLaneMessages,
+        order_collection_style: orderCollectionStyle,
+        quick_form_prompt: quickFormPrompt,
+        quick_form_error: quickFormError,
       }
 
       const response = await fetch('/api/settings/ai', {
@@ -254,11 +270,15 @@ export default function AISetupPage() {
       payment_info: "💳 Payment Methods:\nআমরা নিম্নলিখিত payment methods গ্রহণ করি:\n\n• bKash: 01915969330\n• Nagad: 01915969330\n• Cash on Delivery\n\nযেকোনো method দিয়ে payment করতে পারবেন।"
     })
     
+    setOrderCollectionStyle('conversational')
+    setQuickFormPrompt('দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:')
+    setQuickFormError('দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা')
+    
     toast.success("Settings reset to default")
   }
 
   return (
-    <>
+    <RequireFacebookPage>
       <TopBar title="AI Setup" />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -279,28 +299,15 @@ export default function AISetupPage() {
                   Preview Bot
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Test Your Bot</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 mt-4">
-                  <p className="text-sm text-muted-foreground">
-                    Chat with your bot to see how it behaves. This is a test environment - no real orders.
-                  </p>
-                  <div className="h-64 rounded-lg bg-muted/30 border border-border p-4">
-                    <div className="bg-muted rounded-lg px-4 py-2 max-w-[80%]">
-                      <p className="text-sm whitespace-pre-line">
-                        আসসালামু আলাইকুম! 👋{"\n"}
-                        আমি Code and Cortex এর AI assistant।{"\n"}
-                        আপনি কোন product খুঁজছেন?
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Input placeholder="Type a message..." className="flex-1" />
-                    <Button>Send</Button>
-                  </div>
-                </div>
+              <DialogContent className="max-w-2xl h-[80vh] flex flex-col p-0 gap-0 overflow-hidden">
+                {/* Header is now part of the widget or we can keep it separate, 
+                    but since widget has its own header, let's remove the dialog header 
+                    or simplify it. The widget has a header, so let's just render the widget. 
+                    Actually, the widget header is nice. Let's remove the DialogHeader here 
+                    to avoid double headers or keep it if we remove widget header. 
+                    The widget header has "Clear" button. Let's keep widget header.
+                */}
+                <TestChatWidget />
               </DialogContent>
             </Dialog>
           </div>
@@ -339,36 +346,80 @@ export default function AISetupPage() {
             </CardContent>
           </Card>
 
+          { /* Order Collection Style */}
+          <Card className="bg-card border border-border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold">Order Collection Style</CardTitle>
+              <CardDescription>
+                Choose how the bot collects customer information during checkout
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <RadioGroup value={orderCollectionStyle} onValueChange={(value) => setOrderCollectionStyle(value as 'conversational' | 'quick_form')}>
+                <div className="flex items-start space-x-3 space-y-0">
+                  <RadioGroupItem value="conversational" id="conversational" />
+                  <div className="space-y-1">
+                    <Label htmlFor="conversational" className="font-medium">
+                      Conversational Flow (Default)
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Ask for name, phone, and address in separate, sequential steps. More human-like interaction.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3 space-y-0">
+                  <RadioGroupItem value="quick_form" id="quick_form" />
+                  <div className="space-y-1">
+                    <Label htmlFor="quick_form" className="font-medium">
+                      Quick Form
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Ask for all information in a single message. Faster checkout for customers.
+                    </p>
+                  </div>
+                </div>
+              </RadioGroup>
+
+              {orderCollectionStyle === 'quick_form' && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="quick_form_prompt">Quick Form Prompt Message</Label>
+                    <Textarea
+                      id="quick_form_prompt"
+                      value={quickFormPrompt}
+                      onChange={(e) => setQuickFormPrompt(e.target.value)}
+                      placeholder="Message asking for name, phone, and address..."
+                      rows={6}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This message is shown when customer confirms they want to order the product
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="quick_form_error">Quick Form Error Message</Label>
+                    <Textarea
+                      id="quick_form_error"
+                      value={quickFormError}
+                      onChange={(e) => setQuickFormError(e.target.value)}
+                      placeholder="Error message when parsing fails..."
+                      rows={8}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown when the bot cannot parse the customer's information. Include format examples.
+                    </p>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Conversation Style */}
           <Card className="bg-card border border-border shadow-sm">
             <CardHeader>
               <CardTitle className="text-base font-semibold">Conversation Style</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div>
-                <Label>Tone Selection</Label>
-                <RadioGroup value={tone} onValueChange={setTone} className="mt-2">
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="friendly" id="friendly" />
-                    <Label htmlFor="friendly" className="font-normal">
-                      Friendly (default)
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="professional" id="professional" />
-                    <Label htmlFor="professional" className="font-normal">
-                      Professional
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="casual" id="casual" />
-                    <Label htmlFor="casual" className="font-normal">
-                      Casual
-                    </Label>
-                  </div>
-                </RadioGroup>
-              </div>
-
               <div>
                 <Label>Language Mix</Label>
                 <div className="mt-3 space-y-3">
@@ -401,38 +452,6 @@ export default function AISetupPage() {
             </CardContent>
           </Card>
 
-          {/* Product Matching */}
-          <Card className="bg-card border border-border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Package className="h-4 w-4" />
-                Product Matching Confidence
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span>Minimum confidence to auto-confirm</span>
-                  <span className="font-semibold text-lg">{confidence[0]}%</span>
-                </div>
-                <Slider value={confidence} onValueChange={setConfidence} min={50} max={100} step={5} />
-                <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                  <span>Lower = More matches (less accurate)</span>
-                  <span>Higher = Fewer matches (more accurate)</span>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox 
-                  id="image-confirm" 
-                  checked={showImageConfirmation}
-                  onCheckedChange={(c) => setShowImageConfirmation(!!c)}
-                />
-                <Label htmlFor="image-confirm" className="font-normal text-sm">
-                  Always show image confirmation (recommended)
-                </Label>
-              </div>
-            </CardContent>
-          </Card>
 
           {/* Delivery Information */}
           <Card className="bg-card border border-border shadow-sm">
@@ -682,6 +701,7 @@ export default function AISetupPage() {
           </Card>
         </div>
 
+
         {/* Fast Lane Messages */}
         <Card className="bg-card border border-border shadow-sm">
           <CardHeader>
@@ -921,6 +941,6 @@ export default function AISetupPage() {
           </AlertDialog>
         </div>
       </div>
-    </>
+    </RequireFacebookPage>
   )
 }

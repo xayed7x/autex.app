@@ -5,12 +5,13 @@ import { TopBar } from "@/components/dashboard/top-bar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ScrollArea } from "@/components/ui/scroll-area"
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import { Search, Send, ArrowLeft, ExternalLink, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
 
 type ConversationStatus = "IDLE" | "AWAITING_NAME" | "AWAITING_PHONE" | "AWAITING_ADDRESS" | "ORDER_COMPLETE"
 
@@ -35,11 +36,7 @@ interface Conversation {
   message_count: number
   last_message: Message | null
   messages?: Message[]
-  // Facebook profile data (fetched separately)
-  fb_profile?: {
-    name: string
-    profile_pic: string
-  }
+  customer_profile_pic_url?: string | null
 }
 
 const statusIndicator: Record<string, string> = {
@@ -70,7 +67,15 @@ export default function ConversationsPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [selectedConversation?.messages, detailLoading])
 
   useEffect(() => {
     fetchConversations()
@@ -107,39 +112,12 @@ export default function ConversationsPage() {
       const data = await response.json()
       const conversationsData = data.conversations || []
       
-      // Fetch Facebook profiles for all conversations (non-blocking)
-      const conversationsWithProfiles = await Promise.all(
-        conversationsData.map(async (conv: Conversation) => {
-          try {
-            const profileResponse = await fetch(
-              `/api/facebook/user-profile?psid=${conv.customer_psid}&pageId=${conv.fb_page_id}`
-            )
-            if (profileResponse.ok) {
-              const profileData = await profileResponse.json()
-              // Only add profile if we got valid data (not null)
-              if (profileData.name && profileData.profile_pic) {
-                return {
-                  ...conv,
-                  fb_profile: {
-                    name: profileData.name,
-                    profile_pic: profileData.profile_pic,
-                  },
-                }
-              }
-            }
-          } catch (error) {
-            // Silently fail - just use customer_name instead
-            console.debug('Could not fetch Facebook profile for', conv.customer_psid)
-          }
-          return conv
-        })
-      )
-      
-      setConversations(conversationsWithProfiles)
+
+      setConversations(conversationsData)
       
       // Auto-select first conversation if none selected
-      if (!selectedConversation && conversationsWithProfiles.length > 0) {
-        handleSelectConversation(conversationsWithProfiles[0])
+      if (!selectedConversation && conversationsData.length > 0) {
+        handleSelectConversation(conversationsData[0])
       }
     } catch (error) {
       console.error("Error fetching conversations:", error)
@@ -288,7 +266,7 @@ export default function ConversationsPage() {
   }
 
   return (
-    <>
+    <RequireFacebookPage>
       <TopBar title="Conversations" />
 
       <div className="flex h-[calc(100vh-4rem)]">
@@ -329,7 +307,7 @@ export default function ConversationsPage() {
           </div>
 
           {/* Conversation List */}
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center p-8">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -354,15 +332,15 @@ export default function ConversationsPage() {
                   >
                     <div className="flex items-start gap-3">
                       <Avatar className="h-10 w-10">
-                        <AvatarImage src={conv.fb_profile?.profile_pic} alt={conv.fb_profile?.name || conv.customer_name} />
+                        <AvatarImage src={conv.customer_profile_pic_url || undefined} alt={conv.customer_name} />
                         <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                          {(conv.fb_profile?.name || conv.customer_name || 'U').substring(0, 2).toUpperCase()}
+                          {(conv.customer_name || 'U').substring(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium text-sm truncate">
-                            {conv.fb_profile?.name || conv.customer_name || "Unknown Customer"}
+                            {conv.customer_name || "Unknown Customer"}
                           </span>
                           <span className="text-xs text-muted-foreground whitespace-nowrap">
                             {formatTime(conv.last_message_at)}
@@ -380,30 +358,30 @@ export default function ConversationsPage() {
                 ))}
               </div>
             )}
-          </ScrollArea>
+          </div>
         </div>
 
         {/* Chat Panel - Right Panel */}
-        <div className={cn("flex-1 flex flex-col bg-background", mobileView === "list" && "hidden lg:flex")}>
+        <div className={cn("flex-1 flex flex-col bg-background h-full overflow-hidden", mobileView === "list" && "hidden lg:flex")}>
           {selectedConversation ? (
             <>
               {/* Chat Header */}
-              <div className="p-4 border-b border-border flex items-center gap-4">
+              <div className="p-4 border-b border-border flex items-center gap-4 shrink-0 bg-background z-10">
                 <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileView("list")}>
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
                 <Avatar className="h-10 w-10">
                   <AvatarImage 
-                    src={selectedConversation.fb_profile?.profile_pic} 
-                    alt={selectedConversation.fb_profile?.name || selectedConversation.customer_name} 
+                    src={selectedConversation.customer_profile_pic_url || undefined} 
+                    alt={selectedConversation.customer_name} 
                   />
                   <AvatarFallback className="bg-primary text-primary-foreground">
-                    {(selectedConversation.fb_profile?.name || selectedConversation.customer_name || 'U').substring(0, 2).toUpperCase()}
+                    {(selectedConversation.customer_name || 'U').substring(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <h3 className="font-semibold">
-                    {selectedConversation.fb_profile?.name || selectedConversation.customer_name || "Unknown Customer"}
+                    {selectedConversation.customer_name || "Unknown Customer"}
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     {statusLabels[selectedConversation.current_state] || selectedConversation.current_state}
@@ -422,55 +400,60 @@ export default function ConversationsPage() {
               </div>
 
               {/* Messages */}
-              <ScrollArea className="flex-1 p-4">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {detailLoading ? (
                   <div className="flex items-center justify-center h-full">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {selectedConversation.messages && selectedConversation.messages.length > 0 ? (
-                      selectedConversation.messages.map((message) => (
-                        <div
-                          key={message.id}
-                          className={cn("flex flex-col", message.sender === "customer" ? "items-end" : "items-start")}
-                        >
-                          <span className="text-[10px] text-muted-foreground mb-1 px-1">
-                            {getSenderLabel(message.sender)}
-                          </span>
+                  <div className="flex flex-col justify-end min-h-full">
+                    <div className="space-y-4">
+                      {selectedConversation.messages && selectedConversation.messages.length > 0 ? (
+                        selectedConversation.messages.map((message) => (
                           <div
-                            className={cn(
-                              "max-w-[70%] rounded-lg px-4 py-2",
-                              getSenderBgColor(message.sender),
-                            )}
+                            key={message.id}
+                            className={cn("flex flex-col", message.sender === "customer" ? "items-end" : "items-start")}
                           >
-                            <p className="text-sm whitespace-pre-line">{message.message_text}</p>
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                              {formatMessageTime(message.created_at)}
-                              {message.id.startsWith('temp-') && (
-                                <span className="ml-2 italic">Sending...</span>
+                            <span className="text-[10px] text-muted-foreground mb-1 px-1">
+                              {getSenderLabel(message.sender)}
+                            </span>
+                            <div
+                              className={cn(
+                                "max-w-[70%] rounded-lg px-4 py-2",
+                                getSenderBgColor(message.sender),
                               )}
-                            </p>
+                            >
+                              <p className="text-sm whitespace-pre-line">{message.message_text}</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                {formatMessageTime(message.created_at)}
+                                {message.id.startsWith('temp-') && (
+                                  <span className="ml-2 italic">Sending...</span>
+                                )}
+                              </p>
+                            </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm py-10">
+                          No messages in this conversation
                         </div>
-                      ))
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                        No messages in this conversation
-                      </div>
-                    )}
+                      )}
 
-                    {/* Order Created System Message */}
-                    {getOrderIdFromContext(selectedConversation.context) && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <div className="flex-1 h-px bg-border" />
-                        <span>Order Created</span>
-                        <div className="flex-1 h-px bg-border" />
-                      </div>
-                    )}
+                      {/* Order Created System Message */}
+                      {getOrderIdFromContext(selectedConversation.context) && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground my-4">
+                          <div className="flex-1 h-px bg-border" />
+                          <span>Order Created</span>
+                          <div className="flex-1 h-px bg-border" />
+                        </div>
+                      )}
+                      
+                      {/* Invisible element to scroll to */}
+                      <div ref={messagesEndRef} />
+                    </div>
                   </div>
                 )}
-              </ScrollArea>
+              </div>
 
               {/* Chat Input - Manual Messaging */}
               <div className="p-4 border-t border-border">
@@ -516,6 +499,6 @@ export default function ConversationsPage() {
           )}
         </div>
       </div>
-    </>
+    </RequireFacebookPage>
   )
 }

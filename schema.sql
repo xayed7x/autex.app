@@ -21,6 +21,8 @@ CREATE TABLE public.conversations (
   context jsonb,
   last_message_at timestamp with time zone DEFAULT now(),
   created_at timestamp with time zone DEFAULT now(),
+  is_test boolean DEFAULT false,
+  customer_profile_pic_url text,
   CONSTRAINT conversations_pkey PRIMARY KEY (id),
   CONSTRAINT conversations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT conversations_fb_page_id_fkey FOREIGN KEY (fb_page_id) REFERENCES public.facebook_pages(id)
@@ -31,6 +33,7 @@ CREATE TABLE public.facebook_pages (
   page_name text NOT NULL,
   encrypted_access_token text NOT NULL,
   created_at timestamp with time zone DEFAULT now(),
+  status text NOT NULL DEFAULT 'connected'::text CHECK (status = ANY (ARRAY['connected'::text, 'disconnected'::text])),
   CONSTRAINT facebook_pages_pkey PRIMARY KEY (id),
   CONSTRAINT facebook_pages_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -78,6 +81,7 @@ CREATE TABLE public.orders (
   product_image_url text,
   product_variations jsonb,
   payment_last_two_digits text,
+  is_test boolean DEFAULT false,
   CONSTRAINT orders_pkey PRIMARY KEY (id),
   CONSTRAINT orders_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT orders_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
@@ -110,6 +114,8 @@ CREATE TABLE public.products (
   visual_features jsonb,
   image_hashes ARRAY DEFAULT '{}'::text[],
   search_keywords ARRAY DEFAULT '{}'::text[],
+  colors ARRAY DEFAULT '{}'::text[],
+  sizes ARRAY DEFAULT '{}'::text[],
   CONSTRAINT products_pkey PRIMARY KEY (id),
   CONSTRAINT products_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -172,6 +178,24 @@ Screenshot পাঠালে আমরা verify করব।'::text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   fast_lane_messages jsonb DEFAULT '{"name_collected": "আপনার সাথে পরিচিত হয়ে ভালো লাগলো, {name}! 😊\n\nএখন আপনার ফোন নম্বর দিন। 📱\n(Example: 01712345678)", "order_cancelled": "অর্ডার cancel করা হয়েছে। 😊\n\nকোনো সমস্যা নেই! নতুন অর্ডার করতে product এর ছবি পাঠান।", "order_confirmed": "✅ অর্ডারটি কনফার্ম করা হয়েছে!\n\nআপনার অর্ডার সফলভাবে সম্পন্ন হয়েছে। শীঘ্রই আমরা আপনার সাথে যোগাযোগ করবো।\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉", "phone_collected": "পেয়েছি! 📱\n\nএখন আপনার ডেলিভারি ঠিকানাটি দিন। 📍\n(Example: House 123, Road 4, Dhanmondi, Dhaka)", "product_confirm": "দারুণ! 🎉\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)", "product_decline": "কোনো সমস্যা নেই! 😊\n\nঅন্য product এর ছবি পাঠান অথবা \"help\" লিখুন।"}'::jsonb,
+  order_collection_style text NOT NULL DEFAULT 'conversational'::text CHECK (order_collection_style = ANY (ARRAY['conversational'::text, 'quick_form'::text])),
+  quick_form_prompt text NOT NULL DEFAULT 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:
+
+নাম:
+ফোন:
+সম্পূর্ণ ঠিকানা:'::text,
+  quick_form_error text NOT NULL DEFAULT 'দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔
+
+অনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:
+
+নাম: আপনার নাম
+ফোন: 017XXXXXXXX
+ঠিকানা: আপনার সম্পূর্ণ ঠিকানা
+
+অথবা একটি লাইন করে দিতে পারেন:
+আপনার নাম
+017XXXXXXXX
+আপনার সম্পূর্ণ ঠিকানা'::text,
   CONSTRAINT workspace_settings_pkey PRIMARY KEY (id),
   CONSTRAINT workspace_settings_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );

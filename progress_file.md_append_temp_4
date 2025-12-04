@@ -1,0 +1,16 @@
+
+### Admin Dashboard & Refinements
+- **Admin Dashboard**: Created a dedicated dashboard for tracking AI investment and usage.
+  - **Route**: `/dashboard/admin`
+  - **Features**:
+    - **Total Investment**: Real-time tracking of total AI costs in BDT (৳).
+    - **Cost Breakdown**: Visual charts (Pie & Bar) separating costs by feature (Image Recognition, Chatbot, Auto-tagging).
+    - **Usage History**: 30-day timeline of AI spending.
+  - **Currency**: Converted all costs to BDT (approx. 1 USD = 120 BDT).
+- **Dashboard Overview**:
+  - Removed "AI Cost" card from the main user dashboard to keep it focused on business metrics (Orders, Revenue, Messages).
+  - Updated layout to a clean 3-column grid.
+- **Files Created/Modified**:
+  - `app/dashboard/admin/page.tsx` (New)
+  - `app/api/admin/usage/route.ts` (New)
+  - `app/dashboard/page.tsx` (Modified)

@@ -156,6 +156,25 @@ async function processMessagingEvent(
           .single();
         
         if (product) {
+          // Load workspace settings to check order collection style
+          const { data: fbPage } = await supabase
+            .from('facebook_pages')
+            .select('workspace_id')
+            .eq('id', parseInt(pageId))
+            .single();
+          
+          if (!fbPage) return;
+          
+          const { getCachedSettings } = await import('@/lib/workspace/settings-cache');
+          const settings = await getCachedSettings(fbPage.workspace_id);
+          
+          // Determine state and message based on order collection style
+          const isQuickForm = settings.order_collection_style === 'quick_form';
+          const targetState = isQuickForm ? 'AWAITING_CUSTOMER_DETAILS' : 'COLLECTING_NAME';
+         
+          console.log(`🔍 [ORDER_PRODUCT] Order collection style: ${settings.order_collection_style}`);
+          console.log(`🔍 [ORDER_PRODUCT] Target state: ${targetState}`);
+          
           // Find or create conversation
           let { data: conversation } = await supabase
             .from('conversations')
@@ -165,46 +184,22 @@ async function processMessagingEvent(
             .single();
           
           if (!conversation) {
-            // Create conversation if doesn't exist
-            const { data: fbPage } = await supabase
-              .from('facebook_pages')
-              .select('workspace_id')
-              .eq('id', parseInt(pageId))
-              .single();
-            
-            if (fbPage) {
-              const { data: newConv } = await supabase
-                .from('conversations')
-                .insert({
-                  workspace_id: fbPage.workspace_id,
-                  fb_page_id: parseInt(pageId),
-                  customer_psid: customerPsid,
-                  current_state: 'COLLECTING_NAME',
-                  context: {
-                    state: 'COLLECTING_NAME',
-                    cart: [{
-                      productId: product.id,
-                      productName: product.name,
-                      productPrice: product.price,
-                      productImageUrl: product.image_urls?.[0],
-                      quantity: 1,
-                    }],
-                    checkout: {},
-                  },
-                })
-                .select()
-                .single();
-              conversation = newConv;
-            }
-          } else {
-            // Update existing conversation
-            await supabase
+            // Fetch profile for new conversation
+            const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+            const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
+
+            // Create conversation
+            const { data: newConv } = await supabase
               .from('conversations')
-              .update({
-                current_state: 'COLLECTING_NAME',
+              .insert({
+                workspace_id: fbPage.workspace_id,
+                fb_page_id: parseInt(pageId),
+                customer_psid: customerPsid,
+                customer_name: profile?.name || 'Unknown Customer',
+                customer_profile_pic_url: profile?.profile_pic,
+                current_state: targetState,
                 context: {
-                  ...conversation.context,
-                  state: 'COLLECTING_NAME',
+                  state: targetState,
                   cart: [{
                     productId: product.id,
                     productName: product.name,
@@ -212,15 +207,58 @@ async function processMessagingEvent(
                     productImageUrl: product.image_urls?.[0],
                     quantity: 1,
                   }],
+                  checkout: {},
                 },
               })
+              .select()
+              .single();
+            conversation = newConv;
+          } else {
+            // Update existing conversation
+            const updates: any = {
+              current_state: targetState,
+              context: {
+                ...conversation.context,
+                state: targetState,
+                cart: [{
+                  productId: product.id,
+                  productName: product.name,
+                  productPrice: product.price,
+                  productImageUrl: product.image_urls?.[0],
+                  quantity: 1,
+                }],
+              },
+            };
+
+            // Backfill profile if missing
+            if (!conversation.customer_profile_pic_url) {
+               const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+               const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
+               if (profile) {
+                 updates.customer_name = profile.name;
+                 updates.customer_profile_pic_url = profile.profile_pic;
+               }
+            }
+
+            await supabase
+              .from('conversations')
+              .update(updates)
               .eq('id', conversation.id);
           }
           
-          // Send "Ask for name" message
+          // Send appropriate message based on collection style
           const { sendMessage } = await import('@/lib/facebook/messenger');
-          const { Replies } = await import('@/lib/conversation/replies');
-          await sendMessage(pageId, customerPsid, Replies.ASK_NAME());
+          
+          if (isQuickForm) {
+            // Send quick form prompt
+            const message = settings.quick_form_prompt || 
+              'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
+            await sendMessage(pageId, customerPsid, message);
+          } else {
+            // Send conversational ask name message
+            const { Replies } = await import('@/lib/conversation/replies');
+            await sendMessage(pageId, customerPsid, Replies.ASK_NAME());
+          }
         }
         return;
       }
@@ -238,6 +276,64 @@ async function processMessagingEvent(
           .single();
         
         if (product) {
+          // ENSURE CONVERSATION EXISTS & LOG MESSAGE
+          const { data: fbPage } = await supabase
+            .from('facebook_pages')
+            .select('id, workspace_id')
+            .eq('id', parseInt(pageId))
+            .single();
+
+          if (fbPage) {
+            let { data: conversation } = await supabase
+              .from('conversations')
+              .select('*')
+              .eq('fb_page_id', fbPage.id)
+              .eq('customer_psid', customerPsid)
+              .single();
+
+            if (!conversation) {
+              // Fetch profile
+              const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+              const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
+
+              const { data: newConv } = await supabase
+                .from('conversations')
+                .insert({
+                  workspace_id: fbPage.workspace_id,
+                  fb_page_id: fbPage.id,
+                  customer_psid: customerPsid,
+                  customer_name: profile?.name || 'Unknown Customer',
+                  customer_profile_pic_url: profile?.profile_pic,
+                  current_state: 'IDLE',
+                  context: { state: 'IDLE', cart: [], checkout: {} },
+                  last_message_at: new Date(timestamp).toISOString(),
+                })
+                .select()
+                .single();
+              conversation = newConv;
+            } else if (!conversation.customer_profile_pic_url) {
+               // Backfill profile
+               const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+               const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
+               if (profile) {
+                 await supabase.from('conversations').update({
+                   customer_name: profile.name,
+                   customer_profile_pic_url: profile.profile_pic
+                 }).eq('id', conversation.id);
+               }
+            }
+
+            // Log the user interaction as a message
+            if (conversation) {
+              await supabase.from('messages').insert({
+                conversation_id: conversation.id,
+                sender: 'customer',
+                message_text: `View Details: ${product.name}`,
+                message_type: 'postback',
+              });
+            }
+          }
+
           // Parse variations if available
           let variations;
           if (product.variations) {
@@ -258,6 +354,8 @@ async function processMessagingEvent(
             stock: product.stock_quantity,
             category: product.category,
             variations,
+            colors: product.colors,
+            sizes: product.sizes,
           });
           
           await sendMessage(pageId, customerPsid, detailsMessage);
@@ -345,33 +443,9 @@ async function processMessagingEvent(
       .single();
 
     if (convError || !conversation) {
-      // Fetch customer name from Facebook
-      let customerName = 'Unknown Customer';
-      try {
-        const { decryptToken } = await import('@/lib/facebook/crypto-utils');
-        const { data: pageData } = await supabase
-          .from('facebook_pages')
-          .select('encrypted_access_token')
-          .eq('id', fbPage.id)
-          .single();
-        
-        if (pageData) {
-          const accessToken = decryptToken(pageData.encrypted_access_token);
-          const profileUrl = `https://graph.facebook.com/v19.0/${customerPsid}?fields=name&access_token=${accessToken}`;
-          const profileResponse = await fetch(profileUrl);
-          
-          if (profileResponse.ok) {
-            const profileData = await profileResponse.json();
-            if (profileData.name) {
-              customerName = profileData.name;
-              console.log(`✅ Fetched customer name: ${customerName}`);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Could not fetch customer name:', error);
-        // Continue with default name
-      }
+      // Fetch profile
+      const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+      const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
       
       // Create new conversation
       const { data: newConversation, error: createError } = await supabase
@@ -380,7 +454,8 @@ async function processMessagingEvent(
           workspace_id: fbPage.workspace_id,
           fb_page_id: fbPage.id,
           customer_psid: customerPsid,
-          customer_name: customerName,
+          customer_name: profile?.name || 'Unknown Customer',
+          customer_profile_pic_url: profile?.profile_pic,
           current_state: 'IDLE',
           context: { 
             state: 'IDLE',
@@ -401,6 +476,16 @@ async function processMessagingEvent(
       }
 
       conversation = newConversation;
+    } else if (!conversation.customer_profile_pic_url) {
+       // Backfill profile for existing conversation
+       const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+       const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
+       if (profile) {
+         await supabase.from('conversations').update({
+           customer_name: profile.name,
+           customer_profile_pic_url: profile.profile_pic
+         }).eq('id', conversation.id);
+       }
     }
 
     // ========================================

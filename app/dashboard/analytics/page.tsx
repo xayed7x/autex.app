@@ -15,7 +15,9 @@ import {
   Trophy,
   Loader2,
 } from "lucide-react"
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts"
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, BarChart, Bar, Cell } from "recharts"
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
 
 interface AnalyticsData {
   salesByDate: Array<{ date: string; revenue: number; orders: number }>
@@ -81,7 +83,7 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <>
+    <RequireFacebookPage>
       <TopBar title="Analytics" />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -152,36 +154,62 @@ export default function AnalyticsPage() {
               </CardHeader>
               <CardContent>
                 {formatChartData().length > 0 ? (
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ChartContainer
+                      config={{
+                        revenue: {
+                          label: "Revenue",
+                          color: "hsl(var(--chart-1))",
+                        },
+                      }}
+                      className="h-[300px] w-full"
+                    >
                       <AreaChart data={formatChartData()}>
                         <defs>
-                          <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          <linearGradient id="fillRevenue" x1="0" y1="0" x2="0" y2="1">
+                            <stop
+                              offset="5%"
+                              stopColor="hsl(var(--chart-1))"
+                              stopOpacity={0.3}
+                            />
+                            <stop
+                              offset="95%"
+                              stopColor="hsl(var(--chart-1))"
+                              stopOpacity={0.05}
+                            />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="date" className="text-xs fill-muted-foreground" />
-                        <YAxis className="text-xs fill-muted-foreground" tickFormatter={(value) => `৳${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(var(--card))",
-                            borderColor: "hsl(var(--border))",
-                            borderRadius: "0.5rem",
-                          }}
-                          formatter={(value: number) => [`৳${value.toLocaleString()}`, "Revenue"]}
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="var(--border)"
+                          strokeOpacity={0.3}
+                          vertical={false}
                         />
+                        <XAxis
+                          dataKey="date"
+                          stroke="var(--muted-foreground)"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          stroke="var(--muted-foreground)"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `৳${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
+                        />
+                        <ChartTooltip content={<ChartTooltipContent />} />
                         <Area
                           type="monotone"
                           dataKey="revenue"
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          fill="url(#revenueGradient)"
+                          stroke="hsl(var(--chart-1))"
+                          strokeWidth={2.5}
+                          fill="url(#fillRevenue)"
+                          dot={false}
+                          activeDot={{ r: 6, fill: "hsl(var(--chart-1))" }}
                         />
                       </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
+                    </ChartContainer>
                 ) : (
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
                     No revenue data for this period
@@ -202,23 +230,50 @@ export default function AnalyticsPage() {
                 </CardHeader>
                 <CardContent>
                   {formatStatusData().length > 0 ? (
-                    <div className="h-[250px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={formatStatusData()}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                          <XAxis dataKey="status" className="text-xs fill-muted-foreground" />
-                          <YAxis className="text-xs fill-muted-foreground" />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: "hsl(var(--card))",
-                              borderColor: "hsl(var(--border))",
-                              borderRadius: "0.5rem",
-                            }}
-                          />
-                          <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
+                    <ChartContainer
+                      config={{
+                        pending: { label: "Pending", color: "hsl(var(--chart-3))" },
+                        confirmed: { label: "Confirmed", color: "hsl(var(--chart-4))" },
+                        shipped: { label: "Shipped", color: "hsl(var(--chart-5))" },
+                        delivered: { label: "Delivered", color: "hsl(var(--chart-1))" },
+                        cancelled: { label: "Cancelled", color: "hsl(var(--destructive))" },
+                      }}
+                      className="h-[250px] w-full"
+                    >
+                      <BarChart data={formatStatusData()}>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="var(--border)"
+                          strokeOpacity={0.3}
+                          vertical={false}
+                        />
+                        <XAxis
+                          dataKey="status"
+                          stroke="var(--muted-foreground)"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          stroke="var(--muted-foreground)"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar
+                          dataKey="count"
+                          radius={[8, 8, 0, 0]}
+                        >
+                          {/* Different colors per status */}
+                          <Cell fill="hsl(var(--chart-3))" /> {/* Pending - Blue */}
+                          <Cell fill="hsl(var(--chart-4))" /> {/* Confirmed - Green */}
+                          <Cell fill="hsl(var(--chart-5))" /> {/* Shipped - Orange */}
+                          <Cell fill="hsl(var(--chart-1))" /> {/* Delivered - Purple */}
+                          <Cell fill="hsl(var(--destructive))" /> {/* Cancelled - Red */}
+                        </Bar>
+                      </BarChart>
+                    </ChartContainer>
                   ) : (
                     <div className="h-[250px] flex items-center justify-center text-muted-foreground">
                       No order data available
@@ -237,36 +292,61 @@ export default function AnalyticsPage() {
                 </CardHeader>
                 <CardContent>
                   {formatChartData().length > 0 ? (
-                    <div className="h-[250px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={formatChartData()}>
-                          <defs>
-                            <linearGradient id="ordersGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                          <XAxis dataKey="date" className="text-xs fill-muted-foreground" />
-                          <YAxis className="text-xs fill-muted-foreground" />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: "hsl(var(--card))",
-                              borderColor: "hsl(var(--border))",
-                              borderRadius: "0.5rem",
-                            }}
-                            formatter={(value: number) => [value, "Orders"]}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="orders"
-                            stroke="hsl(var(--primary))"
-                            strokeWidth={2}
-                            fill="url(#ordersGradient)"
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
+                    <ChartContainer
+                      config={{
+                        orders: {
+                          label: "Orders",
+                          color: "hsl(var(--chart-2))",
+                        },
+                      }}
+                      className="h-[250px] w-full"
+                    >
+                      <AreaChart data={formatChartData()}>
+                        <defs>
+                          <linearGradient id="fillOrders" x1="0" y1="0" x2="0" y2="1">
+                            <stop
+                              offset="5%"
+                              stopColor="hsl(var(--chart-2))"
+                              stopOpacity={0.3}
+                            />
+                            <stop
+                              offset="95%"
+                              stopColor="hsl(var(--chart-2))"
+                              stopOpacity={0.05}
+                            />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="var(--border)"
+                          strokeOpacity={0.3}
+                          vertical={false}
+                        />
+                        <XAxis
+                          dataKey="date"
+                          stroke="var(--muted-foreground)"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          stroke="var(--muted-foreground)"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Area
+                          type="monotone"
+                          dataKey="orders"
+                          stroke="hsl(var(--chart-2))"
+                          strokeWidth={2.5}
+                          fill="url(#fillOrders)"
+                          dot={false}
+                          activeDot={{ r: 6, fill: "hsl(var(--chart-2))" }}
+                        />
+                      </AreaChart>
+                    </ChartContainer>
                   ) : (
                     <div className="h-[250px] flex items-center justify-center text-muted-foreground">
                       No order data for this period
@@ -320,6 +400,6 @@ export default function AnalyticsPage() {
           </div>
         )}
       </div>
-    </>
+    </RequireFacebookPage>
   )
 }

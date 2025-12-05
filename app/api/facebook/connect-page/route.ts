@@ -5,8 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { encryptToken } from '@/lib/facebook/crypto-utils';
 import { cookies } from 'next/headers';
+import type { Database } from '@/types/supabase';
 
 const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID!;
 const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET!;
@@ -51,8 +53,14 @@ export async function POST(request: NextRequest) {
     const workspaceId = workspaceData.workspace_id;
     console.log('✅ User workspace:', workspaceId);
     
+    // Create a service role client for database operations that need to bypass RLS
+    const supabaseAdmin = createServiceClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    
     // Check if workspace already has a connected page
-    const { data: existingPages, error: checkError } = await supabase
+    const { data: existingPages, error: checkError } = await supabaseAdmin
       .from('facebook_pages')
       .select('id, page_name')
       .eq('workspace_id', workspaceId)
@@ -123,12 +131,12 @@ export async function POST(request: NextRequest) {
     const encryptedToken = encryptToken(longLivedToken);
     console.log('✅ Token encrypted');
     
-    // Step 3: Save to database (upsert to handle reconnections)
+    // Step 3: Save to database using admin client to bypass RLS
     console.log('💾 Saving to database...');
-    const { data: pageData, error: dbError } = await supabase
+    const { data: pageData, error: dbError } = await supabaseAdmin
       .from('facebook_pages')
       .upsert({
-        id: pageId, // Keep as string, Supabase will handle the bigint conversion
+        id: BigInt(pageId) as unknown as number, // Convert to BigInt for bigint column
         workspace_id: workspaceId,
         page_name: pageName,
         encrypted_access_token: encryptedToken,

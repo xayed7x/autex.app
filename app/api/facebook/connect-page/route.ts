@@ -10,6 +10,9 @@ import { encryptToken } from '@/lib/facebook/crypto-utils';
 import { cookies } from 'next/headers';
 import type { Database } from '@/types/supabase';
 
+// Enable BigInt JSON serialization
+import '@/lib/utils/bigint-serializer';
+
 const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID!;
 const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET!;
 

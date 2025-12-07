@@ -59,6 +59,22 @@ CREATE TABLE public.messages (
   CONSTRAINT messages_pkey PRIMARY KEY (id),
   CONSTRAINT messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
 );
+CREATE TABLE public.order_items (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  order_id uuid NOT NULL,
+  product_id uuid,
+  product_name text NOT NULL,
+  product_price numeric NOT NULL,
+  quantity integer NOT NULL DEFAULT 1,
+  selected_size text,
+  selected_color text,
+  subtotal numeric NOT NULL,
+  product_image_url text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT order_items_pkey PRIMARY KEY (id),
+  CONSTRAINT order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.orders(id),
+  CONSTRAINT order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
+);
 CREATE TABLE public.orders (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   workspace_id uuid NOT NULL,

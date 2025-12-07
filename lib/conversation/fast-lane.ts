@@ -13,10 +13,10 @@
  * - Greetings
  */
 
-import { ConversationContext, ConversationState, CartItem } from '@/types/conversation';
+import { ConversationContext, ConversationState, CartItem, PendingImage } from '@/types/conversation';
 import { WorkspaceSettings } from '@/lib/workspace/settings';
 import { Replies } from './replies';
-import { getInterruptionType, isDetailsRequest, isOrderIntent } from './keywords';
+import { getInterruptionType, isDetailsRequest, isOrderIntent, detectAllIntent, detectItemNumbers } from './keywords';
 
 // ============================================
 // HELPER FUNCTIONS
@@ -137,9 +137,9 @@ const YES_PATTERNS = [
 ];
 
 const NO_PATTERNS = [
-  /^(no|nope|nah|n)$/i,
-  /^(na|nai|nahi)$/i,
-  /^(না|নাই|নাহ|ভুল|বাতিল)$/i,
+  /^(no|nope|nah|n|cancel)$/i,  // English + "cancel" we tell users to type
+  /^(na|nai|nahi)$/i,            // Banglish
+  /^(না|নাই|নাহ|ভুল|বাতিল)$/i,  // Bangla
 ];
 
 // Name patterns (simple heuristic)
@@ -205,6 +205,12 @@ export function tryFastLane(
   switch (currentState) {
     case 'CONFIRMING_PRODUCT':
       return handleConfirmingProduct(trimmedInput, currentContext, settings);
+    
+    case 'SELECTING_CART_ITEMS':
+      return handleSelectingCartItems(trimmedInput, currentContext, settings);
+    
+    case 'COLLECTING_MULTI_VARIATIONS':
+      return handleCollectingMultiVariations(trimmedInput, currentContext, settings);
     
     case 'COLLECTING_NAME':
       return handleCollectingName(trimmedInput, currentContext, settings);
@@ -349,6 +355,28 @@ function handleConfirmingProduct(
     if (settings?.order_collection_style === 'quick_form') {
       console.log('✅ [QUICK_FORM] Activating quick form mode!');
       
+      // Check if multi-product order (sizes already collected in COLLECTING_MULTI_VARIATIONS)
+      const isMultiProduct = context.cart && context.cart.length > 1;
+      
+      if (isMultiProduct) {
+        console.log(`🛒 [QUICK_FORM] Multi-product order with ${context.cart.length} items - skipping size/color`);
+        
+        // Multi-product: Simple prompt without size/color
+        let multiProductPrompt = 'দারুণ! অর্ডারটি সম্পন্ন করতে আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
+        
+        return {
+          matched: true,
+          action: 'CONFIRM',
+          response: emoji ? multiProductPrompt : multiProductPrompt,
+          newState: 'AWAITING_CUSTOMER_DETAILS',
+          updatedContext: {
+            ...context,
+            state: 'AWAITING_CUSTOMER_DETAILS',
+          },
+        };
+      }
+      
+      // Single product: Check for size/color requirements
       const availableSizes = productAny?.sizes || productAny?.availableSizes || [];
       const availableColors = productAny?.colors || productAny?.availableColors || [];
       const hasSize = availableSizes.length > 0;
@@ -417,6 +445,8 @@ function handleConfirmingProduct(
         state: 'IDLE',
         cart: [],
         checkout: {},
+        pendingImages: [], // Clear pending images to prevent re-adding
+        lastImageReceivedAt: undefined, // Reset batch window
       },
     };
   }
@@ -875,11 +905,489 @@ function handleConfirmingOrder(
         state: 'IDLE',
         cart: [],
         checkout: {},
+        pendingImages: [], // Clear pending images to prevent re-adding
+        lastImageReceivedAt: undefined, // Reset batch window
       },
     };
   }
   
   return { matched: false };
+}
+
+/**
+ * Handles SELECTING_CART_ITEMS state (multi-product selection from pending images)
+ * User can say "সবগুলো" (all), "1 ar 3" (specific items), or "শুধু 2" (only item 2)
+ */
+function handleSelectingCartItems(
+  input: string,
+  context: ConversationContext,
+  settings?: WorkspaceSettings
+): FastLaneResult {
+  const emoji = settings?.useEmojis ?? true;
+  const pendingImages = context.pendingImages || [];
+  const recognizedProducts = pendingImages.filter(img => img.recognitionResult.success);
+  
+  // If no pending images, this is an error state
+  if (recognizedProducts.length === 0) {
+    return {
+      matched: true,
+      action: 'DECLINE',
+      response: `দুঃখিত, কোনো product পাওয়া যায়নি। ${emoji ? '😔' : ''}\n\nনতুন product এর ছবি পাঠান।`,
+      newState: 'IDLE',
+      updatedContext: {
+        state: 'IDLE',
+        pendingImages: [],
+        cart: [],
+        lastImageReceivedAt: undefined,
+      },
+    };
+  }
+  
+  // Check for "select all" intent
+  if (detectAllIntent(input)) {
+    console.log('🛒 [CART_SELECT] User selected ALL items');
+    
+    // Convert all pending images to cart items
+    const cartItems: CartItem[] = recognizedProducts.map(img => ({
+      productId: img.recognitionResult.productId!,
+      productName: img.recognitionResult.productName!,
+      productPrice: img.recognitionResult.productPrice!,
+      imageUrl: img.recognitionResult.imageUrl,
+      quantity: 1,
+      sizes: img.recognitionResult.sizes,
+      colors: img.recognitionResult.colors,
+    }));
+    
+    // Calculate total
+    const total = cartItems.reduce((sum, item) => sum + item.productPrice, 0);
+    
+    // Generate selection summary
+    let summaryMessage = `✅ ${cartItems.length}টা product নির্বাচিত হয়েছে:\n\n`;
+    cartItems.forEach((item, idx) => {
+      summaryMessage += `${idx + 1}. ${item.productName} - ৳${item.productPrice}\n`;
+    });
+    summaryMessage += `\n💰 মোট: ৳${total}\n\n`;
+    
+    // Check if any product needs size/color selection
+    const needsVariations = cartItems.some((item: any) => 
+      (item.sizes?.length > 0) || (item.colors?.length > 1)
+    );
+    
+    if (needsVariations) {
+      // Find first product that needs variation
+      const firstNeedingVariation = cartItems.findIndex((item: any) => 
+        (item.sizes?.length > 0) || (item.colors?.length > 1)
+      );
+      const firstProduct = cartItems[firstNeedingVariation] as any;
+      const needsSize = (firstProduct.sizes?.length ?? 0) > 0;
+      
+      summaryMessage += needsSize
+        ? `📏 "${firstProduct.productName}" এর সাইজ বলুন:\nAvailable: ${firstProduct.sizes.join(', ')}`
+        : `🎨 "${firstProduct.productName}" এর কালার বলুন:\nAvailable: ${firstProduct.colors.join(', ')}`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: summaryMessage,
+        newState: 'COLLECTING_MULTI_VARIATIONS',
+        updatedContext: {
+          state: 'COLLECTING_MULTI_VARIATIONS',
+          cart: cartItems,
+          pendingImages: [],
+          lastImageReceivedAt: undefined,
+          currentVariationIndex: firstNeedingVariation,
+          collectingSize: needsSize,
+        },
+      };
+    } else {
+      // No variations needed, proceed to name collection
+      summaryMessage += `আপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: summaryMessage,
+        newState: 'COLLECTING_NAME',
+        updatedContext: {
+          state: 'COLLECTING_NAME',
+          cart: cartItems,
+          pendingImages: [],
+          lastImageReceivedAt: undefined,
+        },
+      };
+    }
+  }
+  
+  // Check for numbered selection
+  const selectedNumbers = detectItemNumbers(input);
+  
+  if (selectedNumbers.length > 0) {
+    console.log(`🛒 [CART_SELECT] User selected items: ${selectedNumbers.join(', ')}`);
+    
+    // Validate numbers are within range
+    const maxItem = recognizedProducts.length;
+    const invalidNumbers = selectedNumbers.filter(n => n > maxItem);
+    
+    if (invalidNumbers.length > 0) {
+      // Some numbers are out of range
+      const errorMessage = `⚠️ ভুল নম্বর! শুধু ${maxItem}টা product আছে।\n\n` +
+        `সঠিক নম্বর দিন (1-${maxItem}) অথবা "সবগুলো" লিখুন।`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: errorMessage,
+        newState: 'SELECTING_CART_ITEMS',
+        updatedContext: {
+          state: 'SELECTING_CART_ITEMS',
+        },
+      };
+    }
+    
+    // Filter products by selected numbers (1-indexed)
+    const selectedProducts = selectedNumbers.map(n => recognizedProducts[n - 1]).filter(Boolean);
+    
+    // Convert selected products to cart items
+    const cartItems: CartItem[] = selectedProducts.map(img => ({
+      productId: img.recognitionResult.productId!,
+      productName: img.recognitionResult.productName!,
+      productPrice: img.recognitionResult.productPrice!,
+      imageUrl: img.recognitionResult.imageUrl,
+      quantity: 1,
+      sizes: img.recognitionResult.sizes,
+      colors: img.recognitionResult.colors,
+    }));
+    
+    // Calculate total
+    const total = cartItems.reduce((sum, item) => sum + item.productPrice, 0);
+    
+    // Generate selection summary
+    let summaryMessage = `✅ ${cartItems.length}টা product নির্বাচিত হয়েছে:\n\n`;
+    cartItems.forEach((item, idx) => {
+      summaryMessage += `${idx + 1}. ${item.productName} - ৳${item.productPrice}\n`;
+    });
+    summaryMessage += `\n💰 মোট: ৳${total}\n\n`;
+    
+    // Check if any product needs size/color selection
+    const needsVariations = cartItems.some((item: any) => 
+      (item.sizes?.length > 0) || (item.colors?.length > 1)
+    );
+    
+    if (needsVariations) {
+      // Find first product that needs variation
+      const firstNeedingVariation = cartItems.findIndex((item: any) => 
+        (item.sizes?.length > 0) || (item.colors?.length > 1)
+      );
+      const firstProduct = cartItems[firstNeedingVariation] as any;
+      const needsSize = (firstProduct.sizes?.length ?? 0) > 0;
+      
+      summaryMessage += needsSize
+        ? `📏 "${firstProduct.productName}" এর সাইজ বলুন:\nAvailable: ${firstProduct.sizes.join(', ')}`
+        : `🎨 "${firstProduct.productName}" এর কালার বলুন:\nAvailable: ${firstProduct.colors.join(', ')}`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: summaryMessage,
+        newState: 'COLLECTING_MULTI_VARIATIONS',
+        updatedContext: {
+          state: 'COLLECTING_MULTI_VARIATIONS',
+          cart: cartItems,
+          pendingImages: [],
+          lastImageReceivedAt: undefined,
+          currentVariationIndex: firstNeedingVariation,
+          collectingSize: needsSize,
+        },
+      };
+    } else {
+      // No variations needed, proceed to name collection
+      summaryMessage += `আপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: summaryMessage,
+        newState: 'COLLECTING_NAME',
+        updatedContext: {
+          state: 'COLLECTING_NAME',
+          cart: cartItems,
+          pendingImages: [],
+          lastImageReceivedAt: undefined,
+        },
+      };
+    }
+  }
+  
+  // Check for decline/cancel
+  const NO_PATTERNS = [/^(no|nope|na|nai|না|নাই|cancel|বাতিল)$/i];
+  if (NO_PATTERNS.some(pattern => pattern.test(input.trim()))) {
+    return {
+      matched: true,
+      action: 'DECLINE',
+      response: `কোনো সমস্যা নেই! ${emoji ? '😊' : ''}\n\nঅন্য product এর ছবি পাঠান।`,
+      newState: 'IDLE',
+      updatedContext: {
+        state: 'IDLE',
+        pendingImages: [],
+        cart: [],
+        lastImageReceivedAt: undefined,
+      },
+    };
+  }
+  
+  // Invalid input - show product list again and re-prompt
+  let productListMessage = `⚠️ সঠিক নম্বর দিন!\n\nআপনার list:\n`;
+  recognizedProducts.forEach((img, idx) => {
+    productListMessage += `${idx + 1}️⃣ ${img.recognitionResult.productName} - ৳${img.recognitionResult.productPrice}\n`;
+  });
+  productListMessage += `\nকোনগুলো অর্ডার করবেন?\n• "সবগুলো" - সব product\n• "1 ar 3" - নির্দিষ্ট item\n• "না" - বাতিল করতে`;
+  
+  return {
+    matched: true,
+    action: 'CONFIRM',
+    response: productListMessage,
+    newState: 'SELECTING_CART_ITEMS',
+    updatedContext: {
+      state: 'SELECTING_CART_ITEMS',
+    },
+  };
+}
+
+/**
+ * Handles COLLECTING_MULTI_VARIATIONS state (size/color for each cart item)
+ * Loops through cart items, collecting size (and optionally color) for each
+ */
+function handleCollectingMultiVariations(
+  input: string,
+  context: ConversationContext,
+  settings?: WorkspaceSettings
+): FastLaneResult {
+  const emoji = settings?.useEmojis ?? true;
+  const cart = context.cart || [];
+  const currentIndex = context.currentVariationIndex ?? 0;
+  const collectingSize = context.collectingSize ?? true;
+  
+  // If cart is empty, error state
+  if (cart.length === 0) {
+    return {
+      matched: true,
+      action: 'DECLINE',
+      response: `দুঃখিত, cart এ কোনো product নেই। ${emoji ? '😔' : ''}`,
+      newState: 'IDLE',
+      updatedContext: {
+        state: 'IDLE',
+        cart: [],
+        pendingImages: [],
+        lastImageReceivedAt: undefined,
+        currentVariationIndex: undefined,
+        collectingSize: undefined,
+      },
+    };
+  }
+  
+  // Check for cancel
+  const cancelPatterns = [/^(cancel|বাতিল|na|না|nai|নাই)$/i];
+  if (cancelPatterns.some(pattern => pattern.test(input.trim()))) {
+    return {
+      matched: true,
+      action: 'DECLINE',
+      response: `অর্ডার বাতিল হয়েছে। ${emoji ? '😊' : ''}\n\nনতুন product এর ছবি পাঠান।`,
+      newState: 'IDLE',
+      updatedContext: {
+        state: 'IDLE',
+        cart: [],
+        pendingImages: [],
+        lastImageReceivedAt: undefined,
+        currentVariationIndex: undefined,
+        collectingSize: undefined,
+      },
+    };
+  }
+  
+  // Get current product
+  const currentProduct = cart[currentIndex];
+  if (!currentProduct) {
+    // All products done, move to name collection
+    return moveToNameCollection(context, settings);
+  }
+  
+  const productAny = currentProduct as any;
+  const availableSizes = productAny.sizes || [];
+  const availableColors = productAny.colors || [];
+  
+  // Normalize input
+  const normalizedInput = input.trim().toUpperCase();
+  
+  if (collectingSize && availableSizes.length > 0) {
+    // We're collecting SIZE for current product
+    
+    // Check if input matches an available size
+    const matchedSize = availableSizes.find((s: string) => 
+      s.toUpperCase() === normalizedInput || 
+      s.toLowerCase() === input.trim().toLowerCase()
+    );
+    
+    if (matchedSize) {
+      // Valid size - update cart item
+      const updatedCart = [...cart];
+      updatedCart[currentIndex] = {
+        ...updatedCart[currentIndex],
+        selectedSize: matchedSize,
+      };
+      
+      // Check if this product also needs color
+      if (availableColors.length > 1) {
+        // Move to color collection for same product
+        const colorPrompt = `✅ সাইজ: ${matchedSize}\n\n` +
+          `এখন "${currentProduct.productName}" এর কালার বলুন:\n` +
+          `Available: ${availableColors.join(', ')}`;
+        
+        return {
+          matched: true,
+          action: 'CONFIRM',
+          response: colorPrompt,
+          newState: 'COLLECTING_MULTI_VARIATIONS',
+          updatedContext: {
+            state: 'COLLECTING_MULTI_VARIATIONS',
+            cart: updatedCart,
+            collectingSize: false, // Now collecting color
+          },
+        };
+      } else {
+        // No color needed, move to next product
+        return moveToNextProduct(updatedCart, currentIndex + 1, settings);
+      }
+    } else {
+      // Invalid size
+      const errorMessage = `⚠️ "${input}" সাইজ নেই!\n\n` +
+        `"${currentProduct.productName}" এ available সাইজ:\n${availableSizes.join(', ')}\n\n` +
+        `উপরের থেকে একটা সাইজ লিখুন:`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: errorMessage,
+        newState: 'COLLECTING_MULTI_VARIATIONS',
+        updatedContext: {
+          state: 'COLLECTING_MULTI_VARIATIONS',
+        },
+      };
+    }
+  } else if (!collectingSize && availableColors.length > 1) {
+    // We're collecting COLOR for current product
+    
+    // Check if input matches an available color
+    const matchedColor = availableColors.find((c: string) => 
+      c.toUpperCase() === normalizedInput || 
+      c.toLowerCase() === input.trim().toLowerCase()
+    );
+    
+    if (matchedColor) {
+      // Valid color - update cart item
+      const updatedCart = [...cart];
+      updatedCart[currentIndex] = {
+        ...updatedCart[currentIndex],
+        selectedColor: matchedColor,
+      };
+      
+      // Move to next product
+      return moveToNextProduct(updatedCart, currentIndex + 1, settings);
+    } else {
+      // Invalid color
+      const errorMessage = `⚠️ "${input}" কালার নেই!\n\n` +
+        `"${currentProduct.productName}" এ available কালার:\n${availableColors.join(', ')}\n\n` +
+        `উপরের থেকে একটা কালার লিখুন:`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: errorMessage,
+        newState: 'COLLECTING_MULTI_VARIATIONS',
+        updatedContext: {
+          state: 'COLLECTING_MULTI_VARIATIONS',
+        },
+      };
+    }
+  } else {
+    // Product doesn't need size/color, move to next
+    return moveToNextProduct(cart, currentIndex + 1, settings);
+  }
+}
+
+/**
+ * Helper: Move to next product in variation collection loop
+ */
+function moveToNextProduct(
+  cart: CartItem[],
+  nextIndex: number,
+  settings?: WorkspaceSettings
+): FastLaneResult {
+  const emoji = settings?.useEmojis ?? true;
+  
+  // Find next product that needs size/color
+  for (let i = nextIndex; i < cart.length; i++) {
+    const product = cart[i] as any;
+    const needsSize = (product.sizes?.length ?? 0) > 0 && !product.selectedSize;
+    const needsColor = (product.colors?.length ?? 1) > 1 && !product.selectedColor;
+    
+    if (needsSize || needsColor) {
+      // Found a product that needs variation
+      const sizePrompt = needsSize
+        ? `"${product.productName}" এর সাইজ বলুন:\nAvailable: ${product.sizes.join(', ')}`
+        : `"${product.productName}" এর কালার বলুন:\nAvailable: ${product.colors.join(', ')}`;
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: `📦 Product ${i + 1}/${cart.length}\n\n${sizePrompt}`,
+        newState: 'COLLECTING_MULTI_VARIATIONS',
+        updatedContext: {
+          state: 'COLLECTING_MULTI_VARIATIONS',
+          cart,
+          currentVariationIndex: i,
+          collectingSize: needsSize,
+        },
+      };
+    }
+  }
+  
+  // All products done, move to name collection
+  return {
+    matched: true,
+    action: 'CONFIRM',
+    response: `✅ সব product এর সাইজ নেওয়া হয়েছে! ${emoji ? '🎉' : ''}\n\n` +
+      `এখন আপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`,
+    newState: 'COLLECTING_NAME',
+    updatedContext: {
+      state: 'COLLECTING_NAME',
+      cart,
+      currentVariationIndex: undefined,
+      collectingSize: undefined,
+    },
+  };
+}
+
+/**
+ * Helper: Move directly to name collection (when no variations needed)
+ */
+function moveToNameCollection(
+  context: ConversationContext,
+  settings?: WorkspaceSettings
+): FastLaneResult {
+  const emoji = settings?.useEmojis ?? true;
+  
+  return {
+    matched: true,
+    action: 'CONFIRM',
+    response: `${emoji ? '🎉' : ''} দারুণ!\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`,
+    newState: 'COLLECTING_NAME',
+    updatedContext: {
+      state: 'COLLECTING_NAME',
+      cart: context.cart,
+      currentVariationIndex: undefined,
+      collectingSize: undefined,
+    },
+  };
 }
 
 // ============================================
@@ -1065,13 +1573,18 @@ function handleAwaitingCustomerDetails(
   let color: string | null = null;
   let quantity: number = 1; // Default to 1
   
+  // Check if multi-product order (sizes already collected in COLLECTING_MULTI_VARIATIONS)
+  const isMultiProduct = context.cart && context.cart.length > 1;
+  
   // Get product info from context to check if size/color is needed
   const product = context.cart && context.cart.length > 0 ? context.cart[0] : null;
   const productAny = product as any;
   const availableSizes = productAny?.sizes || productAny?.availableSizes || [];
   const availableColors = productAny?.colors || productAny?.availableColors || [];
-  const requiresSize = availableSizes.length > 0;
-  const requiresColor = availableColors.length > 1; // Only ask for color if multiple options
+  
+  // For multi-product: sizes/colors already collected, no need to require them
+  const requiresSize = !isMultiProduct && availableSizes.length > 0;
+  const requiresColor = !isMultiProduct && availableColors.length > 1;
   
   // STRATEGY 1: Try labeled format (নাম:, Name:, সাইজ:, Size:, পরিমাণ:, Quantity:, etc.)
   const nameMatch = text.match(/(?:নাম|Name)\s*[:\-]\s*([^\n]+)/i);

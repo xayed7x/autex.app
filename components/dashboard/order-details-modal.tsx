@@ -9,7 +9,19 @@ import { cn } from "@/lib/utils"
 import { User, Package, CreditCard, FileText, MessageSquare, Printer, X, Check, Send } from "lucide-react"
 import { toast } from "sonner"
 
-type OrderStatus = "pending" | "confirmed" | "shipped" | "cancelled"
+type OrderStatus = "pending" | "confirmed" | "shipped" | "cancelled" | "processing" | "completed"
+
+interface OrderItem {
+  id: string
+  product_id: string
+  product_name: string
+  product_price: number
+  quantity: number
+  subtotal: number
+  selected_size?: string
+  selected_color?: string
+  product_image_url?: string
+}
 
 interface Order {
   id: string
@@ -35,6 +47,8 @@ interface Order {
     name: string
     image_urls?: string[]
   }
+  // Multi-item order support
+  order_items?: OrderItem[]
   payment_last_two_digits?: string
   // NEW: Direct size/color fields
   selected_size?: string
@@ -62,7 +76,9 @@ const statusConfig: Record<OrderStatus, { label: string; className: string }> = 
     className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   },
   confirmed: { label: "Confirmed", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" },
-  shipped: { label: "Shipped", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" },
+  processing: { label: "Processing", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" },
+  shipped: { label: "Shipped", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400" },
+  completed: { label: "Completed", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" },
   cancelled: { label: "Cancelled", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
 }
 
@@ -167,35 +183,86 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <Package className="h-4 w-4" />
                 Order Items
+                {order.order_items && order.order_items.length > 1 && (
+                  <Badge variant="secondary" className="ml-2">
+                    {order.order_items.length} items
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div className="flex items-center gap-3">
-                {(order.product_image_url || order.products?.image_urls?.[0]) ? (
-                  <img
-                    src={order.product_image_url || order.products?.image_urls?.[0]}
-                    alt={productName}
-                    className="h-12 w-12 rounded-lg object-cover"
-                  />
-                ) : (
-                  <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">
-                    IMG
+              {/* Multi-item table display */}
+              {order.order_items && order.order_items.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-2 font-medium text-muted-foreground">Product</th>
+                          <th className="text-left py-2 font-medium text-muted-foreground">Size</th>
+                          <th className="text-left py-2 font-medium text-muted-foreground">Color</th>
+                          <th className="text-right py-2 font-medium text-muted-foreground">Price</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {order.order_items.map((item, idx) => (
+                          <tr key={item.id || idx}>
+                            <td className="py-2">
+                              <div className="flex items-center gap-2">
+                                {item.product_image_url ? (
+                                  <img
+                                    src={item.product_image_url}
+                                    alt={item.product_name}
+                                    className="h-8 w-8 rounded object-cover"
+                                  />
+                                ) : (
+                                  <div className="h-8 w-8 rounded bg-muted flex items-center justify-center text-xs">
+                                    📦
+                                  </div>
+                                )}
+                                <span className="font-medium">{item.product_name}</span>
+                              </div>
+                            </td>
+                            <td className="py-2">{item.selected_size || '-'}</td>
+                            <td className="py-2">{item.selected_color || '-'}</td>
+                            <td className="py-2 text-right font-mono">
+                              ৳{item.product_price?.toLocaleString()} × {item.quantity}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                )}
-                <div className="flex-1">
-                  <p className="font-medium">{productName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {(order.selected_size || order.product_variations?.size) && 
-                      `📏 Size: ${order.selected_size || order.product_variations.size}`}
-                    {(order.selected_color || order.product_variations?.color) && 
-                      `${(order.selected_size || order.product_variations?.size) ? '  •  ' : ''}🎨 Color: ${order.selected_color || order.product_variations.color}`}
-                    {!order.selected_size && !order.selected_color && !order.product_variations?.size && !order.product_variations?.color && 'No variations'}
+                </div>
+              ) : (
+                /* Legacy single-item display */
+                <div className="flex items-center gap-3">
+                  {(order.product_image_url || order.products?.image_urls?.[0]) ? (
+                    <img
+                      src={order.product_image_url || order.products?.image_urls?.[0]}
+                      alt={productName}
+                      className="h-12 w-12 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                      IMG
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <p className="font-medium">{productName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(order.selected_size || order.product_variations?.size) && 
+                        `📏 Size: ${order.selected_size || order.product_variations.size}`}
+                      {(order.selected_color || order.product_variations?.color) && 
+                        `${(order.selected_size || order.product_variations?.size) ? '  •  ' : ''}🎨 Color: ${order.selected_color || order.product_variations.color}`}
+                      {!order.selected_size && !order.selected_color && !order.product_variations?.size && !order.product_variations?.color && 'No variations'}
+                    </p>
+                  </div>
+                  <p className="font-mono">
+                    ৳{order.product_price?.toLocaleString() || 0} x {order.quantity || 1}
                   </p>
                 </div>
-                <p className="font-mono">
-                  ৳{order.product_price?.toLocaleString() || 0} x {order.quantity || 1}
-                </p>
-              </div>
+              )}
               <div className="border-t border-border pt-3 space-y-1">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal:</span>

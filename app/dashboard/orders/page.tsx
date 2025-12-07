@@ -30,6 +30,20 @@ import {
 import { OrderDetailsModal } from "@/components/dashboard/order-details-modal"
 import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
 
+interface OrderItem {
+  id: string
+  product_id: string
+  product_name: string
+  product_price: number
+  quantity: number
+  subtotal: number
+  selected_size?: string
+  selected_color?: string
+  product_image_url?: string
+}
+
+type OrderStatus = "pending" | "confirmed" | "shipped" | "cancelled" | "processing" | "completed"
+
 interface Order {
   id: string
   order_number: string
@@ -37,11 +51,13 @@ interface Order {
   customer_phone: string
   customer_address: string
   total_amount: number
-  status: string
+  status: OrderStatus
   payment_status: string
   created_at: string
   product_id?: string
   conversation_id?: string
+  order_items?: OrderItem[]
+  products?: { name: string; image_urls?: string[] }
 }
 
 const statusConfig: Record<string, { label: string; className: string }> = {

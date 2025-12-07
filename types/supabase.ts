@@ -334,6 +334,63 @@ export type Database = {
           },
         ]
       }
+      order_items: {
+        Row: {
+          id: string
+          order_id: string
+          product_id: string | null
+          product_name: string
+          product_price: number
+          quantity: number
+          selected_size: string | null
+          selected_color: string | null
+          subtotal: number
+          product_image_url: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          order_id: string
+          product_id?: string | null
+          product_name: string
+          product_price: number
+          quantity?: number
+          selected_size?: string | null
+          selected_color?: string | null
+          subtotal: number
+          product_image_url?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          order_id?: string
+          product_id?: string | null
+          product_name?: string
+          product_price?: number
+          quantity?: number
+          selected_size?: string | null
+          selected_color?: string | null
+          subtotal?: number
+          product_image_url?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pre_registrations: {
         Row: {
           created_at: string | null
@@ -801,3 +858,21 @@ export const Constants = {
   },
 } as const
 
+// =============================================
+// Convenience type exports for common tables
+// =============================================
+
+/** Order type - main order with customer info and totals */
+export type Order = Database['public']['Tables']['orders']['Row']
+export type OrderInsert = Database['public']['Tables']['orders']['Insert']
+export type OrderUpdate = Database['public']['Tables']['orders']['Update']
+
+/** OrderItem type - individual products within an order */
+export type OrderItem = Database['public']['Tables']['order_items']['Row']
+export type OrderItemInsert = Database['public']['Tables']['order_items']['Insert']
+export type OrderItemUpdate = Database['public']['Tables']['order_items']['Update']
+
+/** Order with items - for queries that join order_items */
+export type OrderWithItems = Order & {
+  order_items: OrderItem[]
+}

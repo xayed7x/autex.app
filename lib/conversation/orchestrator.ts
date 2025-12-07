@@ -15,7 +15,14 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
-import { ConversationContext, ConversationState, migrateLegacyContext } from '@/types/conversation';
+import { 
+  ConversationContext, 
+  ConversationState, 
+  migrateLegacyContext,
+  PendingImage,
+  addPendingImage,
+  MAX_PENDING_IMAGES,
+} from '@/types/conversation';
 import { tryFastLane } from './fast-lane';
 import aiDirector, { AIDirectorDecision } from './ai-director';
 import { sendMessage } from '@/lib/facebook/messenger';
@@ -507,7 +514,7 @@ async function executeDecision(
 
         // Skip Facebook API in test mode
         if (!input.isTestMode) {
-          const { sendProductCard } = await import('@/lib/facebook/messenger');
+          const { sendProductCard, sendMessage } = await import('@/lib/facebook/messenger');
           
           try {
             await sendProductCard(
@@ -517,7 +524,13 @@ async function executeDecision(
             );
             console.log('✅ Product card sent successfully');
             
-            // Don't send additional text message - the card is the response
+            // Send follow-up text message (for multi-product batching)
+            if (decision.response && decision.response.trim()) {
+              await sendMessage(input.pageId, input.customerPsid, decision.response);
+              console.log('✅ Follow-up message sent');
+            }
+            
+            // Don't send additional text message - we already sent it
             response = '';
           } catch (error) {
             console.error('❌ Failed to send product card:', error);
@@ -528,7 +541,7 @@ async function executeDecision(
           // In test mode, we still want to return the product card data
           // But we can also set a fallback text response just in case the frontend doesn't handle cards yet
           console.log('🧪 Test mode: Returning product card data');
-          response = `✅ Found: ${decision.actionData.product.name}\n💰 Price: ৳${decision.actionData.product.price}\n\nWould you like to order this? (YES/NO)`;
+          response = decision.response || `✅ Found: ${decision.actionData.product.name}\n💰 Price: ৳${decision.actionData.product.price}\n\nWould you like to order this? (YES/NO)`;
         }
       }
       break;
@@ -616,6 +629,11 @@ async function executeDecision(
 
 /**
  * Handles image messages by calling image recognition
+ * 
+ * NEW: Multi-image batching support
+ * - Each image is recognized and added to pendingImages queue
+ * - User has 5 minutes to send more images
+ * - On text message or timeout, bot prompts for batch confirmation
  */
 async function handleImageMessage(
   imageUrl: string,
@@ -626,6 +644,8 @@ async function handleImageMessage(
 ): Promise<AIDirectorDecision> {
   try {
     console.log('🖼️ Calling image recognition API...');
+    
+    // Note: addPendingImage, MAX_PENDING_IMAGES, PendingImage are imported at top of file
     
     // Call image recognition API
     const formData = new FormData();
@@ -639,56 +659,28 @@ async function handleImageMessage(
     
     const imageRecognitionResult = await response.json();
     
-    if (imageRecognitionResult.success && imageRecognitionResult.match) {
-      const product = imageRecognitionResult.match.product;
-      
-      console.log(`✅ Product found: ${product.name}`);
-      
-      // Send product card with image instead of text-only message
-      // This will be sent by the executeDecision function
-      return {
-        action: 'SEND_PRODUCT_CARD',
-        response: '', // Response will be sent as product card
-        newState: 'CONFIRMING_PRODUCT',
-        updatedContext: {
-          state: 'CONFIRMING_PRODUCT',
-          cart: [{
-            productId: product.id,
-            productName: product.name,
-            productPrice: product.price,
-            imageUrl: product.image_urls?.[0], // Store image URL
-            quantity: 1,
-            // Include sizes/colors for Quick Form validation
-            sizes: product.sizes || [],
-            colors: product.colors || [],
-            // Include stock info for validation
-            size_stock: product.size_stock || [],
-            stock_quantity: product.stock_quantity || 0,
-          }],
-          metadata: {
-            ...currentContext.metadata,
-            lastImageUrl: imageUrl,
-            lastProductId: product.id,
-          },
-        },
-        actionData: {
-          product: {
-            id: product.id,
-            name: product.name,
-            price: product.price,
-            imageUrl: product.image_urls?.[0] || '',
-            stock: product.stock_quantity || 0,
-            category: product.category,
-            description: product.description,
-            variations: product.variations,
-            colors: product.colors,
-            sizes: product.sizes,
-          },
-        },
-        confidence: imageRecognitionResult.match.confidence,
-        reasoning: `Image recognition (tier: ${imageRecognitionResult.match.tier})`,
-      };
-    } else {
+    const now = Date.now();
+    const pendingImages = currentContext.pendingImages || [];
+    
+    // Create pending image entry
+    const newPendingImage: PendingImage = {
+      url: imageUrl,
+      timestamp: now,
+      recognitionResult: {
+        success: imageRecognitionResult.success && !!imageRecognitionResult.match,
+        productId: imageRecognitionResult.match?.product?.id,
+        productName: imageRecognitionResult.match?.product?.name,
+        productPrice: imageRecognitionResult.match?.product?.price,
+        imageUrl: imageRecognitionResult.match?.product?.image_urls?.[0],
+        confidence: imageRecognitionResult.match?.confidence,
+        tier: imageRecognitionResult.match?.tier,
+        sizes: imageRecognitionResult.match?.product?.sizes,
+        colors: imageRecognitionResult.match?.product?.colors,
+      },
+    };
+    
+    // Check if product was recognized
+    if (!imageRecognitionResult.success || !imageRecognitionResult.match) {
       console.log('❌ Product not found in image');
       
       return {
@@ -698,6 +690,80 @@ async function handleImageMessage(
         reasoning: 'Image recognition failed',
       };
     }
+    
+    const product = imageRecognitionResult.match.product;
+    console.log(`✅ Product found: ${product.name}`);
+    
+    // Add to pending images
+    const { images: updatedPendingImages, wasLimited } = addPendingImage(pendingImages, newPendingImage);
+    
+    // Check if this is the first image (start of batch) or additional image
+    const isFirstImage = pendingImages.length === 0;
+    const imageCount = updatedPendingImages.filter(img => img.recognitionResult.success).length;
+    
+    // Build response message
+    let responseMessage: string;
+    
+    if (wasLimited) {
+      // Already at max images - Bangla instructions, English keywords
+      responseMessage = `⚠️ সর্বোচ্চ ${MAX_PENDING_IMAGES}টা প্রোডাক্ট!\n\n` +
+        `✅ সব অর্ডার করতে "all" লিখুন\n` +
+        `🔢 নির্দিষ্ট গুলো: "1 and 3" লিখুন\n` +
+        `❌ বাতিল করতে "cancel" লিখুন`;
+    } else if (isFirstImage) {
+      // First image - Bangla instructions, English keywords
+      responseMessage = `👆 এই প্রোডাক্ট অর্ডার করতে:\n` +
+        `   🔘 "Order Now" বাটনে ক্লিক করুন\n` +
+        `   ✍️ অথবা "order" লিখুন\n\n` +
+        `📸 একাধিক প্রোডাক্ট অর্ডার করতে?\n` +
+        `   আরো স্ক্রিনশট পাঠান (সর্বোচ্চ ${MAX_PENDING_IMAGES}টা)`;
+    } else {
+      // Additional image - Bangla instructions, English keywords
+      responseMessage = `✅ ${imageCount}টা প্রোডাক্ট সিলেক্ট হয়েছে!\n\n` +
+        `📸 আরো পাঠাতে পারেন (সর্বোচ্চ ${MAX_PENDING_IMAGES}টা)\n\n` +
+        `✅ সব অর্ডার করতে "all" লিখুন\n` +
+        `🔢 নির্দিষ্ট গুলো: "1 and 2" লিখুন\n` +
+        `❌ বাতিল করতে "cancel" লিখুন`;
+    }
+    
+    // Return decision with SEND_PRODUCT_CARD action (shows Facebook template)
+    // The response field contains the follow-up batch prompt text
+    
+    // CRITICAL: Use different state based on image count
+    // - Single image (1): CONFIRMING_PRODUCT (handles YES/NO)
+    // - Multiple images (2+): SELECTING_CART_ITEMS (handles "সবগুলো"/"all", numbers)
+    const newState = imageCount > 1 ? 'SELECTING_CART_ITEMS' : 'CONFIRMING_PRODUCT';
+    
+    return {
+      action: 'SEND_PRODUCT_CARD',
+      response: responseMessage, // Sent after product card
+      actionData: {
+        product: {
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          imageUrl: product.image_urls?.[0] || '',
+          stock: product.stock_quantity || 0,
+          sizes: product.sizes || [],
+          colors: product.colors || [],
+        },
+      },
+      newState: newState,
+      updatedContext: {
+        ...currentContext,
+        state: newState,
+        pendingImages: updatedPendingImages,
+        lastImageReceivedAt: now,
+        metadata: {
+          ...currentContext.metadata,
+          lastImageUrl: imageUrl,
+          lastProductId: product.id,
+        },
+      },
+      confidence: imageRecognitionResult.match.confidence,
+      reasoning: `Product card + ${imageCount > 1 ? 'selection prompt' : 'confirmation prompt'} (${imageCount}/${MAX_PENDING_IMAGES})`,
+    };
+    
   } catch (error) {
     console.error('❌ Error in handleImageMessage:', error);
     
@@ -711,7 +777,10 @@ async function handleImageMessage(
 }
 
 /**
- * Creates an order in the database
+ * Creates an order in the database with multiple items
+ * - Creates 1 row in orders table (customer info, delivery, total)
+ * - Creates N rows in order_items table (one per cart item)
+ * - Deducts stock for each item
  */
 async function createOrderInDb(
   supabase: any,
@@ -720,97 +789,148 @@ async function createOrderInDb(
   conversationId: string,
   context: ConversationContext
 ): Promise<string> {
-  console.log('📦 Creating order in database...');
+  console.log('📦 Creating multi-item order in database...');
   
   const orderNumber = generateOrderNumber();
+  const cart = context.cart || [];
   
-  // Get product from cart (first item)
-  const cartItem = context.cart[0];
-  if (!cartItem) {
-    throw new Error('No product in cart');
+  if (cart.length === 0) {
+    throw new Error('No products in cart');
   }
   
+  // Calculate totals
+  const subtotal = cart.reduce((sum, item) => sum + (item.productPrice * item.quantity), 0);
+  const deliveryCharge = context.checkout.deliveryCharge || context.deliveryCharge || 0;
+  const totalAmount = subtotal + deliveryCharge;
+  
+  console.log(`🛒 Cart has ${cart.length} items, subtotal: ৳${subtotal}, total: ৳${totalAmount}`);
+  
+  // Use first product for legacy compatibility (orders table still has product_id column)
+  const firstItem = cart[0];
+  
+  // Create order row
   const orderData = {
     workspace_id: workspaceId,
     fb_page_id: fbPageId,
     conversation_id: conversationId,
-    product_id: cartItem.productId,
+    product_id: firstItem.productId, // Legacy: first product
     customer_name: context.checkout.customerName || context.customerName,
     customer_phone: context.checkout.customerPhone || context.customerPhone,
     customer_address: context.checkout.customerAddress || context.customerAddress,
-    product_price: cartItem.productPrice,
-    delivery_charge: context.checkout.deliveryCharge || context.deliveryCharge,
-    total_amount: context.checkout.totalAmount || context.totalAmount,
+    product_price: subtotal, // Legacy: now stores subtotal
+    delivery_charge: deliveryCharge,
+    total_amount: totalAmount,
     order_number: orderNumber,
     status: 'pending',
     payment_status: 'unpaid',
-    quantity: cartItem.quantity,
-    product_image_url: cartItem.imageUrl || null, // Store product image
-    product_variations: (cartItem as any).variations || null, // Store variations (color, size, etc.)
-    payment_last_two_digits: context.checkout?.paymentLastTwoDigits || null, // Store payment digits
-    // NEW: Store size/color selection for easy access
-    selected_size: (cartItem as any).selectedSize || (cartItem as any).variations?.size || (context as any).selectedSize || null,
-    selected_color: (cartItem as any).selectedColor || (cartItem as any).variations?.color || (context as any).selectedColor || null,
+    quantity: cart.reduce((sum, item) => sum + item.quantity, 0), // Total quantity
+    product_image_url: firstItem.imageUrl || null,
+    product_variations: cart.length > 1 
+      ? { multi_product: true, item_count: cart.length }
+      : ((firstItem as any).variations || null),
+    payment_last_two_digits: context.checkout?.paymentLastTwoDigits || null,
+    selected_size: cart.length === 1 ? ((firstItem as any).selectedSize || null) : null,
+    selected_color: cart.length === 1 ? ((firstItem as any).selectedColor || null) : null,
   };
   
-  const { error } = await supabase.from('orders').insert(orderData);
+  // Insert order
+  const { data: orderResult, error: orderError } = await supabase
+    .from('orders')
+    .insert(orderData)
+    .select('id')
+    .single();
   
-  if (error) {
-    console.error('❌ Error creating order:', error);
-    throw error;
+  if (orderError) {
+    console.error('❌ Error creating order:', orderError);
+    throw orderError;
   }
   
-  // Deduct stock after successful order
-  try {
-    const selectedSize = orderData.selected_size;
-    const orderQuantity = orderData.quantity || 1;
-    
-    // Fetch current product data
-    const { data: product } = await supabase
-      .from('products')
-      .select('size_stock, stock_quantity')
-      .eq('id', cartItem.productId)
-      .single();
-    
-    if (product) {
-      if (selectedSize && product.size_stock && Array.isArray(product.size_stock)) {
-        // Deduct from size-specific stock
-        const updatedSizeStock = product.size_stock.map((ss: any) => {
-          if (ss.size?.toUpperCase() === selectedSize.toUpperCase()) {
-            return { ...ss, quantity: Math.max(0, (ss.quantity || 0) - orderQuantity) };
-          }
-          return ss;
-        });
-        
-        // Calculate new total stock
-        const newTotalStock = updatedSizeStock.reduce((sum: number, ss: any) => sum + (ss.quantity || 0), 0);
-        
-        await supabase
-          .from('products')
-          .update({ 
-            size_stock: updatedSizeStock,
-            stock_quantity: newTotalStock
-          })
-          .eq('id', cartItem.productId);
-        
-        console.log(`📉 Stock deducted: ${selectedSize} -${orderQuantity} (new total: ${newTotalStock})`);
-      } else {
-        // Deduct from total stock
-        const newStock = Math.max(0, (product.stock_quantity || 0) - orderQuantity);
-        
-        await supabase
-          .from('products')
-          .update({ stock_quantity: newStock })
-          .eq('id', cartItem.productId);
-        
-        console.log(`📉 Stock deducted: -${orderQuantity} (new total: ${newStock})`);
+  const orderId = orderResult.id;
+  console.log(`✅ Order created with ID: ${orderId}`);
+  
+  // Insert order items
+  const orderItems = cart.map(item => {
+    const itemAny = item as any;
+    return {
+      order_id: orderId,
+      product_id: item.productId,
+      product_name: item.productName,
+      product_price: item.productPrice,
+      quantity: item.quantity,
+      subtotal: item.productPrice * item.quantity,
+      selected_size: itemAny.selectedSize || itemAny.variations?.size || null,
+      selected_color: itemAny.selectedColor || itemAny.variations?.color || null,
+      product_image_url: item.imageUrl || null,
+    };
+  });
+  
+  const { error: itemsError } = await supabase
+    .from('order_items')
+    .insert(orderItems);
+  
+  if (itemsError) {
+    console.error('❌ Error creating order items:', itemsError);
+    // Note: Order is already created, but items failed
+    // In production, you'd want a transaction rollback here
+  } else {
+    console.log(`✅ Inserted ${orderItems.length} order items`);
+  }
+  
+  // Deduct stock for each item
+  let stockDeductedCount = 0;
+  for (const item of cart) {
+    try {
+      const itemAny = item as any;
+      const selectedSize = itemAny.selectedSize || itemAny.variations?.size;
+      const orderQuantity = item.quantity || 1;
+      
+      // Fetch current product data
+      const { data: product } = await supabase
+        .from('products')
+        .select('size_stock, stock_quantity')
+        .eq('id', item.productId)
+        .single();
+      
+      if (product) {
+        if (selectedSize && product.size_stock && Array.isArray(product.size_stock)) {
+          // Deduct from size-specific stock
+          const updatedSizeStock = product.size_stock.map((ss: any) => {
+            if (ss.size?.toUpperCase() === selectedSize.toUpperCase()) {
+              return { ...ss, quantity: Math.max(0, (ss.quantity || 0) - orderQuantity) };
+            }
+            return ss;
+          });
+          
+          const newTotalStock = updatedSizeStock.reduce((sum: number, ss: any) => sum + (ss.quantity || 0), 0);
+          
+          await supabase
+            .from('products')
+            .update({ 
+              size_stock: updatedSizeStock,
+              stock_quantity: newTotalStock
+            })
+            .eq('id', item.productId);
+          
+          console.log(`📉 Stock deducted for ${item.productName}: ${selectedSize} -${orderQuantity}`);
+        } else {
+          // Deduct from total stock
+          const newStock = Math.max(0, (product.stock_quantity || 0) - orderQuantity);
+          
+          await supabase
+            .from('products')
+            .update({ stock_quantity: newStock })
+            .eq('id', item.productId);
+          
+          console.log(`📉 Stock deducted for ${item.productName}: -${orderQuantity}`);
+        }
+        stockDeductedCount++;
       }
+    } catch (stockError) {
+      console.error(`⚠️ Error deducting stock for ${item.productName}:`, stockError);
     }
-  } catch (stockError) {
-    console.error('⚠️ Error deducting stock (order still created):', stockError);
-    // Don't throw - order is already created, just log the stock error
   }
   
+  console.log(`✅ Stock updated for ${stockDeductedCount} products`);
   console.log(`✅ Order created: ${orderNumber}`);
   return orderNumber;
 }

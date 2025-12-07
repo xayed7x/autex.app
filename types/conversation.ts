@@ -12,6 +12,8 @@
 export type ConversationState =
   | 'IDLE'
   | 'CONFIRMING_PRODUCT'
+  | 'SELECTING_CART_ITEMS'  // NEW: Multi-product selection
+  | 'COLLECTING_MULTI_VARIATIONS'  // NEW: Size/color for each product
   | 'COLLECTING_NAME'
   | 'COLLECTING_PHONE'
   | 'COLLECTING_ADDRESS'
@@ -80,6 +82,35 @@ export interface ConversationMetadata {
 }
 
 // ============================================
+// PENDING IMAGE (for multi-product batching)
+// ============================================
+
+/**
+ * Represents a pending product image that's been recognized
+ * but not yet added to cart (waiting for batch confirmation)
+ */
+export interface PendingImage {
+  /** Image URL from Facebook */
+  url: string;
+  
+  /** Timestamp when image was received (ms since epoch) */
+  timestamp: number;
+  
+  /** Recognition result from image processing */
+  recognitionResult: {
+    success: boolean;
+    productId?: string;
+    productName?: string;
+    productPrice?: number;
+    imageUrl?: string;
+    confidence?: number;
+    tier?: string;
+    sizes?: string[];
+    colors?: string[];
+  };
+}
+
+// ============================================
 // RICH CONVERSATION CONTEXT
 // ============================================
 
@@ -101,6 +132,26 @@ export interface ConversationContext {
   
   /** Additional metadata */
   metadata: ConversationMetadata;
+  
+  // ============================================
+  // IMAGE QUEUE (for multi-product batching)
+  // ============================================
+  
+  /** Pending images waiting for batch confirmation (max 5) */
+  pendingImages?: PendingImage[];
+  
+  /** Timestamp of last image received (for 5-min window) */
+  lastImageReceivedAt?: number;
+  
+  // ============================================
+  // MULTI-VARIATION COLLECTION
+  // ============================================
+  
+  /** Current cart item index for variation collection (0-based) */
+  currentVariationIndex?: number;
+  
+  /** Whether we're collecting size (true) or color (false) for current item */
+  collectingSize?: boolean;
   
   // ============================================
   // LEGACY FIELDS (for backward compatibility)
@@ -157,6 +208,8 @@ export function createEmptyContext(): ConversationContext {
     metadata: {
       messageCount: 0,
     },
+    pendingImages: [],
+    lastImageReceivedAt: undefined,
   };
 }
 
@@ -253,5 +306,84 @@ export function migrateLegacyContext(
   newContext.deliveryCharge = oldContext.deliveryCharge;
   newContext.totalAmount = oldContext.totalAmount;
   
+  // Preserve pending images if they exist
+  newContext.pendingImages = oldContext.pendingImages || [];
+  newContext.lastImageReceivedAt = oldContext.lastImageReceivedAt;
+  
   return newContext;
+}
+
+// ============================================
+// IMAGE QUEUE HELPER FUNCTIONS
+// ============================================
+
+/** Maximum number of products in a single order */
+export const MAX_PENDING_IMAGES = 5;
+
+/** Time window for batching images (5 minutes in ms) */
+export const BATCH_WINDOW_MS = 5 * 60 * 1000;
+
+/** Timeout for expired batch (10 minutes in ms) */
+export const BATCH_EXPIRY_MS = 10 * 60 * 1000;
+
+/**
+ * Adds a pending image to the queue
+ * Returns updated pendingImages array (max 5 items)
+ */
+export function addPendingImage(
+  pendingImages: PendingImage[],
+  newImage: PendingImage
+): { images: PendingImage[]; wasLimited: boolean } {
+  const current = pendingImages || [];
+  
+  // Check if we already have this product (avoid duplicates)
+  const existingIndex = current.findIndex(
+    (img) => img.recognitionResult.productId === newImage.recognitionResult.productId
+  );
+  
+  if (existingIndex >= 0) {
+    // Update existing entry with new timestamp
+    const updated = [...current];
+    updated[existingIndex] = { ...newImage };
+    return { images: updated, wasLimited: false };
+  }
+  
+  // Check if at limit
+  if (current.length >= MAX_PENDING_IMAGES) {
+    return { images: current, wasLimited: true };
+  }
+  
+  return { images: [...current, newImage], wasLimited: false };
+}
+
+/**
+ * Clears all pending images
+ */
+export function clearPendingImages(): PendingImage[] {
+  return [];
+}
+
+/**
+ * Checks if we're within the 5-minute batch window
+ */
+export function isWithinBatchWindow(lastImageReceivedAt?: number): boolean {
+  if (!lastImageReceivedAt) return false;
+  const elapsed = Date.now() - lastImageReceivedAt;
+  return elapsed < BATCH_WINDOW_MS;
+}
+
+/**
+ * Checks if the batch has expired (10+ minutes since last image)
+ */
+export function isBatchExpired(lastImageReceivedAt?: number): boolean {
+  if (!lastImageReceivedAt) return true;
+  const elapsed = Date.now() - lastImageReceivedAt;
+  return elapsed >= BATCH_EXPIRY_MS;
+}
+
+/**
+ * Gets successfully recognized products from pending images
+ */
+export function getRecognizedProducts(pendingImages: PendingImage[]): PendingImage[] {
+  return (pendingImages || []).filter(img => img.recognitionResult.success);
 }

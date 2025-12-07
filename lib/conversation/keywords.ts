@@ -287,6 +287,99 @@ export function isOrderIntent(text: string): boolean {
 }
 
 // ============================================
+// CART SELECTION DETECTION (Multi-Product)
+// ============================================
+
+/** Keywords for "select all" intent */
+const ALL_INTENT_KEYWORDS = [
+  // Bangla
+  'সবগুলো', 'সবকটা', 'সব', 'সবই', 'সকল',
+  // Banglish
+  'sobgulo', 'sob', 'shob', 'shobgulo', 'sobkota',
+  // English
+  'all', 'everything', 'all of them',
+  // Confirmation (when asked "সবগুলো অর্ডার করবেন?")
+  'হ্যাঁ', 'yes', 'ha', 'ji', 'জি', 'হা', 'ok', 'ওকে', 'যাক', 'থাক',
+];
+
+/** Bangla number mapping */
+const BANGLA_TO_ARABIC: Record<string, number> = {
+  // Bangla digits
+  '১': 1, '২': 2, '৩': 3, '৪': 4, '৫': 5,
+  // Bangla words
+  'এক': 1, 'দুই': 2, 'তিন': 3, 'চার': 4, 'পাঁচ': 5,
+  'প্রথম': 1, 'দ্বিতীয়': 2, 'তৃতীয়': 3, 'চতুর্থ': 4, 'পঞ্চম': 5,
+  // Banglish
+  'ek': 1, 'dui': 2, 'tin': 3, 'char': 4, 'pach': 5,
+  'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+  'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+};
+
+/**
+ * Detects if user wants to select all items
+ * e.g., "সবগুলো", "all", "yes", "হ্যাঁ"
+ */
+export function detectAllIntent(text: string): boolean {
+  const lowerText = text.toLowerCase().trim();
+  
+  // Check for exact matches or contains
+  return ALL_INTENT_KEYWORDS.some(keyword => {
+    const lower = keyword.toLowerCase();
+    // For short keywords, require word boundary
+    if (lower.length <= 3) {
+      const regex = new RegExp(`\\b${lower}\\b`, 'i');
+      return regex.test(lowerText);
+    }
+    return lowerText.includes(lower);
+  });
+}
+
+/**
+ * Extracts item numbers from user input
+ * Handles: "1 ar 3", "1, 2", "১ আর ৩", "প্রথম আর তৃতীয়", "শুধু 2"
+ * Returns array of 1-indexed item numbers or empty array if none found
+ */
+export function detectItemNumbers(text: string): number[] {
+  const cleanText = text.toLowerCase().trim();
+  const numbers: number[] = [];
+  
+  // Strategy 1: Extract Arabic numerals (1, 2, 3)
+  const arabicMatches = cleanText.match(/\d+/g);
+  if (arabicMatches) {
+    arabicMatches.forEach(m => {
+      const num = parseInt(m, 10);
+      if (num >= 1 && num <= 10 && !numbers.includes(num)) {
+        numbers.push(num);
+      }
+    });
+  }
+  
+  // Strategy 2: Check for Bangla digits and words
+  for (const [bangla, arabic] of Object.entries(BANGLA_TO_ARABIC)) {
+    if (cleanText.includes(bangla.toLowerCase()) && !numbers.includes(arabic)) {
+      numbers.push(arabic);
+    }
+  }
+  
+  // Sort and return unique numbers
+  return [...new Set(numbers)].sort((a, b) => a - b);
+}
+
+/**
+ * Checks if the input is asking for "only" or "just" specific items
+ * e.g., "শুধু 2", "just 1", "only 3"
+ */
+export function detectOnlyIntent(text: string): boolean {
+  const lowerText = text.toLowerCase().trim();
+  return (
+    lowerText.includes('শুধু') ||
+    lowerText.includes('shudhu') ||
+    lowerText.includes('only') ||
+    lowerText.includes('just')
+  );
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 

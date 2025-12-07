@@ -3697,3 +3697,465 @@ selected_size text
 selected_color text
 size_stock_id text
 ```
+
+---
+
+## Day 13: Multi-Product Cart Implementation
+
+### Overview
+Implemented a complete multi-product cart system allowing customers to order multiple products in a single order. This includes image batching, cart selection, variation collection, Quick Form updates, and multi-item order creation with dashboard display.
+
+### ✅ Completed Features
+
+#### 1. Database Schema - Order Items Table
+- **Migration**: `migrations/create_order_items_table.sql`
+- **New Table**: `order_items`
+  - `id` (uuid, primary key)
+  - `order_id` (uuid, FK to orders with ON DELETE CASCADE)
+  - `product_id` (uuid, FK to products with ON DELETE SET NULL)
+  - `product_name` (text, stored at order time)
+  - `product_price` (numeric, stored at order time)
+  - `quantity` (integer)
+  - `subtotal` (numeric, computed)
+  - `selected_size` (text)
+  - `selected_color` (text)
+  - `product_image_url` (text)
+- **Types**: Added `OrderItem` and `OrderWithItems` to `types/supabase.ts`
+
+#### 2. Image Queue System (`types/conversation.ts`)
+- **New Interface**: `PendingImage`
+  - `url`: Image URL
+  - `timestamp`: When received
+  - `recognitionResult`: Product match details
+- **New Context Fields**:
+  - `pendingImages: PendingImage[]` (max 5)
+  - `lastImageReceivedAt: number` (for 5-min batch window)
+- **Helper Functions**:
+  - `addPendingImage()` - Adds image, handles duplicates, caps at 5
+  - `clearPendingImages()` - Resets queue
+  - `isWithinBatchWindow()` - Checks 5-min window
+  - `isBatchExpired()` - Checks 10-min expiry
+  - `getRecognizedProducts()` - Filters successful matches
+
+#### 3. Image Queue Handler (`lib/conversation/orchestrator.ts`)
+- **Updated `handleImageMessage()`**:
+  - Recognizes product from image
+  - Creates PendingImage with result
+  - Adds to queue with `addPendingImage()`
+  - Shows numbered list of pending products
+  - Respects MAX_PENDING_IMAGES (5) limit
+  - Dynamic messages based on queue size
+
+#### 4. Cart Selection Handler (`lib/conversation/keywords.ts`)
+- **New Detection Functions**:
+  - `detectAllIntent(text)` - "সবগুলো", "all", "হ্যাঁ", "yes"
+  - `detectItemNumbers(text)` - "1 ar 3", "১ আর ৩"
+  - `detectOnlyIntent(text)` - "শুধু", "only", "just"
+  - `BANGLA_TO_ARABIC` mapping for number conversion
+
+#### 5. Cart Selection State (`lib/conversation/fast-lane.ts`)
+- **New State**: `SELECTING_CART_ITEMS`
+- **Handler**: `handleSelectingCartItems()`
+  - Handles "সবগুলো" → selects all pending images
+  - Handles "1 ar 3" → selects specific items
+  - Validates numbers against pendingImages.length
+  - Converts pendingImages to cart[]
+  - Transitions to variation or name collection
+
+#### 6. Multi-Variation Collection (`lib/conversation/fast-lane.ts`)
+- **New State**: `COLLECTING_MULTI_VARIATIONS`
+- **Context Fields**:
+  - `currentVariationIndex: number` (0-based)
+  - `collectingSize: boolean` (true=size, false=color)
+- **Handler**: `handleCollectingMultiVariations()`
+  - Loops through cart items
+  - Collects size → color for each product
+  - Validates against available sizes/colors
+  - Skips products without variations
+  - Transitions to COLLECTING_NAME when done
+- **Helper Functions**:
+  - `moveToNextProduct()` - Finds next needing variation
+  - `moveToNameCollection()` - Final transition
+
+#### 7. Quick Form Multi-Product Update (`lib/conversation/fast-lane.ts`)
+- **Prompt Builder Update**:
+  - Checks `cart.length > 1`
+  - Multi-product: Simple prompt (name/phone/address only)
+  - Single product: Existing logic with size/color
+- **Parser Update** (`handleAwaitingCustomerDetails()`):
+  - `isMultiProduct` check
+  - `requiresSize = !isMultiProduct && hasSize`
+  - `requiresColor = !isMultiProduct && hasColor`
+
+#### 8. Multi-Item Order Creation (`lib/conversation/orchestrator.ts`)
+- **Updated `createOrderInDb()`**:
+  - Calculates subtotal from all cart items
+  - Creates 1 order row with total_amount
+  - Loops through cart → inserts order_items
+  - Deducts stock for each item
+  - Logs: "Stock updated for N products"
+- **Order Data**:
+  - `product_variations: { multi_product: true, item_count: N }`
+  - `product_price: subtotal` (not single item price)
+  - `quantity: total_quantity` (sum of all items)
+
+#### 9. Dashboard Multi-Item Display
+- **Orders API** (`app/api/orders/route.ts`):
+  - Added `order_items` to SELECT query with JOIN
+- **Orders Page** (`app/dashboard/orders/page.tsx`):
+  - Added `OrderItem` interface
+  - Added `OrderStatus` type for compatibility
+- **Order Details Modal** (`order-details-modal.tsx`):
+  - Multi-item table: Product | Size | Color | Price
+  - Badge: "3 items" for multi-product orders
+  - Legacy single-item fallback
+
+### Files Modified
+1. `migrations/create_order_items_table.sql` (NEW)
+2. `types/supabase.ts` (added order_items types)
+3. `types/conversation.ts` (PendingImage, new states, helpers)
+4. `lib/conversation/orchestrator.ts` (image queue, order creation)
+5. `lib/conversation/keywords.ts` (detectAllIntent, detectItemNumbers)
+6. `lib/conversation/fast-lane.ts` (selection, variations, Quick Form)
+7. `app/api/orders/route.ts` (order_items JOIN)
+8. `app/dashboard/orders/page.tsx` (types)
+9. `components/dashboard/order-details-modal.tsx` (multi-item table)
+
+### Conversation Flow
+```
+Customer: [sends image 1]
+Bot: ✅ Product 1 found! You can send more images (up to 5) or say "done"
+
+Customer: [sends image 2]
+Bot: ✅ 2 products queued:
+     1️⃣ Red T-Shirt - ৳500
+     2️⃣ Blue Polo - ৳800
+     
+     Send more or say "সবগুলো" to order all
+
+Customer: সবগুলো
+Bot: ✅ 2টা product নির্বাচিত!
+     📏 "Red T-Shirt" এর সাইজ বলুন:
+     Available: M, L, XL
+
+Customer: L
+Bot: ✅ সাইজ: L
+     📏 "Blue Polo" এর সাইজ বলুন:
+     Available: S, M, L
+
+Customer: M
+Bot: ✅ সব product এর সাইজ নেওয়া হয়েছে! 🎉
+     আপনার সম্পূর্ণ নামটি বলবেন?
+
+Customer: [provides name, phone, address]
+Bot: [shows order summary with all items]
+     Confirm? (YES/NO)
+
+Customer: yes
+Bot: ✅ Order confirmed! Order #AX-123456
+```
+
+---
+
+## Multi-Product Cart Test Plan
+
+### Prerequisites
+1. Run the `order_items` migration in Supabase SQL Editor
+2. Have at least 3 products with different sizes/colors in your catalog
+3. Enable the embedded chat widget or use Facebook Messenger
+
+### Test Scenarios
+
+#### Scenario 1: Single Image → Single Product Order
+**Steps:**
+1. Send one product image
+2. Bot recognizes and shows product
+3. Type "হ্যাঁ" or "yes"
+4. Complete normal order flow (name, phone, address)
+5. Confirm order
+
+**Expected:** Standard single-product order created
+
+---
+
+#### Scenario 2: Multiple Images → Select All
+**Steps:**
+1. Send first product image
+2. Wait for recognition, send second image
+3. Send third image
+4. Type "সবগুলো" or "all"
+5. Provide size for each product (if required)
+6. Complete order flow
+
+**Expected:**
+- All 3 products added to cart
+- Size collected for each
+- Single order with 3 order_items
+
+---
+
+#### Scenario 3: Multiple Images → Select Specific
+**Steps:**
+1. Send 4 product images
+2. Type "1 ar 3" (select items 1 and 3)
+3. Provide sizes
+4. Complete order
+
+**Expected:**
+- Only items 1 and 3 in cart
+- Items 2 and 4 discarded
+- Order with 2 order_items
+
+---
+
+#### Scenario 4: Bangla Number Selection
+**Steps:**
+1. Send 3 product images
+2. Type "১ আর ২" (using Bangla numerals)
+3. Complete order
+
+**Expected:** Items 1 and 2 selected correctly
+
+---
+
+#### Scenario 5: Cancel Mid-Selection
+**Steps:**
+1. Send 2 product images
+2. Type "না" or "cancel"
+
+**Expected:**
+- Cart cleared
+- State reset to IDLE
+- Friendly message shown
+
+---
+
+#### Scenario 6: Invalid Number Selection
+**Steps:**
+1. Send 2 product images
+2. Type "1 ar 5" (5 doesn't exist)
+
+**Expected:**
+- Error: "⚠️ ভুল নম্বর! শুধু 2টা product আছে।"
+- Prompts for valid selection
+
+---
+
+#### Scenario 7: Size Validation
+**Steps:**
+1. Send product image (with sizes M, L, XL)
+2. Select all
+3. Type "XXS" (invalid size)
+
+**Expected:**
+- Error: "⚠️ "XXS" সাইজ নেই!"
+- Shows available sizes
+- Prompts again
+
+---
+
+#### Scenario 8: Product Without Size
+**Steps:**
+1. Send image of product without sizes
+2. Select all
+
+**Expected:**
+- Skips size collection
+- Goes directly to name collection
+
+---
+
+#### Scenario 9: Quick Form Multi-Product
+**Steps:**
+1. Enable Quick Form mode in AI Setup
+2. Send 2 product images
+3. Type "সবগুলো"
+4. Collect sizes
+5. Bot shows simple Quick Form (no size/color fields)
+6. Submit: "Name\n01712345678\nAddress"
+
+**Expected:**
+- Quick Form without size/color fields
+- Sizes already collected in previous step
+- Order created successfully
+
+---
+
+#### Scenario 10: Dashboard Order Display
+**Steps:**
+1. Complete a 3-product order
+2. Go to Dashboard → Orders
+3. Click on the order
+
+**Expected:**
+- Modal shows "Order Items [3 items]" badge
+- Table with Product | Size | Color | Price columns
+- Correct subtotal calculation
+
+---
+
+#### Scenario 11: Out of Stock Product in Multi-Cart
+**Steps:**
+1. Set one product stock to 0
+2. Send images including the out-of-stock product
+3. Type "সবগুলো"
+
+**Expected:**
+- Out-of-stock product should be flagged
+- (Current implementation: needs enhancement for multi-item stock check)
+
+---
+
+#### Scenario 12: Max 5 Images Limit
+**Steps:**
+1. Send 6 product images rapidly
+
+**Expected:**
+- Only first 5 are queued
+- Message: "Maximum 5 products reached"
+- Prompts for selection
+
+---
+
+### Database Verification Queries
+
+```sql
+-- Check order with items
+SELECT o.order_number, o.total_amount, oi.*
+FROM orders o
+LEFT JOIN order_items oi ON o.id = oi.order_id
+WHERE o.order_number = 'AX-XXXXXX';
+
+-- Verify stock deduction
+SELECT name, stock_quantity, size_stock
+FROM products
+WHERE id = 'product-uuid';
+
+-- Count multi-item orders
+SELECT order_id, COUNT(*) as item_count
+FROM order_items
+GROUP BY order_id
+HAVING COUNT(*) > 1;
+```
+
+---
+
+### Known Limitations
+1. **No Transaction Rollback**: If order_items insert fails, order is still created
+2. **Stock Check**: Multi-item out-of-stock check not fully implemented
+3. **Color Collection**: Currently only asks if `colors.length > 1`
+4. **Image Expiry**: 10-min batch expiry not actively enforced
+
+---
+
+## Day 13 (Part 2): Multi-Product Bug Fixes
+
+### Overview
+Fixed critical bugs in the multi-product cart flow discovered during testing.
+
+### ✅ Bug Fixes
+
+#### 1. Product Card Display in Multi-Product Flow
+**Problem:** When sending product images, bot was showing text-only messages instead of Facebook product cards.
+
+**Fix:**
+- Changed `handleImageMessage` to return `SEND_PRODUCT_CARD` action instead of `SEND_RESPONSE`
+- Updated `SEND_PRODUCT_CARD` executor to send follow-up text message after product card
+- Added `sendMessage` import for follow-up prompts
+
+**Files:** `lib/conversation/orchestrator.ts`
+
+---
+
+#### 2. State Transition Bug (CONFIRMING_PRODUCT vs SELECTING_CART_ITEMS)
+**Problem:** After sending 2+ images, bot expected YES/NO but message said to type "all". State was always `CONFIRMING_PRODUCT` instead of `SELECTING_CART_ITEMS`.
+
+**Fix:**
+```typescript
+// BEFORE: Always CONFIRMING_PRODUCT
+newState: 'CONFIRMING_PRODUCT'
+
+// AFTER: Dynamic based on image count
+const newState = imageCount > 1 ? 'SELECTING_CART_ITEMS' : 'CONFIRMING_PRODUCT';
+```
+
+**Files:** `lib/conversation/orchestrator.ts`
+
+---
+
+#### 3. Cancel Doesn't Clear Pending Images
+**Problem:** After canceling, new images still added to old batch because `pendingImages` wasn't cleared.
+
+**Fix:** Added `pendingImages: []` and `lastImageReceivedAt: undefined` to all DECLINE handlers:
+- `handleConfirmingProduct` (line 441)
+- `handleConfirmingOrder` (line 901)
+- `handleSelectingCartItems` (line 934, 1122)
+- `handleCollectingMultiVariations` (line 1175, 1190)
+
+**Files:** `lib/conversation/fast-lane.ts`
+
+---
+
+#### 4. Bot Messages - English Keywords
+**Problem:** Bot was telling users to type Bangla keywords like "সবগুলো" but English keyboard is default.
+
+**Fix:** Updated messages to use Bangla instructions with English keywords:
+```
+✅ 3টা প্রোডাক্ট সিলেক্ট হয়েছে!
+
+📸 আরো পাঠাতে পারেন (সর্বোচ্চ 5টা)
+
+✅ সব অর্ডার করতে "all" লিখুন
+🔢 নির্দিষ্ট গুলো: "1 and 2" লিখুন
+❌ বাতিল করতে "cancel" লিখুন
+```
+
+**Files:** `lib/conversation/orchestrator.ts`
+
+---
+
+#### 5. "cancel" Keyword Detection
+**Problem:** "cancel" wasn't in NO_PATTERNS for Fast Lane detection.
+
+**Fix:** Added "cancel" to NO_PATTERNS:
+```typescript
+const NO_PATTERNS = [
+  /^(no|nope|nah|n|cancel)$/i,  // English + "cancel"
+  /^(na|nai|nahi)$/i,            // Banglish
+  /^(না|নাই|নাহ|ভুল|বাতিল)$/i,  // Bangla
+];
+```
+
+**Files:** `lib/conversation/fast-lane.ts`
+
+---
+
+#### 6. Dashboard Status Type Compatibility
+**Problem:** Type mismatch between Order interface status types in orders page and modal.
+
+**Fix:** 
+- Added `OrderStatus` type to `app/dashboard/orders/page.tsx`
+- Added `processing` and `completed` to `statusConfig` in modal
+
+**Files:** 
+- `app/dashboard/orders/page.tsx`
+- `components/dashboard/order-details-modal.tsx`
+
+---
+
+### Files Modified
+1. `lib/conversation/orchestrator.ts` (product card, state transition, messages)
+2. `lib/conversation/fast-lane.ts` (cancel handlers, keyword detection)
+3. `app/dashboard/orders/page.tsx` (OrderStatus type)
+4. `components/dashboard/order-details-modal.tsx` (statusConfig, multi-item table)
+
+### Keyword Reference
+
+| User Types | Action | Detection |
+|------------|--------|-----------|
+| `all` | Select all products | `ALL_INTENT_KEYWORDS` |
+| `cancel` | Cancel & reset | `NO_PATTERNS` |
+| `1 and 2` | Select specific | `detectItemNumbers()` |
+| `order` | Start order | `YES_PATTERNS` |
+
+---

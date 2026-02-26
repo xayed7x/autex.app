@@ -41,6 +41,12 @@ export interface CartItem {
   // Stock information for validation
   size_stock?: any[];
   variant_stock?: any[];
+  // Pricing Policy for Negotiation
+  pricing_policy?: {
+    isNegotiable: boolean;
+    minPrice?: number;
+    bulkDiscounts?: Array<{ minQty: number; discountPercent: number; }>;
+  };
 }
 
 // ============================================
@@ -84,6 +90,18 @@ export interface ConversationMetadata {
   
   /** Whether user has completed an order before */
   isReturningCustomer?: boolean;
+  
+  /** Negotiation state for AI Salesman — 5-round framework */
+  negotiation?: {
+    roundNumber: number;
+    currentPrice: number;
+    customerLastOffer?: number;
+    aiLastOffer?: number;
+    floorPrice?: number;
+    finalOfferDeclared?: boolean;
+    status?: 'idle' | 'in_progress' | 'final_offered' | 'accepted' | 'declined';
+    productId?: string;
+  };
 }
 
 // ============================================

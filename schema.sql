@@ -164,6 +164,7 @@ CREATE TABLE public.products (
   size_stock jsonb DEFAULT '[]'::jsonb,
   requires_size_selection boolean DEFAULT true,
   variant_stock jsonb DEFAULT '[]'::jsonb,
+  pricing_policy jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT products_pkey PRIMARY KEY (id),
   CONSTRAINT products_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );

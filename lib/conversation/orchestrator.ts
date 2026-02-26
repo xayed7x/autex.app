@@ -39,6 +39,44 @@ import { getContextManager } from './context-manager';
 import { checkKnowledgeBoundary, getManualFlagResponse } from './knowledge-check';
 
 // ============================================
+// DEEP CONTEXT MERGE HELPER
+// ============================================
+
+/**
+ * Deep-merges conversation context updates into the base context.
+ * 
+ * CRITICAL: This replaces the naive `{ ...base, ...updates }` spread
+ * which was causing 'The Amnesia' bug — shallow spreading would replace
+ * entire nested objects (checkout, metadata), losing fields like
+ * customerName, customerPhone, and negotiation state between turns.
+ */
+function deepMergeContext(
+  base: ConversationContext,
+  updates: Partial<ConversationContext>
+): ConversationContext {
+  return {
+    ...base,
+    ...updates,
+    // Deep merge checkout — preserve name/phone/address across turns
+    checkout: {
+      ...(base.checkout || {}),
+      ...(updates.checkout || {}),
+    },
+    // Deep merge metadata — preserve negotiation state
+    metadata: {
+      ...(base.metadata || {}),
+      ...(updates.metadata || {}),
+      // Specifically preserve negotiation unless explicitly overwritten
+      negotiation: (updates.metadata?.negotiation !== undefined)
+        ? updates.metadata.negotiation
+        : base.metadata?.negotiation,
+    },
+    // Preserve cart unless explicitly updated
+    cart: updates.cart !== undefined ? updates.cart : base.cart,
+  };
+}
+
+// ============================================
 // TYPES
 // ============================================
 
@@ -139,9 +177,16 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       throw new Error(`Failed to load conversation: ${convError?.message}`);
     }
     
-    // Parse and migrate context
-    let currentContext: ConversationContext = conversation.context as any || { state: 'IDLE', cart: [], checkout: {}, metadata: {} };
+    // Initialize default context if null
+    let currentContext = conversation.context || {
+      state: conversation.current_state || 'IDLE',
+      cart: [],
+      checkout: {},
+      metadata: { lastImageUrl: null, messageCount: 0 },
+    };
     
+    console.log('📥 [DB DEBUG] Loaded Context Metadata:', JSON.stringify(currentContext.metadata, null, 2));
+
     // Migrate legacy context if needed
     if (!currentContext.cart || !currentContext.checkout || !currentContext.metadata) {
       console.log('🔄 Migrating legacy context...');
@@ -194,11 +239,30 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     }
     
     // ========================================
-    // STEP 3: TRY FAST LANE (PATTERN MATCHING)
+    // STEP 3: STATE-FIRST FAST LANE (for data-collection states)
     // ========================================
+    // Data-collection states (AWAITING_CUSTOMER_DETAILS, COLLECTING_NAME, etc.)
+    // MUST go through Fast Lane first because it's state-aware and handles:
+    // - Quick Form multi-field parsing
+    // - Phone/address validation
+    // - Multi-variation collection
+    // Without this, the intent classifier sees "Zayed Bin Hamid" and routes to
+    // PROVIDE_NAME handler (conversational), ignoring the Quick Form state.
     
-    if (input.messageText) {
-      console.log('⚡ Trying Fast Lane...');
+    const STATE_DRIVEN_STATES: ConversationState[] = [
+      'AWAITING_CUSTOMER_DETAILS',
+      'COLLECTING_MULTI_VARIATIONS',
+      'COLLECTING_NAME',
+      'COLLECTING_PHONE',
+      'COLLECTING_ADDRESS',
+      'CONFIRMING_ORDER',
+      'CONFIRMING_PRODUCT',
+      'SELECTING_CART_ITEMS',
+      'COLLECTING_PAYMENT_DIGITS',
+    ];
+    
+    if (input.messageText && STATE_DRIVEN_STATES.includes(currentState)) {
+      console.log(`⚡ State-driven routing: ${currentState} → trying Fast Lane first...`);
       
       const fastLaneResult = tryFastLane(
         input.messageText,
@@ -208,44 +272,224 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       );
       
       if (fastLaneResult.matched) {
-        console.log(`✅ Fast Lane matched! Action: ${fastLaneResult.action}`);
+        console.log(`✅ Fast Lane matched in state ${currentState}: action=${fastLaneResult.action}`);
         
-        // Convert FastLaneResult to AIDirectorDecision format
-        const decision: AIDirectorDecision = {
-          action: fastLaneResult.action === 'CONFIRM' ? 'TRANSITION_STATE' :
-                  fastLaneResult.action === 'DECLINE' ? 'RESET_CONVERSATION' :
-                  fastLaneResult.action === 'COLLECT_NAME' ? 'UPDATE_CHECKOUT' :
-                  fastLaneResult.action === 'COLLECT_PHONE' ? 'UPDATE_CHECKOUT' :
-                  fastLaneResult.action === 'COLLECT_ADDRESS' ? 'UPDATE_CHECKOUT' :
-                  fastLaneResult.action === 'GREETING' ? 'SEND_RESPONSE' :
-                  fastLaneResult.action === 'CREATE_ORDER' ? 'CREATE_ORDER' :
-                  'SEND_RESPONSE',
+        let orderNumber: string | undefined;
+        
+        // Handle order creation from Fast Lane
+        if (fastLaneResult.action === 'CREATE_ORDER') {
+          console.log('📦 Creating order from Fast Lane...');
+          if (input.isTestMode) {
+            const timestamp = Date.now().toString().slice(-4);
+            orderNumber = `TEST-${timestamp}`;
+          } else {
+            const mergedForOrder = deepMergeContext(currentContext, fastLaneResult.updatedContext || {});
+            orderNumber = await createOrderInDb(
+              supabase,
+              input.workspaceId,
+              input.fbPageId,
+              input.conversationId,
+              mergedForOrder
+            );
+          }
+        }
+        
+        // Send response
+        if (fastLaneResult.response && !input.isTestMode) {
+          const { sendMessage } = await import('@/lib/facebook/messenger');
+          await sendMessage(input.pageId, input.customerPsid, fastLaneResult.response);
+          
+          await supabase.from('messages').insert({
+            conversation_id: input.conversationId,
+            sender: 'bot',
+            sender_type: 'bot',
+            message_text: fastLaneResult.response,
+            message_type: 'text',
+          });
+        }
+        
+        // Save state (deep merge to preserve negotiation + checkout data)
+        const contextToSave = deepMergeContext(currentContext, fastLaneResult.updatedContext || {});
+        
+        await supabase
+          .from('conversations')
+          .update({
+            current_state: fastLaneResult.newState || currentState,
+            context: contextToSave,
+          } as any)
+          .eq('id', input.conversationId);
+        
+        console.log(`💾 Fast Lane state saved: ${fastLaneResult.newState}`);
+        
+        return {
           response: fastLaneResult.response || '',
-          newState: fastLaneResult.newState,
-          updatedContext: fastLaneResult.updatedContext,
-          confidence: 100,
-          reasoning: 'Fast Lane pattern match',
+          newState: fastLaneResult.newState || currentState,
+          updatedContext: contextToSave,
+          orderCreated: fastLaneResult.action === 'CREATE_ORDER',
+          orderNumber,
         };
-        
-        // Special handling for order confirmation - REMOVED legacy override
-        // if (currentState === 'CONFIRMING_ORDER' && fastLaneResult.action === 'CONFIRM') {
-        //   decision.action = 'CREATE_ORDER';
-        // }
-        
-        return await executeDecision(
-          decision,
-          input,
-          conversation,
-          supabase,
-          settings
-        );
       }
       
-      console.log('⚠️ Fast Lane did not match - routing to AI Director...');
+      console.log(`⚠️ Fast Lane didn't match in state ${currentState} — checking fallback...`);
+      
+      // ========================================
+      // SMART FALLBACK: Quick Form data sent in wrong state
+      // ========================================
+      // Sometimes the previous request's state save fails silently
+      // (e.g., saved AWAITING_CUSTOMER_DETAILS but next request loads CONFIRMING_PRODUCT).
+      // Detect multi-line form data and redirect to handleAwaitingCustomerDetails.
+      
+      const isQuickFormMode = settings?.order_collection_style === 'quick_form';
+      const hasMultipleLines = input.messageText.includes('\n') && input.messageText.split('\n').length >= 3;
+      const hasPhonePattern = /01[3-9]\d{8}/.test(input.messageText);
+      const hasCartItems = currentContext.cart && currentContext.cart.length > 0;
+      
+      if (isQuickFormMode && hasMultipleLines && hasPhonePattern && hasCartItems) {
+        console.log('🔄 [SMART FALLBACK] Multi-line form data detected in wrong state → treating as AWAITING_CUSTOMER_DETAILS');
+        
+        const fallbackResult = tryFastLane(
+          input.messageText,
+          'AWAITING_CUSTOMER_DETAILS' as ConversationState,
+          { ...currentContext, state: 'AWAITING_CUSTOMER_DETAILS' },
+          settings
+        );
+        
+        if (fallbackResult.matched) {
+          console.log('✅ [SMART FALLBACK] Form data parsed successfully!');
+          
+          let orderNumber: string | undefined;
+          
+          if (fallbackResult.action === 'CREATE_ORDER') {
+            if (input.isTestMode) {
+              orderNumber = `TEST-${Date.now().toString().slice(-4)}`;
+            } else {
+              const mergedForOrder = deepMergeContext(currentContext, fallbackResult.updatedContext || {});
+              orderNumber = await createOrderInDb(supabase, input.workspaceId, input.fbPageId, input.conversationId, mergedForOrder);
+            }
+          }
+          
+          if (fallbackResult.response && !input.isTestMode) {
+            const { sendMessage } = await import('@/lib/facebook/messenger');
+            await sendMessage(input.pageId, input.customerPsid, fallbackResult.response);
+            await supabase.from('messages').insert({
+              conversation_id: input.conversationId,
+              sender: 'bot', sender_type: 'bot',
+              message_text: fallbackResult.response, message_type: 'text',
+            });
+          }
+          
+          const contextToSave = deepMergeContext(currentContext, fallbackResult.updatedContext || {});
+          const { error: saveErr } = await supabase.from('conversations').update({
+            current_state: fallbackResult.newState || 'AWAITING_CUSTOMER_DETAILS',
+            context: contextToSave,
+          } as any).eq('id', input.conversationId);
+          if (saveErr) console.error('❌ [SMART FALLBACK] DB save error:', saveErr);
+          
+          return {
+            response: fallbackResult.response || '',
+            newState: fallbackResult.newState || 'AWAITING_CUSTOMER_DETAILS',
+            updatedContext: contextToSave,
+            orderCreated: fallbackResult.action === 'CREATE_ORDER',
+            orderNumber,
+          };
+        }
+      }
     }
     
     // ========================================
-    // STEP 4: FALLBACK TO AI DIRECTOR (AI DECISION)
+    // STEP 4: INTENT-FIRST PROCESSING (for non-state-driven messages)
+    // ========================================
+    // Handles greetings, negotiations, queries, etc. where content matters more than state
+    
+    if (input.messageText) {
+      console.log('🧠 Starting Intent-First Processing...');
+      const { processWithIntent } = await import('./intent');
+      
+      const intentResult = await processWithIntent(
+        input.messageText,
+        currentContext,
+        settings,
+        conversationHistory
+      );
+      
+      if (intentResult.handled) {
+        console.log(`✅ Intent Handled: ${intentResult.intent.intent}`);
+        
+        let orderNumber: string | undefined;
+        
+        // Handle Move to Manual (Flag) from Handler
+        if (intentResult.flagManual) {
+           console.log(`🚩 Handler flagged for manual: ${intentResult.flagReason}`);
+           // Fall through to AI Director or Flag logic below? 
+           // Better to handle it here if it's an explicit flag
+           await flagForManualResponse(supabase, input.conversationId, intentResult.flagReason || 'Flagged by intent handler');
+           // Continue to send response if any
+        }
+        
+        // Handle Order Creation
+        if (intentResult.createOrder) {
+          console.log('📦 Creating order from intent handler...');
+          if (input.isTestMode) {
+             const timestamp = Date.now().toString().slice(-4);
+             orderNumber = `TEST-${timestamp}`;
+          } else {
+             orderNumber = await createOrderInDb(
+               supabase,
+               input.workspaceId,
+               input.fbPageId,
+               input.conversationId,
+               { ...currentContext, ...intentResult.updatedContext }
+             );
+          }
+        }
+        
+        // Send response to user (if not in test mode)
+        if (intentResult.response && !input.isTestMode) {
+          const { sendMessage } = await import('@/lib/facebook/messenger');
+          await sendMessage(input.pageId, input.customerPsid, intentResult.response);
+          
+          // Log bot message
+          await supabase.from('messages').insert({
+            conversation_id: input.conversationId,
+            sender: 'bot',
+            sender_type: 'bot',
+            message_text: intentResult.response,
+            message_type: 'text',
+          });
+        }
+
+        // SAVE STATE AND CONTEXT TO DB (DEEP MERGE — fixes The Amnesia bug)
+        const contextToSave = deepMergeContext(currentContext, intentResult.updatedContext);
+        console.log('📝 [DB SAVE] State:', intentResult.newState, '| Context keys:', Object.keys(contextToSave).join(','));
+
+        const { error: dbSaveError } = await supabase
+          .from('conversations')
+          .update({
+            current_state: intentResult.newState,
+            context: contextToSave,
+          } as any)
+          .eq('id', input.conversationId);
+        
+        if (dbSaveError) {
+          console.error('❌ [DB SAVE ERROR] Failed to save state!', dbSaveError);
+        } else {
+          console.log(`💾 State saved: ${intentResult.newState}`);
+        }
+        
+        return {
+          response: intentResult.response,
+          newState: intentResult.newState,
+          updatedContext: contextToSave, // Return full merged context to be safe
+          orderCreated: intentResult.createOrder,
+          orderNumber
+        };
+      }
+      
+      console.log('⚠️ Intent not handled - falling back to Full AI Director...');
+    }
+    
+    // ========================================
+    // STEP 4: FALLBACK TO FULL AI DIRECTOR (COMPLEX CASES)
     // ========================================
     
     if (input.messageText) {
@@ -408,31 +652,20 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       } catch (error) {
         console.error('❌ AI Director failed:', error);
         
-        // Send user-friendly fallback message
-        const fallbackMessage = "দুঃখিত, আমাদের একটা technical সমস্যা হয়েছে। একটু পরে আবার try করুন। 🙏";
-        
-        // Skip Facebook API call in test mode
-        if (!input.isTestMode) {
-          await sendMessage(
-            input.pageId,
-            input.customerPsid,
-            fallbackMessage
+        // Silently flag for manual response — don't send error message to customer
+        try {
+          await flagForManualResponse(
+            supabase,
+            conversation.id,
+            `AI Director error: ${error instanceof Error ? error.message : 'Unknown error'}`
           );
+        } catch (flagError) {
+          console.error('⚠️ Failed to flag conversation:', flagError);
         }
         
-        // Log bot's fallback message
-        await supabase.from('messages').insert({
-          conversation_id: conversation.id,
-          sender: 'bot',
-          sender_type: 'bot',
-          message_text: fallbackMessage,
-          message_type: 'text',
-          created_at: new Date().toISOString(),
-        });
-        
-        console.log('✅ Sent fallback message to user');
+        console.log('🚩 Conversation flagged for manual reply (no message sent to customer)');
         return {
-          response: fallbackMessage,
+          response: '',
           newState: currentState,
           updatedContext: currentContext
         };
@@ -473,13 +706,21 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       console.error('⚠️ Rollback failed:', rollbackError);
     }
     
-    // Send error message to user (skip in test mode)
-    if (!input.isTestMode) {
-      await sendMessage(
-        input.pageId,
-        input.customerPsid,
-        'দুঃখিত! কিছু একটা সমস্যা হয়েছে। 😔 আবার চেষ্টা করুন।'
+    // Silently flag for manual response — don't send error message to customer
+    try {
+      const flagSupabase = createClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
       );
+      await flagSupabase.from('conversations').update({
+        needs_manual_response: true,
+        manual_flag_reason: `Orchestrator error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        manual_flagged_at: new Date().toISOString(),
+      }).eq('id', input.conversationId);
+      console.log('🚩 Conversation flagged for manual reply (no message sent to customer)');
+    } catch (flagError) {
+      console.error('⚠️ Failed to flag conversation:', flagError);
     }
     
     throw error;
@@ -514,10 +755,42 @@ async function executeDecision(
   
   let response = decision.response;
   let newState = decision.newState || conversation.current_state;
-  let updatedContext = { ...conversation.context, ...decision.updatedContext };
+  let updatedContext = deepMergeContext(conversation.context || {}, decision.updatedContext || {});
   let orderCreated = false;
   let orderNumber: string | undefined;
   let productCard: any = undefined;
+  
+  // ========================================
+  // QUICK FORM OVERRIDE
+  // ========================================
+  // When the AI Director decides to start collecting customer info
+  // (COLLECTING_NAME), it doesn't know about the workspace's
+  // order_collection_style setting. If 'quick_form' is configured,
+  // we override to AWAITING_CUSTOMER_DETAILS so the Fast Lane's
+  // multi-field parser handles the response, not the single-field
+  // conversational flow handler.
+  
+  if (newState === 'COLLECTING_NAME' && settings?.order_collection_style === 'quick_form') {
+    console.log('⚡ [QUICK_FORM OVERRIDE] AI set COLLECTING_NAME but quick_form is configured → AWAITING_CUSTOMER_DETAILS');
+    newState = 'AWAITING_CUSTOMER_DETAILS';
+    
+    // Generate proper quick form prompt with product variations
+    const product = updatedContext.cart?.[0] as any;
+    const availableSizes = product?.sizes || [];
+    const availableColors = product?.colors || [];
+    const hasSize = availableSizes.length > 0;
+    const hasColor = availableColors.length > 1;
+    
+    let quickFormPrompt = settings.quick_form_prompt || 
+      'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
+    
+    if (hasSize) quickFormPrompt += `\nসাইজ: (${availableSizes.join('/')})`;
+    if (hasColor) quickFormPrompt += `\nকালার: (${availableColors.join('/')})`;
+    quickFormPrompt += '\nপরিমাণ: (1 হলে লিখতে হবে না)';
+    
+    response = quickFormPrompt;
+    updatedContext = { ...updatedContext, state: 'AWAITING_CUSTOMER_DETAILS' };
+  }
   
   // Execute action
   switch (decision.action) {
@@ -665,6 +938,7 @@ async function executeDecision(
           }
           
           // Add to cart and transition to CONFIRMING_PRODUCT
+          // IMPORTANT: Reset negotiation metadata — new product = fresh negotiation
           updatedContext.cart = [{
             productId: product.id,
             productName: product.name,
@@ -672,7 +946,16 @@ async function executeDecision(
             quantity: 1,
             sizes: product.sizes || [],
             colors: product.colors || [],
-          }];
+            // Extra fields for AI Director context
+            description: product.description || undefined,
+            stock: product.stock_quantity || 0,
+            // Pricing Policy for Negotiation
+            pricing_policy: product.pricing_policy || { isNegotiable: false },
+          } as any];
+          updatedContext.metadata = {
+            ...updatedContext.metadata,
+            negotiation: undefined, // Clear old negotiation from previous product/session
+          };
           newState = 'CONFIRMING_PRODUCT';
         } else {
           // Multiple products - send carousel
@@ -917,7 +1200,7 @@ async function executeDecision(
   if (response) {
     // Inject payment number if placeholder exists
     // Inject payment details if placeholder exists
-    if (response.includes('{{PAYMENT_NUMBER}}') || response.includes('{{PAYMENT_DETAILS}}')) {
+    if (response.includes('{{PAYMENT_NUMBER}}') || response.includes('{{PAYMENT_DETAILS}}') || response.includes('{totalAmount}')) {
       const methods = [];
       
       if (settings.paymentMethods?.bkash?.enabled) {
@@ -939,10 +1222,22 @@ async function executeDecision(
       
       const paymentDetails = methods.join('\n');
       
-      // Replace both old and new placeholders
+      // Calculate total amount for the placeholder
+      const cart = updatedContext?.cart || [];
+      const negotiatedPrice = (updatedContext?.metadata as any)?.negotiation?.aiLastOffer;
+      const subtotalCalc = cart.reduce((sum: number, item: any) => {
+        const effectivePrice = negotiatedPrice || item.productPrice;
+        return sum + (effectivePrice * (item.quantity || 1));
+      }, 0);
+      const deliveryCalc = updatedContext?.checkout?.deliveryCharge || updatedContext?.deliveryCharge || 0;
+      const totalAmountCalc = subtotalCalc + deliveryCalc;
+      
+      // Replace all placeholders
       response = response
         .replace('{{PAYMENT_NUMBER}}', paymentDetails)
-        .replace('{{PAYMENT_DETAILS}}', paymentDetails);
+        .replace('{{PAYMENT_DETAILS}}', paymentDetails)
+        .replace('{totalAmount}', totalAmountCalc.toString())
+        .replace('৳{totalAmount}', `৳${totalAmountCalc}`);
     }
 
     // Skip Facebook API call in test mode
@@ -1066,23 +1361,37 @@ async function handleImageMessage(
     let responseMessage: string;
     
     if (wasLimited) {
-      // Already at max images - Bangla instructions, English keywords
-      responseMessage = `⚠️ আরো স্ক্রিনশটের জন্য প্রথমে এগুলো অর্ডার করুন!\n\n` +
-        `✅ সব অর্ডার করতে "all" লিখুন\n` +
+      // Already at max images — warm but firm
+      responseMessage = `⚠️ ভাইয়া আরো স্ক্রিনশটের জন্য আগে এগুলোর order complete করে ফেলেন!\n\n` +
+        `✅ সব নিতে "all" লিখুন\n` +
         `🔢 নির্দিষ্ট গুলো: "1 and 3" লিখুন\n` +
         `❌ বাতিল করতে "cancel" লিখুন`;
     } else if (isFirstImage) {
-      // First image - Bangla instructions, English keywords
-      responseMessage = `👆 এই প্রোডাক্ট অর্ডার করতে:\n` +
-        `   🔘 "Order Now" বাটনে ক্লিক করুন\n` +
-        `   ✍️ অথবা "order" লিখুন\n\n` +
-        `📸 একাধিক প্রোডাক্ট অর্ডার করতে?\n` +
-        `   আরো স্ক্রিনশট পাঠান`;
+      // First image — Meem gets excited about the product
+      const productName = product.name || 'এই product';
+      const description = (product as any).description || '';
+      
+      // Build a warm, personalized greeting
+      let warmGreeting = `ওহ দারুণ choice ভাইয়া! 🔥 ${productName} — এটা এখন অনেক popular!`;
+      
+      // Add one selling point from description if available
+      if (description && description.length > 5) {
+        // Take first sentence or first 80 chars of description as selling point
+        const sellingPoint = description.split(/[।.!]/)[0].trim().substring(0, 80);
+        if (sellingPoint) {
+          warmGreeting += `\n✨ ${sellingPoint}`;
+        }
+      }
+      
+      warmGreeting += `\n\nনিতে চাইলে "order" লিখুন, size আর color check করে দিই! 😊`;
+      warmGreeting += `\n📸 একাধিক product অর্ডার করতে আরো screenshot পাঠান`;
+      
+      responseMessage = warmGreeting;
     } else {
-      // Additional image - Bangla instructions, English keywords
-      responseMessage = `✅ ${imageCount}টা প্রোডাক্ট সিলেক্ট হয়েছে!\n\n` +
+      // Additional image — warm batch update
+      responseMessage = `✅ দারুণ! ${imageCount}টা product সিলেক্ট হয়েছে! 🛍️\n\n` +
         `📸 আরো পাঠাতে পারেন\n\n` +
-        `✅ সব অর্ডার করতে "all" লিখুন\n` +
+        `✅ সব নিতে "all" লিখুন\n` +
         `🔢 নির্দিষ্ট গুলো: "1 and 2" লিখুন\n` +
         `❌ বাতিল করতে "cancel" লিখুন`;
     }
@@ -1097,6 +1406,7 @@ async function handleImageMessage(
     
     // CRITICAL FIX: For single image, add product to cart immediately
     // This allows "order"/"yes" to work without needing button click
+    const productAny = product as any;
     const cartForSingleImage = imageCount === 1 ? [{
       productId: product.id,
       productName: product.name,
@@ -1105,7 +1415,11 @@ async function handleImageMessage(
       sizes: product.sizes || [],
       colors: product.colors || [],
       stock: product.stock_quantity || 0,
-    }] : currentContext.cart || [];
+      description: product.description || undefined,
+      size_stock: productAny.size_stock || [],
+      variant_stock: productAny.variant_stock || [],
+      pricing_policy: productAny.pricing_policy || null,
+    }] as any[] : currentContext.cart || [];
     
     return {
       action: 'SEND_PRODUCT_CARD',
@@ -1132,6 +1446,7 @@ async function handleImageMessage(
           ...currentContext.metadata,
           lastImageUrl: imageUrl,
           lastProductId: product.id,
+          negotiation: undefined, // Clear old negotiation — new product = fresh start
         },
       },
       confidence: imageRecognitionResult.match.confidence,
@@ -1141,12 +1456,15 @@ async function handleImageMessage(
   } catch (error) {
     console.error('❌ Error in handleImageMessage:', error);
     
+    // Don't send error message to customer — flag for manual reply instead
     return {
       action: 'SEND_RESPONSE',
-      response: 'দুঃখিত! ছবি প্রসেস করতে সমস্যা হয়েছে। 😔 আবার চেষ্টা করুন।',
+      response: '',  // Empty = no message sent to customer
       confidence: 100,
-      reasoning: 'Image processing error',
-    };
+      reasoning: `Image processing error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      flagManual: true,
+      flagReason: `Image processing error: ${error instanceof Error ? error.message : 'Unknown'}`,
+    } as any;
   }
 }
 
@@ -1172,10 +1490,19 @@ async function createOrderInDb(
     throw new Error('No products in cart');
   }
   
-  // Calculate totals
-  const subtotal = cart.reduce((sum, item) => sum + (item.productPrice * item.quantity), 0);
+  // Calculate totals using negotiated price if available AND for this product
+  const negotiation = (context.metadata as any)?.negotiation;
+  const subtotal = cart.reduce((sum, item) => {
+    const isForThisProduct = !negotiation?.productId || negotiation.productId === item.productId;
+    const effectivePrice = (negotiation?.aiLastOffer && isForThisProduct) ? negotiation.aiLastOffer : item.productPrice;
+    return sum + (effectivePrice * item.quantity);
+  }, 0);
   const deliveryCharge = context.checkout.deliveryCharge || context.deliveryCharge || 0;
   const totalAmount = subtotal + deliveryCharge;
+  
+  if (negotiation?.aiLastOffer) {
+    console.log(`💰 Using negotiated price: ৳${negotiation.aiLastOffer} (base was ৳${cart[0].productPrice})`);
+  }
   
   console.log(`🛒 Cart has ${cart.length} items, subtotal: ৳${subtotal}, total: ৳${totalAmount}`);
   
@@ -1239,16 +1566,18 @@ async function createOrderInDb(
     }
   }
   
-  // Insert order items with correct product images
+  // Insert order items with correct product images and negotiated price
   const orderItems = cart.map(item => {
     const itemAny = item as any;
+    const isForThisProduct = !negotiation?.productId || negotiation.productId === item.productId;
+    const effectivePrice = (negotiation?.aiLastOffer && isForThisProduct) ? negotiation.aiLastOffer : item.productPrice;
     return {
       order_id: orderId,
       product_id: item.productId,
       product_name: item.productName,
-      product_price: item.productPrice,
+      product_price: effectivePrice,
       quantity: item.quantity,
-      subtotal: item.productPrice * item.quantity,
+      subtotal: effectivePrice * item.quantity,
       selected_size: itemAny.selectedSize || itemAny.variations?.size || null,
       selected_color: itemAny.selectedColor || itemAny.variations?.color || null,
       product_image_url: imageUrlMap[item.productId] || item.imageUrl || null,

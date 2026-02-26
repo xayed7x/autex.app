@@ -166,15 +166,16 @@ Example: 78 বা 45
    * Order confirmed
    */
   ORDER_CONFIRMED: (params: ReplyParams) => {
-    const { orderId, name, deliveryCharge } = params;
-    return `🎉 অর্ডারটি কনফার্ম করা হয়েছে! ✅
-Order ID: #${orderId}
-Delivery Charge: ৳${deliveryCharge}
-bKash: 01812345678
+    const { orderId, name, deliveryCharge, totalAmount } = params;
+    return `আলহামদুলিল্লাহ! অর্ডারটা confirm হয়ে গেছে ✅
 
-আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ ${name}! 🎉
+Order #${orderId} | Total: ৳${totalAmount || 'N/A'} | 🚚 Delivery: ৳${deliveryCharge}
 
-আপনার product টি ৩-৫ কার্যদিবসের মধ্যে পৌঁছে যাবে। 🚚`;
+আমরা ২৪ ঘণ্টার মধ্যে call দেব, তারপর ৩-৫ দিনে delivery হবে ইনশাআল্লাহ 🚚
+
+আপনার product টার জন্য অপেক্ষা করেন — হতাশ হবেন না ইনশাআল্লাহ! 😊
+
+ধন্যবাদ ${name || 'ভাইয়া'}, আমাদের সাথে কেনাকাটার জন্য! 🙏`;
   },
 
   /**

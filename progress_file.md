@@ -5206,3 +5206,39 @@ When owner sends message to flagged conversation:
 - ✅ Auto-clear on owner reply
 - ✅ Toast feedback for hybrid mode
 
+---
+
+## Negotiation Query Bug Fix (2026-01-20)
+
+### Problem Identified
+Single keyword matching (e.g., "কত", "টাকা") was triggering `isDetailsRequest()` for negotiation messages, causing the bot to repeatedly show the product card instead of handling bargaining queries properly.
+
+**Example of the bug:**
+- Customer: "ডিসকাউন্ট কত দিবেন?" → Bot shows product card (wrong!)
+- Customer: "500 টাকা দিব" → Bot shows product card again (loop!)
+
+### Solution Implemented
+
+#### 1. Phrase-Based Negotiation Detection (`keywords.ts`)
+- Added `isNegotiationQuery()` function with **regex phrase patterns** instead of single words
+- Patterns detect specific negotiation intents:
+  - **Price offers**: `\d+\s*(টাকা|taka)\s*(দিব|দেব)` (e.g., "500 টাকা দিব")
+  - **Bulk discounts**: `\d+\s*(টা|ta)\s*(নিলে|nile)` (e.g., "10 টা নিলে কত")
+  - **Bargaining phrases**: `(কম|kom)\s*(করেন|koren)` (e.g., "কম করেন")
+  - **Counter-offers**: `\d+\s*(রাখেন|rakhen)` (e.g., "800 রাখেন")
+  - **Discount requests**: `(ডিসকাউন্ট|discount)` (word is specific enough)
+
+#### 2. Priority-Based Detection (`fast-lane.ts`)
+- Added negotiation check in `handleGlobalInterruption()` BEFORE other checks
+- Added negotiation check in `handleConfirmingProduct()` BEFORE `isDetailsRequest()`
+- Negotiation queries now return `matched: false` → AI Director → FLAG_MANUAL
+
+#### 3. Result
+- ✅ "দাম কত?" → Product details (legitimate price query)
+- ✅ "500 টাকا দিব" → FLAG_MANUAL (negotiation)
+- ✅ "ডিসকাউন্ট কত দিবেন?" → FLAG_MANUAL (discount request)
+- ✅ "10 টা নিলে কত?" → FLAG_MANUAL (bulk pricing)
+
+### Files Modified
+- `lib/conversation/keywords.ts` - Added `isNegotiationQuery()` with regex patterns
+- `lib/conversation/fast-lane.ts` - Added priority negotiation checks

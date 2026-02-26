@@ -4,6 +4,42 @@ import { Database } from '@/types/supabase';
 type Product = Database['public']['Tables']['products']['Row'];
 
 /**
+ * Fetches a single product by ID with full data including pricing_policy
+ */
+export async function getProductById(
+  productId: string,
+  workspaceId?: string
+): Promise<Product | null> {
+  const supabase = createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  try {
+    let query = supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId);
+    
+    if (workspaceId) {
+      query = query.eq('workspace_id', workspaceId);
+    }
+    
+    const { data, error } = await query.single();
+
+    if (error) {
+      console.error('Error fetching product by ID:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Unexpected error in getProductById:', error);
+    return null;
+  }
+}
+
+/**
  * Searches for products based on keywords in the query string.
  * Searches across name, description, and search_keywords columns.
  * 

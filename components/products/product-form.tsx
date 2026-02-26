@@ -42,6 +42,19 @@ interface SizeStockItem {
   quantity: number;
 }
 
+// Bulk discount tier
+interface BulkDiscount {
+  minQty: number;
+  discountPercent: number;
+}
+
+// Pricing policy for negotiation/discounts
+interface PricingPolicy {
+  isNegotiable: boolean;
+  minPrice?: number | null;
+  bulkDiscounts: BulkDiscount[];
+}
+
 const productFormSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
   price: z.string().min(1, 'Price is required'),
@@ -62,6 +75,7 @@ interface Product {
   sizes?: string[] | null;
   size_stock?: SizeStockItem[] | null;
   variant_stock?: VariantStockItem[] | null;
+  pricing_policy?: PricingPolicy | null;
 }
 
 interface ProductFormProps {
@@ -98,6 +112,11 @@ export function ProductForm({
   const [variantStock, setVariantStock] = useState<VariantStockItem[]>([]);
   const [newSize, setNewSize] = useState('');
   const [newQuantity, setNewQuantity] = useState('10');
+  
+  // Pricing policy state
+  const [isNegotiable, setIsNegotiable] = useState(false);
+  const [minPrice, setMinPrice] = useState<string>('');
+  const [bulkDiscounts, setBulkDiscounts] = useState<BulkDiscount[]>([]);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productFormSchema),
@@ -154,6 +173,17 @@ export function ProductForm({
       } else {
         setVariantStock([]);
       }
+      
+      // Load pricing policy
+      if (product.pricing_policy) {
+        setIsNegotiable(product.pricing_policy.isNegotiable || false);
+        setMinPrice(product.pricing_policy.minPrice?.toString() || '');
+        setBulkDiscounts(product.pricing_policy.bulkDiscounts || []);
+      } else {
+        setIsNegotiable(false);
+        setMinPrice('');
+        setBulkDiscounts([]);
+      }
     } else {
       form.reset({
         name: '',
@@ -164,6 +194,10 @@ export function ProductForm({
       setImageSlots([]);
       setSizeStock([]);
       setVariantStock([]);
+      // Reset pricing policy
+      setIsNegotiable(false);
+      setMinPrice('');
+      setBulkDiscounts([]);
     }
     setNewSize('');
     setNewQuantity('10');
@@ -291,6 +325,14 @@ export function ProductForm({
         formData.append('size_stock', '[]');
         formData.append('variant_stock', '[]');
       }
+      
+      // Send pricing policy
+      const pricingPolicy = {
+        isNegotiable,
+        minPrice: minPrice ? parseFloat(minPrice) : null,
+        bulkDiscounts: bulkDiscounts.filter(d => d.minQty > 0 && d.discountPercent > 0),
+      };
+      formData.append('pricing_policy', JSON.stringify(pricingPolicy));
 
       // Handle multiple images
       const newImageFiles = imageSlots.filter(slot => slot.type === 'new' && slot.file);
@@ -537,6 +579,121 @@ export function ProductForm({
                    </span>
                 </div>
               )}
+            </div>
+
+            {/* Pricing Policy Section */}
+            <div className="space-y-4 border border-white/10 rounded-xl p-4 bg-white/5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                    💰 Pricing Policy
+                  </h4>
+                  <p className="text-xs text-zinc-500">Configure negotiation and bulk discounts</p>
+                </div>
+              </div>
+              
+              {/* Negotiable Toggle */}
+              <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-900/50">
+                <div>
+                  <p className="text-sm text-white">Price is negotiable</p>
+                  <p className="text-xs text-zinc-500">Allow customers to make offers</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsNegotiable(!isNegotiable)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    isNegotiable ? 'bg-green-500' : 'bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      isNegotiable ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+              
+              {/* Min Price (when negotiable) */}
+              {isNegotiable && (
+                <div className="pl-3 border-l-2 border-green-500/30">
+                  <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">
+                    Minimum Acceptable Price (৳)
+                  </label>
+                  <Input
+                    type="number"
+                    value={minPrice}
+                    onChange={(e) => setMinPrice(e.target.value)}
+                    placeholder="Lowest price you'll accept"
+                    className="mt-1 bg-zinc-900/50 border-white/10 h-10"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    AI will accept offers at or above this price
+                  </p>
+                </div>
+              )}
+              
+              {/* Bulk Discounts */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">
+                    Bulk Discounts
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkDiscounts([...bulkDiscounts, { minQty: 3, discountPercent: 5 }])}
+                    className="h-7 text-xs"
+                  >
+                    + Add Tier
+                  </Button>
+                </div>
+                
+                {bulkDiscounts.length === 0 ? (
+                  <p className="text-xs text-zinc-500 py-2">No bulk discounts configured</p>
+                ) : (
+                  <div className="space-y-2">
+                    {bulkDiscounts.map((discount, index) => (
+                      <div key={index} className="flex items-center gap-2 bg-zinc-900/50 p-2 rounded-lg">
+                        <Input
+                          type="number"
+                          value={discount.minQty}
+                          onChange={(e) => {
+                            const updated = [...bulkDiscounts];
+                            updated[index].minQty = parseInt(e.target.value) || 0;
+                            setBulkDiscounts(updated);
+                          }}
+                          className="w-16 h-8 text-center bg-transparent border-white/10"
+                          min={2}
+                        />
+                        <span className="text-xs text-zinc-500">+ items →</span>
+                        <Input
+                          type="number"
+                          value={discount.discountPercent}
+                          onChange={(e) => {
+                            const updated = [...bulkDiscounts];
+                            updated[index].discountPercent = parseInt(e.target.value) || 0;
+                            setBulkDiscounts(updated);
+                          }}
+                          className="w-16 h-8 text-center bg-transparent border-white/10"
+                          min={1}
+                          max={100}
+                        />
+                        <span className="text-xs text-zinc-500">% off</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setBulkDiscounts(bulkDiscounts.filter((_, i) => i !== index))}
+                          className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <FormField

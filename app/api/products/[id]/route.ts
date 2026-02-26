@@ -171,6 +171,7 @@ export async function PATCH(
         ...(updateData.sizes && { sizes: updateData.sizes }),
         ...(updateData.size_stock && { size_stock: updateData.size_stock }),
         ...(updateData.variant_stock && { variant_stock: updateData.variant_stock }),
+        ...(updateData.pricing_policy && { pricing_policy: updateData.pricing_policy }), // NEW: Pricing policy
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)

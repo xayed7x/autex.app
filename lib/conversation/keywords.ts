@@ -143,6 +143,9 @@ const SIZE_KEYWORDS = [
 ];
 
 // Product detail keywords (View Details equivalents)
+// NOTE: Price-related keywords are intentionally EXCLUDED here.
+// "price aktu kom koren" is negotiation, not a details request.
+// Price queries should go to AI for intelligent handling.
 const DETAILS_KEYWORDS = [
   // Direct detail requests
   'details', 'detail', 'info', 'information', 'specification',
@@ -153,17 +156,16 @@ const DETAILS_KEYWORDS = [
   // Color/variation questions
   'color', 'colour', 'রঙ', 'রং', 'কালার',
   'red', 'blue', 'black', 'white', 'লাল', 'নীল', 'কালো', 'সাদা',
-  // NEW: Quality/Authenticity
+  // Quality/Authenticity (NOT price-related)
   'অরিজিনাল', 'original', 'আসল', 'asol', 'নকল', 'nokol', 'fake',
   'quality', 'কোয়ালিটি', 'ভালো', 'valo', 'good', 'খারাপ', 'kharap',
-  'দামি', 'dami', 'expensive', 'সস্তা', 'sosta', 'cheap',
   'brand', 'ব্র্যান্ড', 'company', 'কোম্পানি',
-  // NEW: Comparison
+  // Comparison
   'অন্য', 'onno', 'আরেকটা', 'arekta', 'another', 'different',
   'similar', 'একই রকম', 'eki rokom', 'same', 'মতো', 'moto',
   'better', 'ভালো কোনটা', 'valo konota', 'which one', 'কোনটা নিব',
   'compare', 'তুলনা', 'tulona', 'মিল', 'mil',
-  // NEW: Availability Urgency
+  // Availability
   'শেষ হয়ে যাবে', 'shesh hoye jabe', 'stock out', 'শেষ', 'shesh',
   'আছে তো', 'ache to', 'পাওয়া যাচ্ছে', 'pawa jacche', 'available',
   'নতুন আসবে', 'notun asbe', 'restock', 'আবার আসবে', 'abar asbe',
@@ -228,6 +230,78 @@ const SELLER_KEYWORDS = [
 ];
 
 // ============================================
+// NEGOTIATION PHRASE PATTERNS (More accurate than single words)
+// ============================================
+
+/**
+ * Phrase-based patterns for detecting negotiation/bargaining intent.
+ * These are MORE SPECIFIC than single keywords to avoid false positives.
+ * 
+ * Example: "দাম কত?" = price query (not negotiation)
+ *          "500 টাকা দিব" = negotiation (offering a price)
+ *          "কম করেন" = bargaining (asking for discount)
+ */
+const NEGOTIATION_PATTERNS: RegExp[] = [
+  // === OFFERING A PRICE ===
+  // "X টাকা দিব" / "X taka dibo" - Customer offering specific amount
+  /\d+\s*(টাকা|taka|tk)\s*(দিব|দেব|দিবো|দেবো|dibo|debo)/i,
+  // "দিব X টাকা" - Alternative word order
+  /(দিব|দেব|দিবো|দেবো|dibo|debo)\s*\d+\s*(টাকা|taka|tk)?/i,
+  
+  // === ASKING FOR BULK DISCOUNT ===
+  // "X টা নিলে কত" / "X ta nile koto" - Asking price for bulk
+  /\d+\s*(টা|ta|পিস|pis|piece)\s*(নিলে|nile|কিনলে|kinle)/i,
+  // "একসাথে X টা" - Taking X together
+  /একসাথে\s*\d+/i,
+  /\d+\s*(টা|ta)\s*(একসাথে|eksathe|together)/i,
+  
+  // === BARGAINING PHRASES ===
+  // "কম করেন/দেন" - Asking to reduce
+  /(কম|kom)\s*(করেন|koren|দেন|den|করুন|korun)/i,
+  // "কমাতে পারবেন" - Can you reduce
+  /কমাতে\s*(পারবেন|parben)/i,
+  // "দাম কমান" - Reduce the price
+  /দাম\s*(কমান|কমাও|কম রাখেন)/i,
+  
+  // === COUNTER-OFFERS ===
+  // "X রাখেন/রাখবেন" - Keep it at X
+  /\d+\s*(রাখেন|rakhen|রাখবেন|রাখ|রাখুন)/i,
+  // "এটাই X রাখেন" - Keep this at X
+  /এটাই?\s*\d+\s*(রাখেন|rakhen)?/i,
+  
+  // === DISCOUNT REQUESTS ===
+  // "ডিসকাউন্ট কত" / "discount koto"
+  /(ডিসকাউন্ট|discount)\s*(কত|koto|দিবেন|diben|হবে|hobe)?/i,
+  // "কত ডিসকাউন্ট"
+  /কত\s*(ডিসকাউন্ট|discount)/i,
+  
+  // === CONDITIONAL OFFERS ===
+  // "X দিলে নিব" - Will take if you give X
+  /\d+\s*(দিলে|dile)\s*(নিব|nibo|কিনব|kinbo)/i,
+  // "ভালো হলে বাহিরা দিব" - Will give address if good
+  /ভালো\s*হলে.*(বাহির|ঠিকানা|address)/i,
+  
+  // === LAST PRICE QUERIES ===
+  // "লাস্ট প্রাইস কত" / "শেষ দাম কত"
+  /(লাস্ট|শেষ|last|final)\s*(প্রাইস|দাম|price)\s*(কত|koto)?/i,
+  // "সর্বনিম্ন কত"
+  /সর্বনিম্ন\s*(কত|দাম)/i,
+];
+
+/**
+ * Checks if text contains negotiation/bargaining intent.
+ * Uses phrase patterns for MORE ACCURATE detection.
+ * This should be checked BEFORE isDetailsRequest to avoid false triggers.
+ * 
+ * @param text - User input text
+ * @returns true if this looks like a bargaining/negotiation message
+ */
+export function isNegotiationQuery(text: string): boolean {
+  const cleanText = text.toLowerCase().trim();
+  return NEGOTIATION_PATTERNS.some(pattern => pattern.test(cleanText));
+}
+
+// ============================================
 // DETECTION FUNCTIONS
 // ============================================
 
@@ -273,10 +347,18 @@ export function isInterruption(text: string): boolean {
 }
 
 /**
- * Checks if text is asking for product details
+ * Checks if text is asking for product details (description, specs, quality, etc.)
+ * 
+ * NOTE: Price-related queries are intentionally EXCLUDED.
+ * "price aktu kom koren" = negotiation (should go to AI)
+ * "dam koto?" = price query (should go to AI)
+ * "details bolun" = details request (handled here with static card)
  */
 export function isDetailsRequest(text: string): boolean {
-  return containsKeywords(text, DETAILS_KEYWORDS) || containsKeywords(text, PRICE_KEYWORDS);
+  // If it's a negotiation message, NEVER treat as details request
+  if (isNegotiationQuery(text)) return false;
+  
+  return containsKeywords(text, DETAILS_KEYWORDS) || containsKeywords(text, SIZE_KEYWORDS);
 }
 
 /**

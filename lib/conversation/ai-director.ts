@@ -273,6 +273,9 @@ function buildSystemPrompt(settings?: WorkspaceSettings): string {
   
   return `You are an AI Director for ${businessName}'s conversational e-commerce chatbot. Your role is to make intelligent decisions about how to handle user messages that the Fast Lane (pattern matching) could not handle.
 
+**🚫 ANTI-HALLUCINATION RULE (ABSOLUTE — NEVER BREAK!):**
+You have ZERO license to invent, assume, or guess any product detail. If a customer asks something not present in the product data provided in the user prompt, respond with: "এই বিষয়টা আমি একটু confirm করে বলছি 😊" and flag for manual review. NEVER fabricate fabric names, measurements, materials, colors, availability, features, or pricing that is NOT explicitly in the data provided. If no description exists, say ONLY the product name and price.
+
 **CRITICAL: YOU ARE THE SMART FALLBACK**
 The user's message was too complex for simple keyword detection. Your job is to understand their intent and take the RIGHT ACTION. Be intelligent but cautious.
 
@@ -293,6 +296,34 @@ The user's message was too complex for simple keyword detection. Your job is to 
 - COLLECTING_PHONE: Collecting customer's phone number
 - COLLECTING_ADDRESS: Collecting delivery address
 - CONFIRMING_ORDER: Final order confirmation
+
+**STAGE-SPECIFIC BEHAVIOR (CRITICAL — follow these personality modes!):**
+
+When in **IDLE** or **CONFIRMING_PRODUCT**:
+→ Be exploratory and warm. Ask questions to understand the customer. Never rush.
+→ Sound like: "কি রকম পছন্দ ভাইয়া?" NOT "Order করবেন?"
+→ If product has description, share one selling point with genuine excitement.
+→ Proactively mention COD if customer seems hesitant: "COD আছে, আগে দেখে তারপর টাকা দিবেন"
+
+When in **negotiation** (price discussion):
+→ Be confident but empathetic. NEVER apologize for the price. Always counter with a reason.
+→ Sound like: "এই price এ quality টা really unbeatable ভাইয়া" NOT "দুঃখিত দাম কমাতে পারছি না"
+→ Use COD as a closing move: "COD এ নিলে risk নেই"
+
+When in **COLLECTING_NAME / COLLECTING_PHONE / COLLECTING_ADDRESS**:
+→ Be conversational and encouraging. Each question should feel like friendly chat, not a government form.
+→ Sound like: "ভাইয়া নামটা বলেন তো 😊" NOT "আপনার নাম প্রদান করুন"
+→ Sound like: "phone number টা দিয়েন 📱" NOT "আপনার ফোন নম্বর লিখুন"
+→ Sound like: "ঠিকানাটা দেন, courier ঠিকমতো পৌঁছে দেব ইনশাআল্লাহ 📍" NOT "ডেলিভারি ঠিকানা প্রদান করুন"
+
+When in **CONFIRMING_ORDER**:
+→ Be decisive and positive. Reduce any doubt. Reaffirm their good decision.
+→ Sound like: "দারুণ choice ভাইয়া! confirm করে ফেলেন 😊"
+→ Never introduce new doubts or re-explain things they already know.
+
+When **post-order** (just confirmed):
+→ Be celebratory and warm. Set clear expectations.
+→ Use ইনশাআল্লাহ and আলহামদুলিল্লাহ naturally — this builds deep trust in Bangladesh.
 
 **AVAILABLE ACTIONS:**
 - SEND_RESPONSE: Send a message without state change (for questions, clarifications)
@@ -1528,14 +1559,70 @@ function buildUserPrompt(input: AIDirectorInput): string {
   // Current state
   prompt += `State: ${input.currentState}\n`;
   
-  // Cart information
+  // Cart information — inject FULL product data for AI context
   if (input.currentContext.cart.length > 0) {
     prompt += `\nCart (${input.currentContext.cart.length} items):\n`;
     input.currentContext.cart.forEach((item, index) => {
-      prompt += `${index + 1}. ${item.productName} - ৳${item.productPrice} × ${item.quantity}\n`;
+      const itemAny = item as any;
+      prompt += `\n📦 PRODUCT ${index + 1} IN CONTEXT:\n`;
+      prompt += `Name: ${item.productName}\n`;
+      prompt += `Price: ৳${item.productPrice} × ${item.quantity}\n`;
+      
+      // Description
+      if (itemAny.description) {
+        prompt += `Description: ${itemAny.description}\n`;
+      } else {
+        prompt += `Description: NOT PROVIDED — do NOT invent details\n`;
+      }
+      
+      // Sizes & Colors
+      if (item.sizes && item.sizes.length > 0) {
+        prompt += `Sizes Available: ${item.sizes.join(', ')}\n`;
+      }
+      if (item.colors && item.colors.length > 0) {
+        prompt += `Colors Available: ${item.colors.join(', ')}\n`;
+      }
+      if (item.selectedSize) prompt += `Selected Size: ${item.selectedSize}\n`;
+      if (item.selectedColor) prompt += `Selected Color: ${item.selectedColor}\n`;
+      
+      // Stock
+      const stock = itemAny.stock ?? itemAny.stock_quantity ?? 'unknown';
+      prompt += `Stock: ${stock === 'unknown' ? 'Unknown' : `${stock} units`}\n`;
+      
+      // Size-level stock
+      if (itemAny.size_stock && itemAny.size_stock.length > 0) {
+        const sizeStockStr = itemAny.size_stock
+          .map((ss: any) => `${ss.size}: ${ss.quantity}`)
+          .join(', ');
+        prompt += `Size Stock: ${sizeStockStr}\n`;
+      }
+      
+      // Variant-level stock  
+      if (itemAny.variant_stock && itemAny.variant_stock.length > 0) {
+        const variantStr = itemAny.variant_stock
+          .map((vs: any) => `${vs.size}/${vs.color}: ${vs.quantity}`)
+          .join(', ');
+        prompt += `Variant Stock: ${variantStr}\n`;
+      }
+      
+      // Pricing Policy
+      const pricing = itemAny.pricing_policy || item.pricing_policy;
+      if (pricing && pricing.isNegotiable) {
+        prompt += `Negotiable: Yes`;
+        if (pricing.minPrice) prompt += ` | Min Price: ৳${pricing.minPrice} (NEVER reveal to customer)`;
+        prompt += `\n`;
+        if (pricing.bulkDiscounts && pricing.bulkDiscounts.length > 0) {
+          const bulkStr = pricing.bulkDiscounts
+            .map((d: any) => `${d.minQty}+ pieces = ${d.discountPercent}% off`)
+            .join(', ');
+          prompt += `Bulk Discount: ${bulkStr}\n`;
+        }
+      } else {
+        prompt += `Negotiable: No — Price is FIXED\n`;
+      }
     });
     const cartTotal = input.currentContext.cart.reduce((sum, item) => sum + (item.productPrice * item.quantity), 0);
-    prompt += `Subtotal: ৳${cartTotal}\n`;
+    prompt += `\nSubtotal: ৳${cartTotal}\n`;
   } else {
     prompt += `\nCart: Empty\n`;
   }

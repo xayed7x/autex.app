@@ -16,7 +16,8 @@
 import { ConversationContext, ConversationState, CartItem, PendingImage } from '@/types/conversation';
 import { WorkspaceSettings } from '@/lib/workspace/settings';
 import { Replies } from './replies';
-import { getInterruptionType, isDetailsRequest, isOrderIntent, detectAllIntent, detectItemNumbers } from './keywords';
+import { getInterruptionType, isDetailsRequest, isOrderIntent, detectAllIntent, detectItemNumbers, isNegotiationQuery } from './keywords';
+import { handleNegotiation, ProductWithPricing } from './negotiation-handler';
 
 // ============================================
 // HELPER FUNCTIONS
@@ -263,13 +264,83 @@ function handleGlobalInterruption(
 ): FastLaneResult | null {
   const emoji = settings?.useEmojis ?? true;
   
-  // CRITICAL: Skip interruption handling in AWAITING_CUSTOMER_DETAILS state
-  // User is providing order info (name, phone, address, size, color)
-  // Keywords like 'M', 'L', 'blue', 'red' are part of the form, not questions
-  // Also skip in CONFIRMING_ORDER - user should say YES/NO, not get distracted
-  if (currentState === 'AWAITING_CUSTOMER_DETAILS' || currentState === 'CONFIRMING_ORDER') {
-    return null;
+  // ============================================
+  // NEGOTIATION DETECTION - Check FIRST, even in order collection states
+  // ============================================
+  // Customer might want to negotiate even after clicking "Order Now"
+  // This is a common scenario: "but price 900 nile hoi na?"
+  // We should handle this gracefully instead of treating it as invalid input
+  
+  const product = context.cart && context.cart.length > 0 ? context.cart[0] : null;
+  if (product && isNegotiationQuery(input)) {
+    const productAny = product as any;
+    const productWithPricing: ProductWithPricing = {
+      productName: product.productName,
+      productPrice: product.productPrice,
+      pricing_policy: productAny.pricing_policy || null,
+      stock: productAny.stock || productAny.stock_quantity,
+    };
+    
+    // Pass existing negotiation state for round tracking
+    const negotiationResult = handleNegotiation(input, productWithPricing, context.metadata?.negotiation);
+    
+    if (negotiationResult.handled) {
+      console.log(`💰 [FAST_LANE] Negotiation in ${currentState}: action=${negotiationResult.action}`);
+      
+      // Determine response based on action
+      let response = negotiationResult.response!;
+      let newState: ConversationState = currentState;
+      let updatedCart = context.cart;
+      
+      if (negotiationResult.action === 'ACCEPT') {
+        // Price accepted — warm transition to name collection
+        newState = 'COLLECTING_NAME';
+        const acceptedProductName = context.cart?.[0]?.productName || 'product';
+        response += `\n\nএকদম সঠিক decision ভাইয়া! এই price এ এই quality সত্যিই rare 😊`;
+        response += `\nভাইয়া ${acceptedProductName} টা হাতে পেলে খুশি হবেন ইনশাআল্লাহ`;
+        response += `\n\nচলেন তাহলে order টা করে ফেলি — ভাইয়া নামটা বলেন 😊`;
+        if (negotiationResult.newPrice) {
+          updatedCart = context.cart.map(item => ({ ...item, productPrice: negotiationResult.newPrice! }));
+        }
+      } else if (negotiationResult.action === 'COUNTER' || negotiationResult.action === 'DECLINE' || negotiationResult.action === 'DEFEND') {
+        // Stay in CONFIRMING_PRODUCT for them to decide
+        newState = 'CONFIRMING_PRODUCT';
+      } else {
+        // For CALCULATE, LAST_PRICE - stay in confirming product
+        newState = 'CONFIRMING_PRODUCT';
+      }
+      
+      return {
+        matched: true,
+        action: 'CONFIRM',
+        response: emoji ? response : response.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌💯🤝🔥🛍️]/g, ''),
+        newState,
+        updatedContext: {
+          ...context,
+          state: newState,
+          cart: updatedCart,
+          metadata: {
+            ...(context.metadata || {}),
+            negotiation: negotiationResult.updatedNegotiationState || context.metadata?.negotiation,
+          },
+        },
+      };
+    }
   }
+  
+  // ============================================
+  // KEYWORD INTERRUPTIONS: DISABLED
+  // ============================================
+  // The broad keyword system (PRICE_KEYWORDS, SIZE_KEYWORDS, DETAILS_KEYWORDS, etc.)
+  // was causing cascading false positives:
+  //   - "price aktu besi" → product card (should be AI negotiation)
+  //   - Quick form "M\nBlue" → product card (M=SIZE, Blue=DETAILS)
+  //   - "dam besi hoia jasse" → product card (should be AI price objection)
+  //
+  // All non-negotiation messages now fall through to the AI pipeline
+  // which handles them intelligently. The negotiation handler ABOVE
+  // this point still works — it uses specific regex patterns.
+  return null;
   
   // ============================================
   // HYBRID ESCALATION - Part 1: Complex Question Detection
@@ -348,12 +419,25 @@ function handleGlobalInterruption(
         break;
 
       case 'price':
+        // Price-related messages (objections, queries, negotiation) should go to AI
+        // for intelligent handling — not show a static product card.
+        // Examples: "price aktu besi", "dam koto?", "price kom hobe na?" 
+        // → All need AI's negotiation/empathy logic, not a product card.
+        console.log('💰 [FAST_LANE] Price-related message → letting AI handle it');
+        return null; // Fall through to intent system / AI Director
+        
+      case 'objection':
+        // Objections (trust concerns, price complaints) need AI's empathy and
+        // persuasion logic — static responses feel robotic.
+        console.log('🤔 [FAST_LANE] Objection detected → letting AI handle it');
+        return null; // Fall through to intent system / AI Director
+
       case 'size':
-        // Product specific -> Fallthrough to details request logic if cart has item
+        // Size queries show product details (legitimate detail request)
         if (context.cart && context.cart.length > 0) {
            response = getProductDetailsResponse(context, emoji) || 'Details not available.';
         } else {
-           response = `Please select a product first to see price/size info.`;
+           response = `Please select a product first to see size info.`;
         }
         break;
     }
@@ -449,23 +533,80 @@ function handleConfirmingProduct(
   // NOTE: Interruption checks are now handled globally in handleGlobalInterruption
   // We only focus on YES/NO/DETAILS here
   
-  // Check for product details request (details, colors, etc.)
-  if (isDetailsRequest(input)) {
-    const productDetails = getProductDetailsResponse(context, emoji);
-    if (productDetails) {
-      const rePrompt = `\n\nএই product চান? (YES/NO)`;
+  // ========================================
+  // PRIORITY 1: Negotiation Handler (price offers, bulk queries, etc.)
+  // Uses product.pricing_policy to determine response
+  // ========================================
+  const product = context.cart && context.cart.length > 0 ? context.cart[0] : null;
+  if (product) {
+    const productAny = product as any;
+    const productWithPricing: ProductWithPricing = {
+      productName: product.productName,
+      productPrice: product.productPrice,
+      pricing_policy: productAny.pricing_policy || null,
+      stock: productAny.stock || productAny.stock_quantity,
+    };
+    
+    // Pass existing negotiation state for round tracking
+    const negotiationResult = handleNegotiation(input, productWithPricing, context.metadata?.negotiation);
+    
+    if (negotiationResult.handled) {
+      console.log(`💰 [FAST_LANE] Negotiation handled: action=${negotiationResult.action}`);
+      
+      // Determine next state based on action
+      let newState: ConversationState = 'CONFIRMING_PRODUCT';
+      let updatedCart = context.cart;
+      
+      if (negotiationResult.action === 'ACCEPT') {
+        // Price accepted — warm transition to name collection
+        newState = 'COLLECTING_NAME';
+        const acceptedProductName = context.cart?.[0]?.productName || 'product';
+        // Append warm 3-part transition to the negotiation response
+        negotiationResult.response += `\n\nএকদম সঠিক decision ভাইয়া! এই price এ এই quality সত্যিই rare 😊`;
+        negotiationResult.response += `\nভাইয়া ${acceptedProductName} টা হাতে পেলে খুশি হবেন ইনশাআল্লাহ`;
+        negotiationResult.response += `\n\nচলেন তাহলে order টা করে ফেলি — ভাইয়া নামটা বলেন 😊`;
+        if (negotiationResult.newPrice) {
+          updatedCart = context.cart.map(item => ({
+            ...item,
+            productPrice: negotiationResult.newPrice!,
+          }));
+        }
+      } else if (negotiationResult.action === 'CALCULATE' && negotiationResult.quantity) {
+        // Bulk order - update quantity and stay in confirming
+        newState = 'CONFIRMING_PRODUCT';
+        if (negotiationResult.newPrice) {
+          updatedCart = context.cart.map(item => ({
+            ...item,
+            productPrice: negotiationResult.newPrice!,
+            quantity: negotiationResult.quantity || 1,
+          }));
+        }
+      }
+      // DEFEND, COUNTER, DECLINE, LAST_PRICE all stay in CONFIRMING_PRODUCT
+      
       return {
         matched: true,
         action: 'CONFIRM',
-        response: emoji ? (productDetails + rePrompt) : (productDetails + rePrompt).replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
-        newState: 'CONFIRMING_PRODUCT',
+        response: emoji ? negotiationResult.response! : negotiationResult.response!.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌💯🤝🔥🛍️]/g, ''),
+        newState,
         updatedContext: {
           ...context,
-          state: 'CONFIRMING_PRODUCT',
+          state: newState,
+          cart: updatedCart,
+          metadata: {
+            ...(context.metadata || {}),
+            negotiation: negotiationResult.updatedNegotiationState || context.metadata?.negotiation,
+          },
         },
       };
     }
   }
+  
+  
+  // NOTE: isDetailsRequest() check REMOVED here.
+  // The broad keyword system was catching negotiation messages and form data.
+  // Detail requests now fall through to AI which handles them intelligently.
+  
   
   // Check for YES
   if (YES_PATTERNS.some(pattern => pattern.test(input))) {
@@ -665,7 +806,7 @@ function handleCollectingName(
     if (existingPhone && existingAddress) {
       // All info exists - return to order summary with updated name
       const deliveryCharge = calculateDeliveryCharge(existingAddress);
-      const cartTotal = calculateCartTotal(context.cart || []);
+      const cartTotal = calculateCartTotal(context.cart || [], context);
       const totalAmount = cartTotal + deliveryCharge;
       
       const updatedCheckout = {
@@ -682,6 +823,9 @@ function handleCollectingName(
         deliveryCharge,
         totalAmount,
         existingPhone,
+        undefined,
+        undefined,
+        context,
       );
       
       return {
@@ -752,7 +896,7 @@ function handleCollectingPhone(
       if (existingAddress) {
         // Address exists - return to order summary with updated phone
         const deliveryCharge = calculateDeliveryCharge(existingAddress);
-        const cartTotal = calculateCartTotal(context.cart || []);
+        const cartTotal = calculateCartTotal(context.cart || [], context);
         const totalAmount = cartTotal + deliveryCharge;
         
         const updatedCheckout = {
@@ -769,6 +913,9 @@ function handleCollectingPhone(
           deliveryCharge,
           totalAmount,
           normalizedPhone,
+          undefined,
+          undefined,
+          context,
         );
         
         return {
@@ -871,7 +1018,7 @@ function handleCollectingAddress(
           : settings.deliveryCharges.outsideDhaka)
       : calculateDeliveryCharge(address);
     
-    const cartTotal = calculateCartTotal(context.cart);
+    const cartTotal = calculateCartTotal(context.cart, context);
     const totalAmount = cartTotal + deliveryCharge;
     
     const orderSummary = generateOrderSummary(
@@ -880,7 +1027,10 @@ function handleCollectingAddress(
       address,
       deliveryCharge,
       totalAmount,
-      context.checkout.customerPhone || context.customerPhone
+      context.checkout.customerPhone || context.customerPhone,
+      undefined,
+      undefined,
+      context,
     );
     
     return {
@@ -1522,16 +1672,35 @@ function calculateDeliveryCharge(address: string): number {
 }
 
 /**
- * Calculates total price for all items in cart
+ * Gets the effective price for a cart item, checking negotiated price first
  */
-function calculateCartTotal(cart: CartItem[]): number {
+function getEffectivePrice(item: CartItem, context?: ConversationContext): number {
+  if (context) {
+    const negotiation = context.metadata?.negotiation;
+    // Only use negotiated price if it's for THIS product
+    const isForThisProduct = !negotiation?.productId || negotiation.productId === item.productId;
+    if (negotiation?.aiLastOffer && negotiation.aiLastOffer < item.productPrice && isForThisProduct) {
+      console.log(`💰 [PRICE] Using negotiated price ৳${negotiation.aiLastOffer} for product ${item.productId}`);
+      return negotiation.aiLastOffer;
+    }
+  }
+  return item.productPrice;
+}
+
+/**
+ * Calculates total price for all items in cart
+ * Uses negotiated price if available in context
+ */
+function calculateCartTotal(cart: CartItem[], context?: ConversationContext): number {
   return cart.reduce((total, item) => {
-    return total + (item.productPrice * item.quantity);
+    const unitPrice = getEffectivePrice(item, context);
+    return total + (unitPrice * item.quantity);
   }, 0);
 }
 
 /**
  * Generates order summary with all details
+ * Uses negotiated price from context.metadata.negotiation if available
  */
 function generateOrderSummary(
   customerName: string,
@@ -1541,14 +1710,16 @@ function generateOrderSummary(
   totalAmount: number,
   phone?: string,
   selectedSize?: string,
-  selectedColor?: string
+  selectedColor?: string,
+  context?: ConversationContext
 ): string {
-  const cartTotal = calculateCartTotal(cart);
+  const cartTotal = calculateCartTotal(cart, context);
   
   // Build product info with size/color from cart item
   const itemsList = cart
     .map((item, idx) => {
-      const itemTotal = item.productPrice * item.quantity;
+      const unitPrice = getEffectivePrice(item, context);
+      const itemTotal = unitPrice * item.quantity;
       const itemAny = item as any;
       const size = selectedSize || itemAny.selectedSize || itemAny.variations?.size;
       const color = selectedColor || itemAny.selectedColor || itemAny.variations?.color;
@@ -1556,10 +1727,13 @@ function generateOrderSummary(
       let productLine = `${idx + 1}. ${item.productName}`;
       if (size) productLine += `\n   📏 Size: ${size}`;
       if (color) productLine += `\n   🎨 Color: ${color}`;
-      productLine += `\n   ৳${item.productPrice} × ${item.quantity} = ৳${itemTotal}`;
+      productLine += `\n   ৳${unitPrice} × ${item.quantity} = ৳${itemTotal}`;
       return productLine;
     })
     .join('\n\n');
+  
+  // Recalculate totalAmount using effective prices
+  const effectiveTotal = cartTotal + deliveryCharge;
   
   return `📦 Order Summary
 ━━━━━━━━━━━━━━━━━━━━
@@ -1573,7 +1747,7 @@ ${itemsList}
 💰 Pricing:
 • Subtotal: ৳${cartTotal}
 • Delivery: ৳${deliveryCharge}
-• Total: ৳${totalAmount}
+• Total: ৳${effectiveTotal}
 
 ━━━━━━━━━━━━━━━━━━━━
 Confirm this order? (YES/NO) ✅`;
@@ -2183,10 +2357,8 @@ function handleAwaitingCustomerDetails(
       return item;
     });
     
-    // Recalculate total with quantity
-    const cartTotal = updatedCart.reduce((sum, item) => {
-      return sum + (item.productPrice * item.quantity);
-    }, 0);
+    // Recalculate total with quantity (using negotiated price if available)
+    const cartTotal = calculateCartTotal(updatedCart, context);
     const totalAmount = cartTotal + deliveryCharge;
     
     const orderSummary = generateOrderSummary(
@@ -2197,7 +2369,8 @@ function handleAwaitingCustomerDetails(
       totalAmount,
       phone || undefined,
       size || undefined,
-      color || undefined
+      color || undefined,
+      context,
     );
     
     return {

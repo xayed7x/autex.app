@@ -13,6 +13,19 @@ const variantStockItemSchema = z.object({
   quantity: z.number().int().min(0),
 });
 
+// Bulk discount tier schema
+const bulkDiscountSchema = z.object({
+  minQty: z.number().int().min(2, 'Minimum 2 items for bulk discount'),
+  discountPercent: z.number().min(0).max(100, 'Discount cannot exceed 100%'),
+});
+
+// Pricing policy schema
+const pricingPolicySchema = z.object({
+  isNegotiable: z.boolean().default(false),
+  minPrice: z.number().positive().optional().nullable(), // Lowest acceptable price
+  bulkDiscounts: z.array(bulkDiscountSchema).optional().default([]),
+});
+
 /**
  * Schema for creating a new product
  */
@@ -26,7 +39,8 @@ export const createProductSchema = z.object({
   colors: z.array(z.string()).optional(),
   sizes: z.array(z.string()).optional(),
   size_stock: z.array(sizeStockItemSchema).optional(),
-  variant_stock: z.array(variantStockItemSchema).optional(), // NEW: variant stock tracking
+  variant_stock: z.array(variantStockItemSchema).optional(),
+  pricing_policy: pricingPolicySchema.optional(), // NEW: Pricing and negotiation rules
 });
 
 /**
@@ -70,6 +84,16 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
     }
   }
 
+  // Parse pricing_policy JSON if present
+  let pricingPolicy;
+  if (formData.get('pricing_policy')) {
+    try {
+      pricingPolicy = JSON.parse(formData.get('pricing_policy') as string);
+    } catch (e) {
+      console.error('Failed to parse pricing_policy:', e);
+    }
+  }
+
   const data = {
     name: formData.get('name') as string,
     price: parseFloat(formData.get('price') as string),
@@ -89,6 +113,7 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
       : undefined,
     size_stock: sizeStock,
     variant_stock: variantStock,
+    pricing_policy: pricingPolicy,
   };
 
   return createProductSchema.parse(data);
@@ -130,6 +155,13 @@ export function validateProductUpdateFormData(formData: FormData): UpdateProduct
       data.variant_stock = JSON.parse(formData.get('variant_stock') as string);
     } catch (e) {
       console.error('Failed to parse variant_stock:', e);
+    }
+  }
+  if (formData.has('pricing_policy')) {
+    try {
+      data.pricing_policy = JSON.parse(formData.get('pricing_policy') as string);
+    } catch (e) {
+      console.error('Failed to parse pricing_policy:', e);
     }
   }
 

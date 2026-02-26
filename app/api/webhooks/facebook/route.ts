@@ -254,6 +254,8 @@ async function processMessagingEvent(
             size_stock: product.size_stock || [],
             variant_stock: product.variant_stock || [],
             stock_quantity: product.stock_quantity || 0,
+            // Pricing Policy for Negotiation
+            pricing_policy: product.pricing_policy || { isNegotiable: false },
           };
           
           // Find or create conversation

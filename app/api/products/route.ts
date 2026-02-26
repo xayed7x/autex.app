@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase
       .from('products')
-      .select('id, name, price, stock_quantity, image_urls, colors, sizes, size_stock, variant_stock, created_at, updated_at', { count: 'exact' })
+      .select('id, name, price, stock_quantity, description, image_urls, colors, sizes, size_stock, variant_stock, pricing_policy, created_at, updated_at', { count: 'exact' })
       .eq('workspace_id', workspace.id);
 
     // Apply filters
@@ -362,6 +362,7 @@ export async function POST(request: NextRequest) {
         sizes: productData.sizes || [],
         size_stock: productData.size_stock || [], // NEW: per-size stock tracking
         variant_stock: productData.variant_stock || [], // NEW: variant stock tracking
+        pricing_policy: productData.pricing_policy || { isNegotiable: false, bulkDiscounts: [] }, // NEW: Pricing policy
       })
       .select()
       .single();

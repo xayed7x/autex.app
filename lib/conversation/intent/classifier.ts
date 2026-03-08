@@ -39,7 +39,8 @@ export type IntentType =
   | 'CONFIRM_YES'          // "হ্যাঁ", "ok", "চাই", "order"
   | 'CONFIRM_NO'           // "না", "চাই না", "cancel"
   
-  // Product Queries
+  // Product Search & Queries
+  | 'PRODUCT_SEARCH'       // "i want polo t shirt", "show me sarees", "দেখান", "আছে?"
   | 'PRODUCT_QUERY'        // "সাইজ কি আছে?", "স্টক আছে?", "কালার কি কি?"
   | 'PRICE_QUERY'          // "দাম কত?", "price?"
   | 'STOCK_QUERY'          // "স্টক আছে?", "stock available?"
@@ -164,6 +165,32 @@ const EXACT_PATTERNS: PatternRule[] = [
   {
     pattern: /^(না|nah|no|nope|চাই\s*না|লাগবে\s*না|cancel|বাতিল)$/i,
     intent: 'CONFIRM_NO',
+  },
+  
+  // Product Search patterns
+  {
+    pattern: /^(i want|i need|show me|do you have|looking for|give me|need)\s+.+/i,
+    intent: 'PRODUCT_SEARCH',
+  },
+  {
+    pattern: /(দেখান|দেখাও|dekhao|dekhan)\s*.*/i,
+    intent: 'PRODUCT_SEARCH',
+  },
+  {
+    pattern: /(কিনতে চাই|কিনবো|kinbo|kinte chai)/i,
+    intent: 'PRODUCT_SEARCH',
+  },
+  {
+    pattern: /(লাগবে|lagbe|দরকার|dorkar|চাই|chai)\s+.+/i,
+    intent: 'PRODUCT_SEARCH',
+  },
+  {
+    pattern: /^.+\s+(আছে|ache|ase)\??$/i,
+    intent: 'PRODUCT_SEARCH',
+  },
+  {
+    pattern: /^.+\s+(collection|কালেকশন)\s*(দেখান|dekhao|দাও|dao)?/i,
+    intent: 'PRODUCT_SEARCH',
   },
   
   // Greetings
@@ -304,6 +331,13 @@ const AI_INTENT_PROMPT = `You are an intent classifier for a Bangladeshi e-comme
 
 Analyze the customer message and classify it into ONE of these intents:
 
+PRODUCT SEARCH (HIGHEST PRIORITY for IDLE state):
+- PRODUCT_SEARCH: Customer is looking for a product by name, type, or category. Examples:
+  - "i want polo t shirts", "show me sarees", "do you have jeans?"
+  - "polo shirt ache?", "t-shirt collection dekhao"
+  - "কিনতে চাই", "লাগবে", "দেখান"
+  - ANY message where the customer mentions a product type they want to find/buy
+
 ORDER FLOW:
 - NEGOTIATE_PRICE: Customer offering a specific price (e.g., "800 দিব", "900 nile hobe?", "কম করেন")
 - BULK_QUERY: Asking about bulk pricing (e.g., "3টা নিলে কত?")
@@ -323,7 +357,7 @@ CONFIRMATIONS:
 - CONFIRM_NO: Declining, canceling
 
 QUERIES:
-- PRODUCT_QUERY: Questions about product details
+- PRODUCT_QUERY: Questions about a SPECIFIC product already in context (details, size, color, stock)
 - PRICE_QUERY: Asking about price
 - STOCK_QUERY: Asking about availability
 - DELIVERY_QUERY: Questions about delivery
@@ -337,18 +371,21 @@ TRUST & OBJECTIONS:
 - DELAY: Saying they'll order later
 
 GENERAL:
-- GREETING: Hi, Hello, etc.
+- GREETING: Hi, Hello, etc. ONLY for pure greetings with no product mention
 - THANKS: Thank you messages
 - COMPLAINT: Expressing dissatisfaction
 - UNKNOWN: Cannot determine intent
 
 IMPORTANT RULES:
-1. Interpret numbers based on PHRASING and CONTEXT:
+1. If the customer mentions ANY product type/category (shirt, saree, polo, jeans, panjabi, etc.) and seems to want to find/buy it → PRODUCT_SEARCH. This is true even if there's already a product in the cart.
+2. PRODUCT_QUERY is for questions about a product already being discussed ("ki size ache?", "stock ache?"). PRODUCT_SEARCH is for finding NEW products.
+3. Interpret numbers based on PHRASING and CONTEXT:
    - Pure number / Offer phrasing ("900", "900 tk", "800 dibo") -> NEGOTIATE_PRICE (extract price)
    - questioning price ("900?", "dam 900?") -> PRICE_QUERY or CONFIRM_YES depending on flow
    - Quantity/Bulk ("50 pcs", "10 ta") -> BULK_QUERY
    - Objection ("900 besi", "900 expensive") -> PRICE_OBJECTION
-2. If 'Product in cart' is TRUE and input is just a number, prefer NEGOTIATE_PRICE unless context implies otherwise.
+4. If 'Product in cart' is TRUE and input is just a number, prefer NEGOTIATE_PRICE unless context implies otherwise.
+5. For PRODUCT_SEARCH, extract the product query in extractedData as {"searchQuery": "polo t shirt"}.
 
 Respond with JSON: {"intent": "INTENT_NAME", "extractedData": {...}, "confidence": 0.0-1.0}`;
 
@@ -365,7 +402,8 @@ async function classifyWithAI(
   });
   
   try {
-    console.log(`🤖 [INTENT] Calling AI classifier for: "${text.substring(0, 50)}..."`);
+    console.log(`\n🤖 [INTENT-CLASSIFIER] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`🤖 [INTENT-CLASSIFIER] Calling AI classifier for: "${text}"`);
     
     const contextInfo = `
 Context:
@@ -373,11 +411,18 @@ Context:
 - Product in cart: ${context.hasProductInCart}
 ${context.recentMessages ? `- Recent messages: ${context.recentMessages.join(' | ')}` : ''}`;
     
+    const userContent = `${contextInfo}\n\nCustomer message: "${text}"`;
+    
+    console.log(`📋 [INTENT-CLASSIFIER] SYSTEM PROMPT (first 500 chars):`);
+    console.log(AI_INTENT_PROMPT.substring(0, 500));
+    console.log(`📋 [INTENT-CLASSIFIER] USER PROMPT:`);
+    console.log(userContent);
+    
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: AI_INTENT_PROMPT },
-        { role: 'user', content: `${contextInfo}\n\nCustomer message: "${text}"` },
+        { role: 'user', content: userContent },
       ],
       max_tokens: 100,
       temperature: 0,
@@ -385,9 +430,11 @@ ${context.recentMessages ? `- Recent messages: ${context.recentMessages.join(' |
     });
     
     const content = response.choices[0]?.message?.content || '{}';
+    console.log(`📝 [INTENT-CLASSIFIER] RAW AI RESPONSE: ${content}`);
     const parsed = JSON.parse(content);
     
-    console.log(`✅ [INTENT] AI classified: ${parsed.intent} (confidence: ${parsed.confidence})`);
+    console.log(`✅ [INTENT-CLASSIFIER] AI classified: ${parsed.intent} (confidence: ${parsed.confidence})`);
+    console.log(`🤖 [INTENT-CLASSIFIER] ━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
     
     return {
       intent: parsed.intent as IntentType || 'UNKNOWN',

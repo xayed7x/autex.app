@@ -102,6 +102,30 @@ export interface ConversationMetadata {
     status?: 'idle' | 'in_progress' | 'final_offered' | 'accepted' | 'declined';
     productId?: string;
   };
+
+  /** The ID of the most recently created order in this session */
+  latestOrderId?: string;
+  
+  /** The human-readable number (e.g., #ORD-123) of the most recently created order */
+  latestOrderNumber?: string;
+
+  /** Products identified from search tools to trigger generic template rendering */
+  identifiedProducts?: any[];
+
+  /** Preserved order totals for transactional messages (since cart is cleared after save_order) */
+  latestOrderData?: {
+    subtotal: number;
+    deliveryCharge: number;
+    totalAmount: number;
+    customerName: string;
+    itemCount: number;
+  };
+
+  /** Set to true after order is saved and payment instructions sent — next 2-digit message triggers payment review */
+  awaitingPaymentDigits?: boolean;
+
+  /** The order ID waiting for payment digits */
+  awaitingPaymentOrderId?: string;
 }
 
 // ============================================

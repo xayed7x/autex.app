@@ -187,6 +187,24 @@ export async function sendProductCard(
     const accessToken = decryptToken(fbPage.encrypted_access_token);
 
     // Prepare Generic Template payload
+    
+    // Formatting sizes/colors manually
+    let subtitleText = '';
+    const sizes = product.variations?.sizes;
+    const colors = product.variations?.colors;
+    if (sizes && sizes.length > 0) {
+      subtitleText += `সাইজ: ${sizes.join(', ')}`;
+    }
+    if (colors && colors.length > 0) {
+      if (subtitleText.length > 0) subtitleText += ' | ';
+      subtitleText += `কালার: ${colors.join(', ')}`;
+    }
+    
+    // Fallback if empty
+    if (!subtitleText) {
+      subtitleText = 'Available for Order';
+    }
+
     const requestBody = {
       recipient: {
         id: recipientPsid,
@@ -198,18 +216,18 @@ export async function sendProductCard(
             template_type: 'generic',
             elements: [
               {
-                title: product.name,
-                image_url: product.imageUrl,
-                subtitle: `৳${product.price.toLocaleString()} | Stock: ${product.stock} units`,
+                title: `${product.name} — ৳${product.price.toLocaleString()}`,
+                image_url: product.imageUrl || undefined,
+                subtitle: subtitleText,
                 buttons: [
                   {
                     type: 'postback',
-                    title: 'Order Now 🛒',
-                    payload: `ORDER_PRODUCT_${product.id}`,
+                    title: 'অর্ডার করুন 🛒',
+                    payload: `ORDER_NOW_${product.id}`,
                   },
                   {
                     type: 'postback',
-                    title: 'View Details 📋',
+                    title: 'বিস্তারিত দেখুন 📋',
                     payload: `VIEW_DETAILS_${product.id}`,
                   },
                 ],
@@ -275,6 +293,10 @@ export async function sendProductCarousel(
     price: number;
     imageUrl?: string;
     stock?: number;
+    variations?: {
+      colors?: string[];
+      sizes?: string[];
+    };
   }>
 ): Promise<SendMessageResponse> {
   try {
@@ -311,23 +333,42 @@ export async function sendProductCarousel(
     const accessToken = decryptToken(fbPage.encrypted_access_token);
 
     // Build carousel elements
-    const elements = limitedProducts.map(product => ({
-      title: product.name,
-      image_url: product.imageUrl || undefined,
-      subtitle: `৳${product.price.toLocaleString()}${product.stock !== undefined ? ` | Stock: ${product.stock}` : ''}`,
-      buttons: [
-        {
-          type: 'postback',
-          title: 'Order Now 🛒',
-          payload: `ORDER_PRODUCT_${product.id}`,
-        },
-        {
-          type: 'postback',
-          title: 'View Details 📋',
-          payload: `VIEW_DETAILS_${product.id}`,
-        },
-      ],
-    }));
+    const elements = limitedProducts.map(product => {
+      // Formatting sizes/colors manually
+      let subtitleText = '';
+      const sizes = product.variations?.sizes;
+      const colors = product.variations?.colors;
+      if (sizes && sizes.length > 0) {
+        subtitleText += `সাইজ: ${sizes.join(', ')}`;
+      }
+      if (colors && colors.length > 0) {
+        if (subtitleText.length > 0) subtitleText += ' | ';
+        subtitleText += `কালার: ${colors.join(', ')}`;
+      }
+      
+      // Fallback if empty
+      if (!subtitleText) {
+        subtitleText = 'Available for Order';
+      }
+
+      return {
+        title: `${product.name} — ৳${product.price.toLocaleString()}`,
+        image_url: product.imageUrl || undefined,
+        subtitle: subtitleText,
+        buttons: [
+          {
+            type: 'postback',
+            title: 'অর্ডার করুন 🛒',
+            payload: `ORDER_NOW_${product.id}`,
+          },
+          {
+            type: 'postback',
+            title: 'বিস্তারিত দেখুন 📋',
+            payload: `VIEW_DETAILS_${product.id}`,
+          },
+        ],
+      };
+    });
 
     // Prepare Generic Template payload
     const requestBody = {

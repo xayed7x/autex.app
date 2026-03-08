@@ -79,8 +79,15 @@ export interface FastLaneResult {
   /** Action to take (if matched) */
   action?: 'CONFIRM' | 'DECLINE' | 'COLLECT_NAME' | 'COLLECT_PHONE' | 'COLLECT_ADDRESS' | 'GREETING' | 'CREATE_ORDER';
   
-  /** Response message (if matched) */
+  /** Response message (if matched) — empty when silentExtraction=true */
   response?: string;
+  
+  /** 
+   * When true, Fast Lane extracted data silently but AI Director should generate
+   * the customer-facing response. The orchestrator will call AI Director with
+   * the enriched context (including extractedData and negotiationContext).
+   */
+  silentExtraction?: boolean;
   
   /** Updated context (if matched) */
   updatedContext?: Partial<ConversationContext>;
@@ -93,6 +100,22 @@ export interface FastLaneResult {
     name?: string;
     phone?: string;
     address?: string;
+  };
+  
+  /** 
+   * Negotiation context calculated by Fast Lane for AI Director to use.
+   * Contains the action taken (ACCEPT/COUNTER/DECLINE/DEFEND) and the 
+   * calculated price so AI Director can generate the response.
+   */
+  negotiationContext?: {
+    action: string;
+    currentPrice: number;
+    newPrice?: number;
+    floorPrice?: number;
+    quantity?: number;
+    productName: string;
+    round: number;
+    customerOffer?: number;
   };
   
   /** Interruption category handled (for repeat detection) */
@@ -189,13 +212,10 @@ export function tryFastLane(
   // PATTERN 1: GREETINGS (any state)
   // ============================================
   if (GREETING_PATTERNS.some(pattern => pattern.test(trimmedInput))) {
-    const emoji = settings?.useEmojis ? '👋 ' : '';
-    const greeting = settings?.greeting || `${emoji}স্বাগতম! আমাদের দোকানে আপনাকে স্বাগতম!\n\nশুরু করতে product এর ছবি পাঠান, অথবা "help" লিখুন।`;
-    
     return {
       matched: true,
       action: 'GREETING',
-      response: greeting,
+      silentExtraction: true,
       newState: 'IDLE',
       updatedContext: {
         state: 'IDLE',
@@ -285,35 +305,27 @@ function handleGlobalInterruption(
     const negotiationResult = handleNegotiation(input, productWithPricing, context.metadata?.negotiation);
     
     if (negotiationResult.handled) {
-      console.log(`💰 [FAST_LANE] Negotiation in ${currentState}: action=${negotiationResult.action}`);
+      console.log(`💰 [FAST_LANE] Negotiation in ${currentState}: action=${negotiationResult.action} (silent extraction)`);
       
-      // Determine response based on action
-      let response = negotiationResult.response!;
+      // Calculate state and cart updates — but let AI Director generate the response
       let newState: ConversationState = currentState;
       let updatedCart = context.cart;
       
       if (negotiationResult.action === 'ACCEPT') {
-        // Price accepted — warm transition to name collection
         newState = 'COLLECTING_NAME';
-        const acceptedProductName = context.cart?.[0]?.productName || 'product';
-        response += `\n\nএকদম সঠিক decision ভাইয়া! এই price এ এই quality সত্যিই rare 😊`;
-        response += `\nভাইয়া ${acceptedProductName} টা হাতে পেলে খুশি হবেন ইনশাআল্লাহ`;
-        response += `\n\nচলেন তাহলে order টা করে ফেলি — ভাইয়া নামটা বলেন 😊`;
         if (negotiationResult.newPrice) {
           updatedCart = context.cart.map(item => ({ ...item, productPrice: negotiationResult.newPrice! }));
         }
       } else if (negotiationResult.action === 'COUNTER' || negotiationResult.action === 'DECLINE' || negotiationResult.action === 'DEFEND') {
-        // Stay in CONFIRMING_PRODUCT for them to decide
         newState = 'CONFIRMING_PRODUCT';
       } else {
-        // For CALCULATE, LAST_PRICE - stay in confirming product
         newState = 'CONFIRMING_PRODUCT';
       }
       
       return {
         matched: true,
         action: 'CONFIRM',
-        response: emoji ? response : response.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌💯🤝🔥🛍️]/g, ''),
+        silentExtraction: true,
         newState,
         updatedContext: {
           ...context,
@@ -323,6 +335,16 @@ function handleGlobalInterruption(
             ...(context.metadata || {}),
             negotiation: negotiationResult.updatedNegotiationState || context.metadata?.negotiation,
           },
+        },
+        negotiationContext: {
+          action: negotiationResult.action || 'UNKNOWN',
+          currentPrice: product.productPrice,
+          newPrice: negotiationResult.newPrice,
+          floorPrice: negotiationResult.updatedNegotiationState?.floorPrice,
+          quantity: negotiationResult.quantity,
+          productName: product.productName,
+          round: negotiationResult.updatedNegotiationState?.roundNumber || 1,
+          customerOffer: negotiationResult.updatedNegotiationState?.customerLastOffer,
         },
       };
     }
@@ -341,140 +363,6 @@ function handleGlobalInterruption(
   // which handles them intelligently. The negotiation handler ABOVE
   // this point still works — it uses specific regex patterns.
   return null;
-  
-  // ============================================
-  // HYBRID ESCALATION - Part 1: Complex Question Detection
-  // ============================================
-  // If message is long and contains "নাকি"/"or"/multiple clauses,
-  // it's likely a nuanced question that Fast Lane can't handle properly.
-  // These should go to AI Director for intelligent response.
-  
-  const isComplexQuestion = 
-    input.length > 80 && 
-    (input.includes('নাকি') || 
-     input.includes(' or ') || 
-     input.includes('আলাদা আলাদা') ||
-     input.includes('ekbar') ||
-     input.includes('একবার') ||
-     input.includes('প্রতিটা') ||
-     input.includes('protita'));
-  
-  if (isComplexQuestion) {
-    console.log(`⚡ [FAST LANE] Complex question detected, escalating to AI Director`);
-    return null; // Skip Fast Lane, let AI Director handle
-  }
-  
-  // Check interruption type
-  const interruptionType = getInterruptionType(input);
-  const isDetailReq = isDetailsRequest(input);
-  
-  if (!interruptionType && !isDetailReq) {
-    return null;
-  }
-  
-  // ============================================
-  // HYBRID ESCALATION - Part 2: Repeat Question Detection
-  // ============================================
-  // If user already received a Fast Lane response for this category,
-  // they're likely not satisfied and need AI Director's help.
-  
-  const recentCategories = context.lastFastLaneCategories || [];
-  if (interruptionType && recentCategories.includes(interruptionType)) {
-    console.log(`⚡ [FAST LANE] Repeat ${interruptionType} question detected, escalating to AI Director`);
-    return null; // Skip Fast Lane, let AI Director handle
-  }
-  
-  let response = '';
-  
-  if (interruptionType) {
-    switch (interruptionType) {
-      case 'delivery':
-        response = settings?.fastLaneMessages?.deliveryInfo ||
-          `🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳${settings?.deliveryCharges?.insideDhaka || 60}\n• ঢাকার বাইরে: ৳${settings?.deliveryCharges?.outsideDhaka || 120}\n• Delivery সময়: ${settings?.deliveryTime || '3-5 business days'}`;
-        break;
-      
-      case 'payment':
-        response = settings?.fastLaneMessages?.paymentInfo ||
-          `💳 Payment Methods:\nআমরা নিম্নলিখিত payment methods গ্রহণ করি:\n\n• bKash\n• Nagad\n• Cash on Delivery`;
-        break;
-      
-      case 'return':
-        response = settings?.fastLaneMessages?.returnPolicy ||
-          `🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।`;
-        break;
-      
-      case 'urgency':
-        response = settings?.fastLaneMessages?.urgencyResponse ||
-          `🚀 চিন্তার কারণ নেই! সুযোগ থাকলে আমরা দ্রুত ডেলিভারি নিশ্চিত করি।\nঢাকার মধ্যে ২-৩ দিন এবং বাইরে ৩-৫ দিনের মধ্যে পেয়ে যাবেন।`;
-        break;
-        
-      case 'objection':
-        response = settings?.fastLaneMessages?.objectionResponse ||
-          `✨ আমাদের প্রতিটি পণ্য ১০০% অথেনটিক এবং হাই কোয়ালিটি।\nআপনি নিশ্চিন্তে অর্ডার করতে পারেন, পছন্দ না হলে রিটার্ন করার সুযোগ তো থাকছেই!`;
-        break;
-        
-      case 'seller':
-        response = settings?.fastLaneMessages?.sellerInfo ||
-          `🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330\n⏰ আমরা প্রতিদিন সকাল ১০টা থেকে রাত ১০টা পর্যন্ত খোলা আছি।`;
-        break;
-
-      case 'price':
-        // Price-related messages (objections, queries, negotiation) should go to AI
-        // for intelligent handling — not show a static product card.
-        // Examples: "price aktu besi", "dam koto?", "price kom hobe na?" 
-        // → All need AI's negotiation/empathy logic, not a product card.
-        console.log('💰 [FAST_LANE] Price-related message → letting AI handle it');
-        return null; // Fall through to intent system / AI Director
-        
-      case 'objection':
-        // Objections (trust concerns, price complaints) need AI's empathy and
-        // persuasion logic — static responses feel robotic.
-        console.log('🤔 [FAST_LANE] Objection detected → letting AI handle it');
-        return null; // Fall through to intent system / AI Director
-
-      case 'size':
-        // Size queries show product details (legitimate detail request)
-        if (context.cart && context.cart.length > 0) {
-           response = getProductDetailsResponse(context, emoji) || 'Details not available.';
-        } else {
-           response = `Please select a product first to see size info.`;
-        }
-        break;
-    }
-  } else if (isDetailReq) {
-    // General details request
-    if (context.cart && context.cart.length > 0) {
-      response = getProductDetailsResponse(context, emoji) || 'Details not available.';
-    }
-  }
-  
-  if (!response) return null;
-  
-  // Append Re-Prompt based on state
-  const rePrompt = getRePrompt(currentState, context, settings);
-  const finalResponse = response + (rePrompt ? `\n\n${rePrompt}` : '');
-  
-  // Track this category for repeat detection
-  // Keep only last 3 categories (FIFO queue)
-  const updatedCategories = interruptionType 
-    ? [...(context.lastFastLaneCategories || []), interruptionType].slice(-3)
-    : context.lastFastLaneCategories;
-  
-  return {
-    matched: true,
-    action: 'CONFIRM', // 'CONFIRM' just means "Handled, stay in state" essentially? 
-                       // Actually we usually want to stay in same state.
-                       // 'CONFIRM' is often used in ConfirmingProduct but action string is just for logging/client sometimes.
-                       // For IDLE, it resets to IDLE. For others, it keeps state.
-    response: emoji ? finalResponse : finalResponse.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌🚀✨🏢📞⏰]/g, ''),
-    newState: currentState, // Maintain current state
-    updatedContext: {
-      ...context,
-      state: currentState,
-      lastFastLaneCategories: updatedCategories,
-    },
-    interruptionCategory: interruptionType || undefined,
-  };
 }
 
 /**
@@ -551,20 +439,14 @@ function handleConfirmingProduct(
     const negotiationResult = handleNegotiation(input, productWithPricing, context.metadata?.negotiation);
     
     if (negotiationResult.handled) {
-      console.log(`💰 [FAST_LANE] Negotiation handled: action=${negotiationResult.action}`);
+      console.log(`💰 [FAST_LANE] Negotiation handled: action=${negotiationResult.action} (silent extraction)`);
       
-      // Determine next state based on action
+      // Calculate state and cart updates — let AI Director generate the response
       let newState: ConversationState = 'CONFIRMING_PRODUCT';
       let updatedCart = context.cart;
       
       if (negotiationResult.action === 'ACCEPT') {
-        // Price accepted — warm transition to name collection
         newState = 'COLLECTING_NAME';
-        const acceptedProductName = context.cart?.[0]?.productName || 'product';
-        // Append warm 3-part transition to the negotiation response
-        negotiationResult.response += `\n\nএকদম সঠিক decision ভাইয়া! এই price এ এই quality সত্যিই rare 😊`;
-        negotiationResult.response += `\nভাইয়া ${acceptedProductName} টা হাতে পেলে খুশি হবেন ইনশাআল্লাহ`;
-        negotiationResult.response += `\n\nচলেন তাহলে order টা করে ফেলি — ভাইয়া নামটা বলেন 😊`;
         if (negotiationResult.newPrice) {
           updatedCart = context.cart.map(item => ({
             ...item,
@@ -572,7 +454,6 @@ function handleConfirmingProduct(
           }));
         }
       } else if (negotiationResult.action === 'CALCULATE' && negotiationResult.quantity) {
-        // Bulk order - update quantity and stay in confirming
         newState = 'CONFIRMING_PRODUCT';
         if (negotiationResult.newPrice) {
           updatedCart = context.cart.map(item => ({
@@ -587,7 +468,7 @@ function handleConfirmingProduct(
       return {
         matched: true,
         action: 'CONFIRM',
-        response: emoji ? negotiationResult.response! : negotiationResult.response!.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌💯🤝🔥🛍️]/g, ''),
+        silentExtraction: true,
         newState,
         updatedContext: {
           ...context,
@@ -597,6 +478,16 @@ function handleConfirmingProduct(
             ...(context.metadata || {}),
             negotiation: negotiationResult.updatedNegotiationState || context.metadata?.negotiation,
           },
+        },
+        negotiationContext: {
+          action: negotiationResult.action || 'UNKNOWN',
+          currentPrice: product.productPrice,
+          newPrice: negotiationResult.newPrice,
+          floorPrice: negotiationResult.updatedNegotiationState?.floorPrice,
+          quantity: negotiationResult.quantity,
+          productName: product.productName,
+          round: negotiationResult.updatedNegotiationState?.roundNumber || 1,
+          customerOffer: negotiationResult.updatedNegotiationState?.customerLastOffer,
         },
       };
     }
@@ -623,15 +514,11 @@ function handleConfirmingProduct(
     const totalStock = productAny?.stock ?? productAny?.stock_quantity ?? 0;
     console.log(`📦 [STOCK_CHECK] Product: ${productAny?.productName}, Stock: ${totalStock}`);
     if (totalStock === 0) {
-      console.log(`❌ [FAST_LANE] Product out of stock: ${productAny?.productName || 'Unknown'}`);
-      const productName = productAny?.productName || 'এই প্রোডাক্ট';
-      const defaultMessage = `দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️`;
-      const outOfStockMessage = (settings?.out_of_stock_message || defaultMessage)
-        .replace('{productName}', productName);
+      console.log(`❌ [FAST_LANE] Product out of stock: ${productAny?.productName || 'Unknown'} (silent extraction)`);
       return {
         matched: true,
         action: 'CONFIRM',
-        response: emoji ? outOfStockMessage : outOfStockMessage.replace(/[😔🛍️]/g, ''),
+        silentExtraction: true,
         newState: 'IDLE',
         updatedContext: {
           state: 'IDLE',
@@ -657,7 +544,7 @@ function handleConfirmingProduct(
         return {
           matched: true,
           action: 'CONFIRM',
-          response: emoji ? multiProductPrompt : multiProductPrompt,
+          silentExtraction: true,
           newState: 'AWAITING_CUSTOMER_DETAILS',
           updatedContext: {
             ...context,
@@ -705,7 +592,7 @@ function handleConfirmingProduct(
       return {
         matched: true,
         action: 'CONFIRM',
-        response: emoji ? dynamicPrompt : dynamicPrompt.replace(/[🎉😊📱📍✅]/g, ''),
+        silentExtraction: true,
         newState: 'AWAITING_CUSTOMER_DETAILS',
         updatedContext: {
           ...context,
@@ -713,15 +600,12 @@ function handleConfirmingProduct(
         },
       };
     } else {
-      console.log('ℹ️ [CONVERSATIONAL] Using conversational flow (default)');
-      // Conversational: Sequential collection
-      const message = settings?.fastLaneMessages?.productConfirm || 
-        `${emoji ? 'দারুণ! 🎉' : 'দারুণ!'}\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`;
-      
+      console.log('ℹ️ [CONVERSATIONAL] Using conversational flow (silent extraction — AI Director generates response)');
+      // Conversational: AI Director generates the name-asking response
       return {
         matched: true,
         action: 'CONFIRM',
-        response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
+        silentExtraction: true,
         newState: 'COLLECTING_NAME',
         updatedContext: {
           ...context,
@@ -733,20 +617,17 @@ function handleConfirmingProduct(
   
   // Check for NO
   if (NO_PATTERNS.some(pattern => pattern.test(input))) {
-    const message = settings?.fastLaneMessages?.productDecline ||
-      `কোনো সমস্যা নেই! ${emoji ? '😊' : ''}\n\nঅন্য product এর ছবি পাঠান অথবা "help" লিখুন।`;
-    
     return {
       matched: true,
       action: 'DECLINE',
-      response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
+      silentExtraction: true,
       newState: 'IDLE',
       updatedContext: {
         state: 'IDLE',
         cart: [],
         checkout: {},
-        pendingImages: [], // Clear pending images to prevent re-adding
-        lastImageReceivedAt: undefined, // Reset batch window
+        pendingImages: [],
+        lastImageReceivedAt: undefined,
       },
     };
   }
@@ -765,35 +646,8 @@ function handleCollectingName(
   const emoji = settings?.useEmojis ?? true;
   
 
-  
   // NOTE: Interruption checks are now handled globally
-  
-  // Check for product details request
-  if (isDetailsRequest(input)) {
-    const productDetails = getProductDetailsResponse(context, emoji);
-    if (productDetails) {
-      const rePrompt = `আপনার সম্পূর্ণ নামটি বলবেন?`;
-      return {
-        matched: true,
-        action: 'CONFIRM',
-        response: emoji ? (productDetails + '\n\n' + rePrompt) : (productDetails + '\n\n' + rePrompt).replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
-        newState: 'COLLECTING_NAME',
-        updatedContext: { state: 'COLLECTING_NAME' },
-      };
-    }
-  }
-  
-  // Check for order intent
-  if (isOrderIntent(input)) {
-    const message = `আপনি ইতিমধ্যে অর্ডার করছেন! আপনার সম্পূর্ণ নামটি বলবেন?`;
-    return {
-      matched: true,
-      action: 'CONFIRM',
-      response: message,
-      newState: 'COLLECTING_NAME',
-      updatedContext: { state: 'COLLECTING_NAME' },
-    };
-  }
+  // Detail requests and order intent now fall through to AI Director
   
   // Check if input looks like a name
   if (NAME_PATTERN.test(input)) {
@@ -804,7 +658,7 @@ function handleCollectingName(
     const existingAddress = context.checkout?.customerAddress;
     
     if (existingPhone && existingAddress) {
-      // All info exists - return to order summary with updated name
+      // All info exists - return to order summary with updated name (TRANSACTIONAL)
       const deliveryCharge = calculateDeliveryCharge(existingAddress);
       const cartTotal = calculateCartTotal(context.cart || [], context);
       const totalAmount = cartTotal + deliveryCharge;
@@ -831,7 +685,7 @@ function handleCollectingName(
       return {
         matched: true,
         action: 'COLLECT_NAME',
-        response: emoji ? `✅ নাম আপডেট হয়েছে!\n\n${orderSummary}` : `নাম আপডেট হয়েছে!\n\n${orderSummary}`,
+        silentExtraction: true,
         newState: 'CONFIRMING_ORDER',
         updatedContext: {
           state: 'CONFIRMING_ORDER',
@@ -842,17 +696,11 @@ function handleCollectingName(
       };
     }
     
-    // Normal flow - ask for phone
-    const message = settings?.fastLaneMessages?.nameCollected ||
-      `আপনার সাথে পরিচিত হয়ে ভালো লাগলো, {name}! ${emoji ? '😊' : ''}\n\nএখন আপনার ফোন নম্বর দিন। ${emoji ? '📱' : ''}\n(Example: 01712345678)`;
-    
-    // Replace {name} placeholder
-    const finalMessage = message.replace(/{name}/g, name);
-    
+    // Normal flow — extract name silently, AI Director generates the phone-asking response
     return {
       matched: true,
       action: 'COLLECT_NAME',
-      response: emoji ? finalMessage : finalMessage.replace(/[🎉😊📱📍✅]/g, ''),
+      silentExtraction: true,
       newState: 'COLLECTING_PHONE',
       updatedContext: {
         state: 'COLLECTING_PHONE',
@@ -860,7 +708,6 @@ function handleCollectingName(
           ...context.checkout,
           customerName: name,
         },
-        // Legacy field for backward compatibility
         customerName: name,
       },
       extractedData: {
@@ -921,7 +768,7 @@ function handleCollectingPhone(
         return {
           matched: true,
           action: 'COLLECT_PHONE',
-          response: emoji ? `✅ ফোন নম্বর আপডেট হয়েছে!\n\n${orderSummary}` : `ফোন নম্বর আপডেট হয়েছে!\n\n${orderSummary}`,
+          silentExtraction: true,
           newState: 'CONFIRMING_ORDER',
           updatedContext: {
             state: 'CONFIRMING_ORDER',
@@ -934,14 +781,11 @@ function handleCollectingPhone(
         };
       }
       
-      // Normal flow - ask for address
-      const message = settings?.fastLaneMessages?.phoneCollected ||
-        `পেয়েছি! ${emoji ? '📱' : ''}\n\nএখন আপনার ডেলিভারি ঠিকানাটি দিন। ${emoji ? '📍' : ''}\n(Example: House 123, Road 4, Dhanmondi, Dhaka)`;
-      
+      // Normal flow — extract phone silently, AI Director generates the address-asking response
       return {
         matched: true,
         action: 'COLLECT_PHONE',
-        response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
+        silentExtraction: true,
         newState: 'COLLECTING_ADDRESS', 
         updatedContext: {
           state: 'COLLECTING_ADDRESS',
@@ -949,7 +793,6 @@ function handleCollectingPhone(
             ...context.checkout,
             customerPhone: normalizedPhone,
           },
-          // Legacy field for backward compatibility
           customerPhone: normalizedPhone,
         },
         extractedData: {
@@ -960,44 +803,8 @@ function handleCollectingPhone(
   }
   
   // NOTE: Interruption checks are now handled globally
-  
-  // Check if it's a general product details request 
-  if (isDetailsRequest(input)) {
-    const productDetails = getProductDetailsResponse(context, emoji);
-    if (productDetails) {
-      const rePrompt = settings?.fastLaneMessages?.phoneCollected?.split('\n')[0] ||
-        `এখন আপনার ফোন নম্বর দিন। ${emoji ? '📱' : ''}`;
-      
-      const finalResponse = productDetails + '\n\n' + rePrompt;
-      
-      return {
-        matched: true,
-        action: 'CONFIRM',
-        response: emoji ? finalResponse : finalResponse.replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
-        newState: 'COLLECTING_PHONE',
-        updatedContext: {
-          state: 'COLLECTING_PHONE',
-        },
-      };
-    }
-  }
-  
-  // Check if order intent
-  if (isOrderIntent(input)) {
-    const message = settings?.fastLaneMessages?.productConfirm ||
-      `দারুণ! ${emoji ? '🎉' : ''}\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`;
-    return {
-      matched: true, action: 'CONFIRM', response: emoji ? message : message.replace(/[🎉😊📱📍✅]/g, ''),
-      newState: 'COLLECTING_NAME', updatedContext: { state: 'COLLECTING_NAME' },
-    };
-  }
-  
-  // Not a valid phone and not an interruption
-  const invalidMessage = `⚠️ দুঃখিত! সঠিক phone number দিন।\n\nExample: 01712345678`;
-  return {
-    matched: true, action: 'CONFIRM', response: emoji ? invalidMessage : invalidMessage.replace(/[⚠️]/g, ''),
-    newState: 'COLLECTING_PHONE', updatedContext: { state: 'COLLECTING_PHONE' },
-  };
+  // If not a valid phone, let AI Director handle the message gracefully instead of an error message
+  return { matched: false };
 }
 
 /**
@@ -1036,7 +843,7 @@ function handleCollectingAddress(
     return {
       matched: true,
       action: 'COLLECT_ADDRESS',
-      response: orderSummary,
+      silentExtraction: true,
       newState: 'CONFIRMING_ORDER',
       updatedContext: {
         ...context,
@@ -1060,22 +867,7 @@ function handleCollectingAddress(
   }
   
   // NOTE: Interruption checks are now handled globally
-  
-  // Check for product details request
-  if (isDetailsRequest(input)) {
-    const productDetails = getProductDetailsResponse(context, emoji);
-    if (productDetails) {
-      const rePrompt = `আপনার ডেলিভারি ঠিকানাটি দিন।`;
-      return {
-        matched: true,
-        action: 'CONFIRM',
-        response: emoji ? (productDetails + '\n\n' + rePrompt) : (productDetails + '\n\n' + rePrompt).replace(/[🎉😊📱📍✅🚚💳🔄📦💰📏🎨❌]/g, ''),
-        newState: 'COLLECTING_ADDRESS',
-        updatedContext: { state: 'COLLECTING_ADDRESS' },
-      };
-    }
-  }
-  
+  // Invalid/short addresses and interruptions fall through to AI Director
   return { matched: false };
 }
 
@@ -1099,8 +891,8 @@ function handleConfirmingOrder(
       action: 'CONFIRM', // This will be mapped to TRANSITION_STATE in orchestrator
       response: settings?.fastLaneMessages?.paymentInstructions 
         ? settings.fastLaneMessages.paymentInstructions
-            .replace('{deliveryCharge}', context.checkout.deliveryCharge?.toString() || '60')
-            .replace('{paymentNumber}', '{{PAYMENT_DETAILS}}') // Placeholder for orchestrator to fill
+            .replace(/\{deliveryCharge\}/g, context.checkout.deliveryCharge?.toString() || '60')
+            .replace(/\{paymentNumber\}/g, '{{PAYMENT_DETAILS}}') // Placeholder for orchestrator to fill
         : Replies.PAYMENT_INSTRUCTIONS({
             deliveryCharge: context.checkout.deliveryCharge,
             paymentNumber: '{{PAYMENT_DETAILS}}',
@@ -1151,18 +943,7 @@ function handleSelectingCartItems(
   
   // If no pending images, this is an error state
   if (recognizedProducts.length === 0) {
-    return {
-      matched: true,
-      action: 'DECLINE',
-      response: `দুঃখিত, কোনো product পাওয়া যায়নি। ${emoji ? '😔' : ''}\n\nনতুন product এর ছবি পাঠান।`,
-      newState: 'IDLE',
-      updatedContext: {
-        state: 'IDLE',
-        pendingImages: [],
-        cart: [],
-        lastImageReceivedAt: undefined,
-      },
-    };
+    return { matched: false };
   }
   
   // Check for "select all" intent
@@ -1210,7 +991,7 @@ function handleSelectingCartItems(
       return {
         matched: true,
         action: 'CONFIRM',
-        response: summaryMessage,
+        silentExtraction: true,
         newState: 'COLLECTING_MULTI_VARIATIONS',
         updatedContext: {
           state: 'COLLECTING_MULTI_VARIATIONS',
@@ -1228,7 +1009,7 @@ function handleSelectingCartItems(
       return {
         matched: true,
         action: 'CONFIRM',
-        response: summaryMessage,
+        silentExtraction: true,
         newState: 'COLLECTING_NAME',
         updatedContext: {
           state: 'COLLECTING_NAME',
@@ -1251,19 +1032,7 @@ function handleSelectingCartItems(
     const invalidNumbers = selectedNumbers.filter(n => n > maxItem);
     
     if (invalidNumbers.length > 0) {
-      // Some numbers are out of range
-      const errorMessage = `⚠️ ভুল নম্বর! শুধু ${maxItem}টা product আছে।\n\n` +
-        `সঠিক নম্বর দিন (1-${maxItem}) অথবা "সবগুলো" লিখুন।`;
-      
-      return {
-        matched: true,
-        action: 'CONFIRM',
-        response: errorMessage,
-        newState: 'SELECTING_CART_ITEMS',
-        updatedContext: {
-          state: 'SELECTING_CART_ITEMS',
-        },
-      };
+      return { matched: false };
     }
     
     // Filter products by selected numbers (1-indexed)
@@ -1310,7 +1079,7 @@ function handleSelectingCartItems(
       return {
         matched: true,
         action: 'CONFIRM',
-        response: summaryMessage,
+        silentExtraction: true,
         newState: 'COLLECTING_MULTI_VARIATIONS',
         updatedContext: {
           state: 'COLLECTING_MULTI_VARIATIONS',
@@ -1328,7 +1097,7 @@ function handleSelectingCartItems(
       return {
         matched: true,
         action: 'CONFIRM',
-        response: summaryMessage,
+        silentExtraction: true,
         newState: 'COLLECTING_NAME',
         updatedContext: {
           state: 'COLLECTING_NAME',
@@ -1343,36 +1112,10 @@ function handleSelectingCartItems(
   // Check for decline/cancel
   const NO_PATTERNS = [/^(no|nope|na|nai|না|নাই|cancel|বাতিল)$/i];
   if (NO_PATTERNS.some(pattern => pattern.test(input.trim()))) {
-    return {
-      matched: true,
-      action: 'DECLINE',
-      response: `কোনো সমস্যা নেই! ${emoji ? '😊' : ''}\n\nঅন্য product এর ছবি পাঠান।`,
-      newState: 'IDLE',
-      updatedContext: {
-        state: 'IDLE',
-        pendingImages: [],
-        cart: [],
-        lastImageReceivedAt: undefined,
-      },
-    };
+    return { matched: false };
   }
   
-  // Invalid input - show product list again and re-prompt
-  let productListMessage = `⚠️ সঠিক নম্বর দিন!\n\nআপনার list:\n`;
-  recognizedProducts.forEach((img, idx) => {
-    productListMessage += `${idx + 1}️⃣ ${img.recognitionResult.productName} - ৳${img.recognitionResult.productPrice}\n`;
-  });
-  productListMessage += `\nকোনগুলো অর্ডার করবেন?\n• "সবগুলো" - সব product\n• "1 ar 3" - নির্দিষ্ট item\n• "না" - বাতিল করতে`;
-  
-  return {
-    matched: true,
-    action: 'CONFIRM',
-    response: productListMessage,
-    newState: 'SELECTING_CART_ITEMS',
-    updatedContext: {
-      state: 'SELECTING_CART_ITEMS',
-    },
-  };
+  return { matched: false };
 }
 
 /**
@@ -1389,42 +1132,14 @@ function handleCollectingMultiVariations(
   const currentIndex = context.currentVariationIndex ?? 0;
   const collectingSize = context.collectingSize ?? true;
   
-  // If cart is empty, error state
+  // If cart is empty, let AI handle it
   if (cart.length === 0) {
-    return {
-      matched: true,
-      action: 'DECLINE',
-      response: `দুঃখিত, cart এ কোনো product নেই। ${emoji ? '😔' : ''}`,
-      newState: 'IDLE',
-      updatedContext: {
-        state: 'IDLE',
-        cart: [],
-        pendingImages: [],
-        lastImageReceivedAt: undefined,
-        currentVariationIndex: undefined,
-        collectingSize: undefined,
-      },
-    };
+    return { matched: false };
   }
   
   // Check for cancel
   const cancelPatterns = [/^(cancel|বাতিল|na|না|nai|নাই)$/i];
-  if (cancelPatterns.some(pattern => pattern.test(input.trim()))) {
-    return {
-      matched: true,
-      action: 'DECLINE',
-      response: `অর্ডার বাতিল হয়েছে। ${emoji ? '😊' : ''}\n\nনতুন product এর ছবি পাঠান।`,
-      newState: 'IDLE',
-      updatedContext: {
-        state: 'IDLE',
-        cart: [],
-        pendingImages: [],
-        lastImageReceivedAt: undefined,
-        currentVariationIndex: undefined,
-        collectingSize: undefined,
-      },
-    };
-  }
+    return { matched: false };
   
   // Get current product
   const currentProduct = cart[currentIndex];
@@ -1460,14 +1175,10 @@ function handleCollectingMultiVariations(
       // Check if this product also needs color
       if (availableColors.length > 1) {
         // Move to color collection for same product
-        const colorPrompt = `✅ সাইজ: ${matchedSize}\n\n` +
-          `এখন "${currentProduct.productName}" এর কালার বলুন:\n` +
-          `Available: ${availableColors.join(', ')}`;
-        
         return {
           matched: true,
           action: 'CONFIRM',
-          response: colorPrompt,
+          silentExtraction: true,
           newState: 'COLLECTING_MULTI_VARIATIONS',
           updatedContext: {
             state: 'COLLECTING_MULTI_VARIATIONS',
@@ -1480,20 +1191,8 @@ function handleCollectingMultiVariations(
         return moveToNextProduct(updatedCart, currentIndex + 1, settings);
       }
     } else {
-      // Invalid size
-      const errorMessage = `⚠️ "${input}" সাইজ নেই!\n\n` +
-        `"${currentProduct.productName}" এ available সাইজ:\n${availableSizes.join(', ')}\n\n` +
-        `উপরের থেকে একটা সাইজ লিখুন:`;
-      
-      return {
-        matched: true,
-        action: 'CONFIRM',
-        response: errorMessage,
-        newState: 'COLLECTING_MULTI_VARIATIONS',
-        updatedContext: {
-          state: 'COLLECTING_MULTI_VARIATIONS',
-        },
-      };
+      // Invalid size - let AI Director handle it
+      return { matched: false };
     }
   } else if (!collectingSize && availableColors.length > 1) {
     // We're collecting COLOR for current product
@@ -1515,20 +1214,8 @@ function handleCollectingMultiVariations(
       // Move to next product
       return moveToNextProduct(updatedCart, currentIndex + 1, settings);
     } else {
-      // Invalid color
-      const errorMessage = `⚠️ "${input}" কালার নেই!\n\n` +
-        `"${currentProduct.productName}" এ available কালার:\n${availableColors.join(', ')}\n\n` +
-        `উপরের থেকে একটা কালার লিখুন:`;
-      
-      return {
-        matched: true,
-        action: 'CONFIRM',
-        response: errorMessage,
-        newState: 'COLLECTING_MULTI_VARIATIONS',
-        updatedContext: {
-          state: 'COLLECTING_MULTI_VARIATIONS',
-        },
-      };
+      // Invalid color - let AI Director handle it
+      return { matched: false };
     }
   } else {
     // Product doesn't need size/color, move to next
@@ -1554,14 +1241,10 @@ function moveToNextProduct(
     
     if (needsSize || needsColor) {
       // Found a product that needs variation
-      const sizePrompt = needsSize
-        ? `"${product.productName}" এর সাইজ বলুন:\nAvailable: ${product.sizes.join(', ')}`
-        : `"${product.productName}" এর কালার বলুন:\nAvailable: ${product.colors.join(', ')}`;
-      
       return {
         matched: true,
         action: 'CONFIRM',
-        response: `📦 Product ${i + 1}/${cart.length}\n\n${sizePrompt}`,
+        silentExtraction: true,
         newState: 'COLLECTING_MULTI_VARIATIONS',
         updatedContext: {
           state: 'COLLECTING_MULTI_VARIATIONS',
@@ -1577,8 +1260,7 @@ function moveToNextProduct(
   return {
     matched: true,
     action: 'CONFIRM',
-    response: `✅ সব product এর সাইজ নেওয়া হয়েছে! ${emoji ? '🎉' : ''}\n\n` +
-      `এখন আপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`,
+    silentExtraction: true,
     newState: 'COLLECTING_NAME',
     updatedContext: {
       state: 'COLLECTING_NAME',
@@ -1601,7 +1283,7 @@ function moveToNameCollection(
   return {
     matched: true,
     action: 'CONFIRM',
-    response: `${emoji ? '🎉' : ''} দারুণ!\n\nআপনার সম্পূর্ণ নামটি বলবেন?\n(Example: Zayed Bin Hamid)`,
+    silentExtraction: true,
     newState: 'COLLECTING_NAME',
     updatedContext: {
       state: 'COLLECTING_NAME',
@@ -1787,16 +1469,8 @@ function handleCollectingPaymentDigits(
     };
   }
   
-  // Invalid input - show error
-  return {
-    matched: true,
-    action: 'CONFIRM', // Just send response, no state change
-    response: settings?.fastLaneMessages?.invalidPaymentDigits || Replies.INVALID_PAYMENT_DIGITS(),
-    newState: 'COLLECTING_PAYMENT_DIGITS',
-    updatedContext: {
-      state: 'COLLECTING_PAYMENT_DIGITS',
-    },
-  };
+  // Invalid input — let AI Director handle the failure gracefully
+  return { matched: false };
 }
 
 /**
@@ -1931,21 +1605,8 @@ function handleAwaitingCustomerDetails(
           },
         };
       } else {
-        // Invalid quantity
-        const errorMsg = parsedQty && parsedQty > maxQuantity
-          ? `দুঃখিত! সর্বোচ্চ ${maxQuantity} পিস অর্ডার করতে পারবেন।\n\nকত পিস নেবেন? (1-${maxQuantity})`
-          : `অনুগ্রহ করে সংখ্যায় বলুন কত পিস নেবেন? (1-${maxQuantity})`;
-        
-        return {
-          matched: true,
-          action: 'CONFIRM',
-          response: emoji ? `❌ ${errorMsg}` : errorMsg,
-          newState: 'AWAITING_CUSTOMER_DETAILS',
-          updatedContext: {
-            ...context,
-            state: 'AWAITING_CUSTOMER_DETAILS',
-          },
-        };
+        // Invalid quantity - let AI Director handle it
+        return { matched: false };
       }
     }
     
@@ -1989,25 +1650,8 @@ function handleAwaitingCustomerDetails(
            partial.color = matchedColor;
         }
       } else {
-        // Invalid size
-        // Determine available sizes for error message (using refined logic)
-        let fallbackSizes = inStockSizes;
-        if (fallbackSizes.length === 0 && availableSizes.length > 0) {
-           fallbackSizes = availableSizes.map((s: string) => s.toUpperCase());
-        }
-
-        return {
-          matched: true,
-          action: 'CONFIRM',
-          response: emoji 
-            ? `❌ "${text}" সাইজ ভুল!\n\nআছে: ${fallbackSizes.join(' / ')}\n\nএকটি সঠিক সাইজ লিখুন।`
-            : `"${text}" সাইজ ভুল! আছে: ${fallbackSizes.join(' / ')}`,
-          newState: 'AWAITING_CUSTOMER_DETAILS',
-          updatedContext: {
-            ...context,
-            state: 'AWAITING_CUSTOMER_DETAILS',
-          },
-        };
+        // Invalid size - let AI Director handle it
+        return { matched: false };
       }
     }
   }
@@ -2229,108 +1873,9 @@ function handleAwaitingCustomerDetails(
     }
   }
   
-  // Return error if stock is insufficient - BUT SAVE VALID DATA!
+  // Return error if stock is insufficient - let AI Director handle the error
   if (stockError) {
-    // ========================================
-    // STOCK ERROR: Save valid fields and set awaitingField
-    // This allows user to just provide corrected quantity/size
-    // ========================================
-    const isOutOfStock = stockAvailable === 0;
-    
-    // Build partialForm with all valid data
-    const stockErrorPartialForm = {
-      name: name || partial.name || null,
-      phone: isPhoneValid ? phone : (partial.phone || null),
-      address: address || partial.address || null,
-      size: isOutOfStock ? null : (isSizeValid ? size : partial.size || null), // Clear size if out of stock
-      color: isColorValid ? color : (partial.color || null),
-      quantity: 1, // Reset quantity for re-entry
-      awaitingField: isOutOfStock ? 'size' : 'quantity', // What we need from user
-      maxQuantity: isOutOfStock ? 999 : stockAvailable, // Max allowed
-    };
-    
-    console.log(`[QUICK_FORM] Stock error - saving partial form:`, stockErrorPartialForm);
-    
-    // Determine available sizes for the error message
-    let inStockSizes: string[] = [];
-    if (stockVariantData && Array.isArray(stockVariantData)) {
-      // Filter variants by color if a color is selected, then get unique sizes with quantity > 0
-      const relevantVariants = color
-        ? stockVariantData.filter((v: any) => v.color?.toLowerCase() === color?.toLowerCase() && v.quantity > 0)
-        : stockVariantData.filter((v: any) => v.quantity > 0);
-      inStockSizes = [...new Set(relevantVariants.map((v: any) => v.size?.toUpperCase()))].filter(Boolean);
-    } else if (productAny?.size_stock && Array.isArray(productAny.size_stock)) {
-      // Get unique sizes with quantity > 0 from size_stock
-      inStockSizes = productAny.size_stock
-        .filter((ss: any) => ss.quantity > 0)
-        .map((ss: any) => ss.size?.toUpperCase())
-        .filter(Boolean);
-    }
-    // Fallback logic refinement
-    if (inStockSizes.length === 0 && availableSizes.length > 0 && !color) {
-      inStockSizes = availableSizes.map((s: string) => s.toUpperCase());
-    }
-
-    // NEW: Find available colors for the requested size (Cross-Recommendation)
-    let inStockColorsForSize: string[] = [];
-    if (stockVariantData && Array.isArray(stockVariantData) && size) {
-       const relevantVariants = stockVariantData.filter((v: any) => 
-         v.size?.toUpperCase() === size.toUpperCase() && 
-         v.quantity > 0
-       );
-       inStockColorsForSize = [...new Set(relevantVariants.map((v: any) => v.color))].filter(Boolean);
-    }
-
-    // Modify error message to be more helpful
-    let baseError = stockError || `❌ "${size}" সাইজ স্টকে নেই!`;
-    if (!baseError.startsWith('❌') && !baseError.startsWith('দুঃখিত')) {
-      baseError = `❌ ${baseError}`;
-    }
-
-    const start = baseError.startsWith('❌') ? '' : '❌ ';
-    
-    // Construct final message with smart suggestions
-    let adjustedError = '';
-    if (isOutOfStock) {
-       adjustedError = `${start}${baseError}`;
-       
-       const suggestions = [];
-       
-       // Suggest sizes for the requested color
-       if (color && inStockSizes.length > 0) {
-         suggestions.push(`👉 "${color}" কালারে আছে: ${inStockSizes.join(' / ')}`);
-       } else if (!color && inStockSizes.length > 0) {
-         suggestions.push(`👉 স্টকে আছে: ${inStockSizes.join(' / ')}`);
-       }
-       
-       // Suggest colors for the requested size
-       if (size && inStockColorsForSize.length > 0) {
-          suggestions.push(`👉 "${size}" সাইজে আছে: ${inStockColorsForSize.join(' / ')}`);
-       }
-       
-       if (suggestions.length > 0) {
-         adjustedError += `\n\n${suggestions.join('\n')}`;
-       }
-       
-       adjustedError += `\n\nঅন্য সাইজ বা কালার লিখুন। (যেমন: M Blue)`;
-    } else {
-       adjustedError = `${start}${stockError}\n\nকত পিস নেবেন? (1-${stockAvailable})`;
-    }
-    
-    return {
-      matched: true,
-      action: 'CONFIRM',
-      response: emoji ? adjustedError : adjustedError.replace(/❌/g, ''),
-      newState: 'AWAITING_CUSTOMER_DETAILS',
-      updatedContext: {
-        ...context,
-        state: 'AWAITING_CUSTOMER_DETAILS',
-        checkout: {
-          ...context.checkout,
-          partialForm: stockErrorPartialForm,
-        },
-      },
-    };
+    return { matched: false };
   }
   
   // SUCCESS: All required fields extracted and valid
@@ -2408,84 +1953,7 @@ function handleAwaitingCustomerDetails(
   console.log(`Parsed - Name: ${name || 'null'}, Phone: ${phone || 'null'} (valid: ${isPhoneValid}), Address: ${address || 'null'}`);
   console.log(`Parsed - Size: ${size || 'null'} (valid: ${isSizeValid}), Color: ${color || 'null'} (valid: ${isColorValid})`);
   
-  // ========================================
-  // SMART VALIDATION RESPONSE (Ultrathink Enhancement)
-  // Show ✅ for valid fields, ❌ for missing/invalid
-  // Store partial data for next attempt
-  // ========================================
-  
-  // Build smart response
-  let smartMsg = '';
-  
-  // Show valid fields with ✅
-  if (name) smartMsg += `✅ নাম: ${name}\n`;
-  if (isPhoneValid) smartMsg += `✅ ফোন: ${phone}\n`;
-  if (address) smartMsg += `✅ ঠিকানা: ${address}\n`;
-  if (isSizeValid && size) smartMsg += `✅ সাইজ: ${size}\n`;
-  if (isColorValid && color) smartMsg += `✅ কালার: ${color}\n`;
-  
-  // Track missing and invalid fields
-  const missingFields: string[] = [];
-  const invalidFields: { field: string; value: string; options: string[] }[] = [];
-  
-  // Check each field
-  if (!name) missingFields.push('নাম');
-  
-  if (!phone || !isPhoneValid) {
-    if (phone && !isPhoneValid) {
-      // Invalid phone format
-      smartMsg += `❌ ফোন: "${phone}" সঠিক নয়!\n`;
-      missingFields.push('সঠিক ফোন (01XXXXXXXXX)');
-    } else {
-      missingFields.push('ফোন');
-    }
-  }
-  
-  if (!address) missingFields.push('ঠিকানা');
-  
-  if (requiresSize && !isSizeValid) {
-    if (size) {
-      // Invalid size
-      smartMsg += `❌ "${size}" সাইজ নেই!\n`;
-      invalidFields.push({ field: 'সাইজ', value: size, options: availableSizes });
-    } else {
-      missingFields.push('সাইজ');
-    }
-  }
-  
-  if (requiresColor && !isColorValid) {
-    if (color) {
-      // Invalid color
-      smartMsg += `❌ "${color}" কালার নেই!\n`;
-      invalidFields.push({ field: 'কালার', value: color, options: availableColors });
-    } else {
-      missingFields.push('কালার');
-    }
-  }
-  
-  // Show missing fields
-  for (const field of missingFields) {
-    smartMsg += `❌ ${field}: দেওয়া হয়নি\n`;
-  }
-  
-  // Add helpful prompt for what to provide
-  smartMsg += '\n';
-  
-  // Build list of what's needed
-  const needed: string[] = [];
-  if (!name) needed.push('নাম');
-  if (!phone || !isPhoneValid) needed.push('ফোন');
-  if (!address) needed.push('ঠিকানা');
-  if (requiresSize && !isSizeValid) needed.push(`সাইজ (${availableSizes.join('/')})`);
-  if (requiresColor && !isColorValid) needed.push(`কালার (${availableColors.join('/')})`);
-  
-  if (needed.length === 1) {
-    smartMsg += `শুধু ${needed[0]} দিন।`;
-  } else {
-    smartMsg += `এই তথ্যগুলো দিন: ${needed.join(', ')}`;
-  }
-  
-  // Store partial data for next attempt
+  // Store partial data for next attempt so AI Director can access it
   const partialForm = {
     name: name || partial.name || null,
     phone: isPhoneValid ? phone : (partial.phone || null),
@@ -2495,12 +1963,17 @@ function handleAwaitingCustomerDetails(
     quantity: quantity || 1,
   };
   
-  console.log(`[QUICK_FORM] Storing partial data for retry:`, partialForm);
+  console.log(`[QUICK_FORM] Incomplete parse - returning matched: false and storing partial data for AI Director:`, partialForm);
   
+  // Return matched: false so AI Director takes over, but save the partial data
+  // Since we return matched: false, Orchestrator won't save this automatically
+  // However, AI Director will read the currentContext. We inject it manually or return silentExtraction.
+  // Wait, if matched: false, Orchestrator doesn't save updatedContext.
+  // Let's return silentExtraction: true instead so the context IS saved, but response handled by AI Director.
   return {
     matched: true,
     action: 'CONFIRM',
-    response: emoji ? smartMsg : smartMsg.replace(/[✅❌😔]/g, ''),
+    silentExtraction: true,
     newState: 'AWAITING_CUSTOMER_DETAILS',
     updatedContext: {
       ...context,

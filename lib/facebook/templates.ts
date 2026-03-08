@@ -173,10 +173,6 @@ export function createProductDetailsCard(
   // Create detailed subtitle with description
   let subtitle = `Price: ${formattedPrice}\n${stockStatus}`;
   
-  if (product.category) {
-    subtitle += `\nCategory: ${product.category}`;
-  }
-  
   if (product.description) {
     // Limit description to 80 characters for subtitle (Facebook limit)
     const truncatedDesc = product.description.length > 80

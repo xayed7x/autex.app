@@ -9,6 +9,11 @@ CREATE TABLE public.api_usage (
   image_hash text,
   created_at timestamp with time zone DEFAULT now(),
   conversation_id uuid,
+  model text,
+  prompt_tokens integer DEFAULT 0,
+  completion_tokens integer DEFAULT 0,
+  total_tokens integer DEFAULT 0,
+  feature_name text,
   CONSTRAINT api_usage_pkey PRIMARY KEY (id),
   CONSTRAINT api_usage_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT api_usage_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
@@ -33,6 +38,8 @@ CREATE TABLE public.conversations (
   needs_manual_response boolean DEFAULT false,
   manual_flag_reason text,
   manual_flagged_at timestamp with time zone,
+  memory_summary text,
+  memory_summarized_at timestamp with time zone,
   CONSTRAINT conversations_pkey PRIMARY KEY (id),
   CONSTRAINT conversations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT conversations_fb_page_id_fkey FOREIGN KEY (fb_page_id) REFERENCES public.facebook_pages(id)
@@ -165,6 +172,7 @@ CREATE TABLE public.products (
   requires_size_selection boolean DEFAULT true,
   variant_stock jsonb DEFAULT '[]'::jsonb,
   pricing_policy jsonb DEFAULT '{}'::jsonb,
+  product_attributes jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT products_pkey PRIMARY KEY (id),
   CONSTRAINT products_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -248,6 +256,12 @@ Screenshot পাঠালে আমরা verify করব।'::text,
   out_of_stock_message text DEFAULT 'দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।
 
 আপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️'::text,
+  return_policy text,
+  quality_guarantee text,
+  business_category text,
+  business_address text,
+  exchange_policy text,
+  custom_faqs jsonb DEFAULT '[]'::jsonb,
   CONSTRAINT workspace_settings_pkey PRIMARY KEY (id),
   CONSTRAINT workspace_settings_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );

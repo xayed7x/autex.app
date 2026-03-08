@@ -89,6 +89,13 @@ export async function POST(request: Request) {
       quick_form_prompt: body.quick_form_prompt,
       quick_form_error: body.quick_form_error,
       out_of_stock_message: body.out_of_stock_message,
+      // Business Policies
+      return_policy: body.returnPolicy,
+      quality_guarantee: body.qualityGuarantee,
+      business_category: body.businessCategory,
+      business_address: body.businessAddress,
+      exchange_policy: body.exchangePolicy,
+      custom_faqs: body.customFaqs,
       updated_at: new Date().toISOString()
     }
 

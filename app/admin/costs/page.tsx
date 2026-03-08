@@ -39,6 +39,7 @@ interface CostsData {
     monthCost: number
     avgCostPerConversation: string
     conversationsThisMonth: number
+    exchangeRate: number
   }
   breakdown: Array<{
     type: string
@@ -46,6 +47,7 @@ interface CostsData {
     cost: number
     count: number
     percentage: number
+    tokens: number
   }>
   history: Array<{
     date: string
@@ -58,6 +60,17 @@ interface CostsData {
     today: number
     week: number
     month: number
+  }>
+  recentCalls: Array<{
+    id: string
+    date: string
+    workspaceId: string
+    workspaceName: string
+    feature: string
+    model: string
+    tokens: number
+    costUSD: number
+    costBDT: number
   }>
 }
 
@@ -156,6 +169,10 @@ export default function AdminCostsPage() {
           icon={Target}
           isCurrency
         />
+      </div>
+
+      <div className="flex justify-end text-xs text-muted-foreground mr-2 -mt-4">
+        * Exchange Rate: ৳{data?.summary.exchangeRate || '110'} = $1 USD.
       </div>
 
       {/* Charts Row */}
@@ -267,9 +284,9 @@ export default function AdminCostsPage() {
           <div className="space-y-3">
             {(data?.breakdown || []).map((item, index) => (
               <div key={item.rawType} className="flex items-center justify-between p-3 rounded-xl border border-border/50 hover:bg-muted/30 transition-colors">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 w-1/3">
                   <div 
-                    className="w-3 h-3 rounded-full" 
+                    className="w-3 h-3 rounded-full shrink-0" 
                     style={{ backgroundColor: COLORS[index % COLORS.length] }}
                   />
                   <div>
@@ -277,9 +294,12 @@ export default function AdminCostsPage() {
                     <p className="text-xs text-muted-foreground">{item.count} calls</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-mono font-medium text-sm">৳{item.cost.toFixed(4)}</p>
-                  <p className="text-xs text-muted-foreground">{item.percentage.toFixed(1)}%</p>
+                <div className="w-1/3 text-center">
+                  <p className="font-mono font-medium text-sm">{(item.tokens || 0).toLocaleString()} tokens</p>
+                </div>
+                <div className="w-1/3 text-right">
+                  <p className="font-mono font-medium text-sm">৳{(item.cost || 0).toFixed(4)}</p>
+                  <p className="text-xs text-muted-foreground">{(item.percentage || 0).toFixed(1)}%</p>
                 </div>
               </div>
             ))}
@@ -321,6 +341,63 @@ export default function AdminCostsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </CardContent>
+      </SmartCard>
+
+      {/* Recent API Calls List */}
+      <SmartCard>
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            Recent API Calls
+          </CardTitle>
+          <CardDescription>
+            Last 100 tracked AI inferences across all workspaces.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-background/95 backdrop-blur z-10">
+                <tr className="border-b border-border">
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Time</th>
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Workspace</th>
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Feature</th>
+                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Model</th>
+                  <th className="text-right py-3 px-4 font-medium text-muted-foreground">Tokens</th>
+                  <th className="text-right py-3 px-4 font-medium text-muted-foreground">Cost (USD)</th>
+                  <th className="text-right py-3 px-4 font-medium text-muted-foreground">Cost (BDT)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(data?.recentCalls || []).map((call) => (
+                  <tr key={call.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="py-2 px-4 whitespace-nowrap text-muted-foreground">
+                      {new Date(call.date).toLocaleString()}
+                    </td>
+                    <td className="py-2 px-4 whitespace-nowrap">
+                      <Link href={`/admin/workspaces/${call.workspaceId}`} className="hover:underline">
+                        {call.workspaceName}
+                      </Link>
+                    </td>
+                    <td className="py-2 px-4 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2 py-1 rounded-md bg-primary/10 text-primary text-xs font-medium">
+                        {call.feature}
+                      </span>
+                    </td>
+                    <td className="py-2 px-4 whitespace-nowrap font-mono text-xs">{call.model}</td>
+                    <td className="text-right py-2 px-4 font-mono">{(call.tokens || 0).toLocaleString()}</td>
+                    <td className="text-right py-2 px-4 font-mono">${(call.costUSD || 0).toFixed(6)}</td>
+                    <td className="text-right py-2 px-4 font-mono">৳{(call.costBDT || 0).toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {data?.recentCalls?.length === 0 && (
+              <div className="p-8 text-center text-muted-foreground">
+                No recent API calls found.
+              </div>
+            )}
           </div>
         </CardContent>
       </SmartCard>

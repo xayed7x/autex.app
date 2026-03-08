@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { USD_TO_BDT_RATE } from '@/lib/ai/usage-tracker';
 
 // System-wide cost analytics
 export async function GET(request: NextRequest) {
@@ -9,7 +10,6 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const USD_TO_BDT = 120;
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
     const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -18,11 +18,12 @@ export async function GET(request: NextRequest) {
     // Get all usage data for the last 30 days
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     
+    // We get last 100 records for the 'recent calls' table
     const { data: usageData, error } = await supabase
       .from('api_usage')
-      .select('*')
+      .select('*, workspaces(name)')
       .gte('created_at', thirtyDaysAgo)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Usage data error:', error);
@@ -36,14 +37,32 @@ export async function GET(request: NextRequest) {
     let weekCost = 0;
     let monthCost = 0;
     
-    const breakdown: Record<string, { cost: number; count: number }> = {};
+    const breakdown: Record<string, { cost: number; count: number; tokens: number }> = {};
     const historyMap: Record<string, number> = {};
     const workspaceCosts: Record<string, { today: number; week: number; month: number; name?: string }> = {};
+    const recentCalls: any[] = [];
 
-    (usageData || []).forEach((record: any) => {
-      const cost = Number(record.cost) * USD_TO_BDT;
+    (usageData || []).forEach((record: any, index: number) => {
+      // Cost comes raw from DB as USD, convert to BDT for consistent UI
+      const cost = Number(record.cost) * USD_TO_BDT_RATE;
       const createdAt = record.created_at;
       const workspaceId = record.workspace_id;
+      const tokens = record.total_tokens || 0;
+
+      // Keep recent 100 calls for table
+      if (index < 100) {
+        recentCalls.push({
+          id: record.id,
+          date: createdAt,
+          workspaceId,
+          workspaceName: record.workspaces?.name || 'Unknown',
+          feature: formatApiType(record.feature_name || record.api_type || 'unknown'),
+          model: record.model || 'unknown',
+          tokens,
+          costUSD: Number(record.cost),
+          costBDT: cost,
+        });
+      }
 
       totalCost += cost;
       totalRequests += 1;
@@ -53,11 +72,12 @@ export async function GET(request: NextRequest) {
       if (createdAt >= weekStart) weekCost += cost;
       if (createdAt >= monthStart) monthCost += cost;
 
-      // Type breakdown
-      const type = record.api_type || 'unknown';
-      if (!breakdown[type]) breakdown[type] = { cost: 0, count: 0 };
+      // Type breakdown (prefer new feature_name, fallback to old api_type)
+      const type = record.feature_name || record.api_type || 'unknown';
+      if (!breakdown[type]) breakdown[type] = { cost: 0, count: 0, tokens: 0 };
       breakdown[type].cost += cost;
       breakdown[type].count += 1;
+      breakdown[type].tokens += tokens;
 
       // History by date
       const date = new Date(createdAt).toISOString().split('T')[0];
@@ -142,10 +162,12 @@ export async function GET(request: NextRequest) {
           ? (monthCost / (convCount || 1)).toFixed(2) 
           : '0.00',
         conversationsThisMonth: convCount || 0,
+        exchangeRate: USD_TO_BDT_RATE,
       },
       breakdown: formattedBreakdown,
-      history,
+      history: history.reverse(), // Reverse to show oldest to newest left-to-right on chart
       perWorkspace,
+      recentCalls,
     });
   } catch (error) {
     console.error('Admin costs error:', error);
@@ -155,11 +177,11 @@ export async function GET(request: NextRequest) {
 
 function formatApiType(type: string): string {
   switch (type) {
-    case 'openai_vision': return 'Vision API (Tier 3)';
-    case 'auto_tagging': return 'Product Tagging';
-    case 'gpt-4-turbo': case 'gpt-4': return 'AI Director (GPT-4)';
-    case 'gpt-3.5-turbo': return 'AI Director (GPT-3.5)';
-    case 'hash_match': return 'Cache Hit (Free)';
+    case 'agent_response': return 'Sales Agent Chat';
+    case 'memory_summarization': return 'Context Compression';
+    case 'image_recognition_tier3': case 'openai_vision': return 'Vision Scan (Tier 3)';
+    case 'auto_tagging': return 'Product Auto-Tagging';
+    case 'hash_match': return 'Image Cache Hit';
     default: return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
 }

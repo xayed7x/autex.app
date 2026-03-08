@@ -194,8 +194,8 @@ async function processMessagingEvent(
       console.log('🔘 Postback event detected:', payload);
       
       // Handle "Order Now" button click
-      if (payload.startsWith('ORDER_PRODUCT_')) {
-        const productId = payload.replace('ORDER_PRODUCT_', '');
+      if (payload.startsWith('ORDER_NOW_')) {
+        const productId = payload.replace('ORDER_NOW_', '');
         console.log(`🛒 Order Now clicked for product: ${productId}`);
         
         // Fetch product details
@@ -222,7 +222,7 @@ async function processMessagingEvent(
           const totalStock = product.stock_quantity || 0;
           
           if (totalStock === 0) {
-            console.log(`❌ [ORDER_PRODUCT] Product out of stock: ${product.name}`);
+            console.log(`❌ [ORDER_NOW] Product out of stock: ${product.name}`);
             const { sendMessage } = await import('@/lib/facebook/messenger');
             const defaultMessage = `দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️`;
             const outOfStockMessage = (settings.out_of_stock_message || defaultMessage)
@@ -235,10 +235,10 @@ async function processMessagingEvent(
           const isQuickForm = settings.order_collection_style === 'quick_form';
           const targetState = isQuickForm ? 'AWAITING_CUSTOMER_DETAILS' : 'COLLECTING_NAME';
          
-          console.log(`🔍 [ORDER_PRODUCT] Order collection style: ${settings.order_collection_style}`);
-          console.log(`🔍 [ORDER_PRODUCT] Target state: ${targetState}`);
-          console.log(`🔍 [ORDER_PRODUCT] Product sizes: ${product.sizes?.join(', ') || 'none'}`);
-          console.log(`🔍 [ORDER_PRODUCT] Product colors: ${product.colors?.join(', ') || 'none'}`);
+          console.log(`🔍 [ORDER_NOW] Order collection style: ${settings.order_collection_style}`);
+          console.log(`🔍 [ORDER_NOW] Target state: ${targetState}`);
+          console.log(`🔍 [ORDER_NOW] Product sizes: ${product.sizes?.join(', ') || 'none'}`);
+          console.log(`🔍 [ORDER_NOW] Product colors: ${product.colors?.join(', ') || 'none'}`);
           
           // Build cart item with sizes/colors and stock info for Quick Form validation
           const cartItem = {
@@ -334,24 +334,54 @@ async function processMessagingEvent(
             let message = settings.quick_form_prompt || 
               'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
             
-            // Filter sizes to only show in-stock ones
-            const allSizes = product.sizes || [];
-            const sizeStock = product.size_stock || [];
-            const inStockSizes = allSizes.filter((sz: string) => {
-              if (sizeStock.length === 0) return true; // No stock tracking, show all
-              const stockEntry = sizeStock.find((ss: any) => ss.size?.toUpperCase() === sz.toUpperCase());
-              return !stockEntry || stockEntry.quantity > 0;
-            });
+            const variantStock = product.variant_stock;
+            const askSize = true; // By default assume both should be asked if they exist for Quick Form
+            const askColor = true;
+            const availableSizes = product.sizes || [];
+            const availableColors = product.colors || [];
             
-            const hasSizes = inStockSizes.length > 0;
-            const hasColors = product.colors && product.colors.length > 1;
+            const extraFields: string[] = [];
             
-            if (hasSizes) {
-              message += `\nসাইজ: (${inStockSizes.join('/')})`;
+            if (askSize && askColor && variantStock && (Array.isArray(variantStock) || typeof variantStock === 'object')) {
+                const sizeMap = new Map<string, string[]>();
+                
+                if (Array.isArray(variantStock)) {
+                    for (const v of variantStock) {
+                        if ((v.quantity || 0) > 0 && v.size && v.color) {
+                            const s = v.size.toUpperCase();
+                            if (!sizeMap.has(s)) sizeMap.set(s, []);
+                            sizeMap.get(s)!.push(v.color);
+                        }
+                    }
+                } else if (typeof variantStock === 'object') {
+                    Object.entries(variantStock).forEach(([k, v]) => {
+                        if (Number(v) > 0 && k.includes('_')) {
+                            const [s, c] = k.split('_');
+                            const sizeStr = s.toUpperCase();
+                            if (!sizeMap.has(sizeStr)) sizeMap.set(sizeStr, []);
+                            sizeMap.get(sizeStr)!.push(c);
+                        }
+                    });
+                }
+                
+                if (sizeMap.size > 0) {
+                    const mappedLines = Array.from(sizeMap.entries()).map(([s, cList]) => `${s} → ${cList.join(', ')}`);
+                    extraFields.push(`সাইজ ও কালার (স্টকে আছে):\n${mappedLines.join('\n')}`);
+                } else {
+                    if (askSize && availableSizes.length > 0) extraFields.push(`সাইজ: (${availableSizes.join('/')})`);
+                    if (askColor && availableColors.length > 0) extraFields.push(`কালার: (${availableColors.join('/')})`);
+                }
+            } else {
+                if (askSize && availableSizes.length > 0) {
+                  extraFields.push(`সাইজ: (${availableSizes.join('/')})`);
+                }
+                if (askColor && availableColors.length > 0) {
+                  extraFields.push(`কালার: (${availableColors.join('/')})`);
+                }
             }
             
-            if (hasColors) {
-              message += `\nকালার: (${product.colors.join('/')})`;
+            if (extraFields.length > 0) {
+              message += '\n' + extraFields.join('\n');
             }
             
             // Add optional quantity field

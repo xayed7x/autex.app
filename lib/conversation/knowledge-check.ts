@@ -82,8 +82,7 @@ const QUESTION_PATTERNS = {
 // DEFAULT MESSAGES TO CHECK IF CONFIGURED
 // ============================================
 
-const DEFAULT_RETURN_POLICY = "🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।";
-const DEFAULT_SELLER_INFO = "🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330";
+const DEFAULT_SELLER_INFO = "";
 
 // ============================================
 // HELPER FUNCTIONS
@@ -95,11 +94,9 @@ function containsPattern(message: string, patterns: string[]): boolean {
 }
 
 function isReturnPolicyConfigured(settings: WorkspaceSettings): boolean {
-  const returnPolicy = settings.fastLaneMessages?.returnPolicy;
-  // Check if it's configured (not empty and not the default)
-  return !!(returnPolicy && 
-            returnPolicy.trim() !== '' && 
-            returnPolicy !== DEFAULT_RETURN_POLICY);
+  // Check the Business Policies return_policy field (not the old Fast Lane template)
+  const returnPolicy = settings.returnPolicy;
+  return !!(returnPolicy && returnPolicy.trim() !== '');
 }
 
 function isSellerInfoConfigured(settings: WorkspaceSettings): boolean {
@@ -131,16 +128,11 @@ export function checkKnowledgeBoundary(
     return { hasKnowledge: true, source: 'deliveryInfo' };
   }
 
-  // 2. Return/Exchange questions - check if configured
+  // 2. Return/Exchange questions - always let AI Director handle
+  // AI Director has the return policy in its knowledge base (from Business Policies).
+  // If not configured, AI will say "এই বিষয়টা confirm করে বলছি" per the prompt.
   if (containsPattern(message, QUESTION_PATTERNS.return)) {
-    if (isReturnPolicyConfigured(settings)) {
-      return { hasKnowledge: true, source: 'returnPolicy' };
-    }
-    return {
-      hasKnowledge: false,
-      shouldFlag: true,
-      flagReason: 'Return/exchange policy question - not configured in AI Setup'
-    };
+    return { hasKnowledge: true, source: 'returnPolicy' };
   }
 
   // 3. Payment questions - always have knowledge

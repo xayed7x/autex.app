@@ -2,8 +2,8 @@ import sharp from 'sharp';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
 
-// Import colorthief - note: we'll use it in a Node.js compatible way
-const ColorThief = require('colorthief');
+// Import colorthief
+import ColorThief from 'colorthief';
 
 type Product = Database['public']['Tables']['products']['Row'];
 
@@ -232,9 +232,9 @@ export async function findTier2Match(
     };
 
     for (const product of products) {
-      if (!product.visual_features) continue;
+      if (!(product as any).visual_features) continue;
 
-      const productFeatures = product.visual_features as unknown as VisualFeatures;
+      const productFeatures = (product as any).visual_features as unknown as VisualFeatures;
 
       // Calculate color score (60% weight)
       const colorScore = calculateColorScore(

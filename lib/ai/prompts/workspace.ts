@@ -100,30 +100,89 @@ ${bulkDiscounts?.length ? `- **Bulk Discounts:** ${bulkDiscounts.map(d => `${d.m
 
 function buildKnowledgeBaseSection(settings: WorkspaceSettings): string {
   const deliveryTime = settings.deliveryTime || '3-5 দিন';
-  const deliveryCharge = settings.deliveryCharges || 60;
+  const insideDhaka = settings.deliveryCharges?.insideDhaka || 60;
+  const outsideDhaka = settings.deliveryCharges?.outsideDhaka || 120;
   
-  return `
+  let section = `
 ## 📚 KNOWLEDGE BASE (Use this to answer customer questions)
 
 ### Delivery Information
 - **Delivery Time:** ${deliveryTime}
-- **Delivery Charge:** ৳${deliveryCharge} (ঢাকার বাইরে ভিন্ন হতে পারে)
-- **Delivery Partner:** Courier Service
+- **Inside Dhaka:** ৳${insideDhaka}
+- **Outside Dhaka:** ৳${outsideDhaka}
+`;
 
+  // Payment Methods — built dynamically from settings
+  const paymentMethods = settings.paymentMethods;
+  const enabledMethods: string[] = [];
+  if (paymentMethods?.bkash?.enabled) {
+    enabledMethods.push(`- bKash: ${paymentMethods.bkash.number || '(number not set)'}`);
+  }
+  if (paymentMethods?.nagad?.enabled) {
+    enabledMethods.push(`- Nagad: ${paymentMethods.nagad.number || '(number not set)'}`);
+  }
+  if (paymentMethods?.cod?.enabled) {
+    enabledMethods.push(`- Cash on Delivery (COD)`);
+  }
+
+  if (enabledMethods.length > 0) {
+    section += `
 ### Payment Methods
-- Cash on Delivery (COD) ✅
-- bKash / Nagad (if applicable)
+${enabledMethods.join('\n')}
+`;
+  } else {
+    section += `
+### Payment Methods
+- Payment information has not been configured. If asked, say you will confirm the payment details.
+`;
+  }
 
-### Return & Exchange Policy
-- যদি প্রোডাক্ট ভাঙ্গা বা ত্রুটিপূর্ণ থাকে, ৭ দিনের মধ্যে জানালে এক্সচেঞ্জ বা রিফান্ড হবে
-- সাইজ/কালার চেঞ্জ করতে হলে ডেলিভারি চার্জ গ্রাহক বহন করবেন
+  // Return Policy — from settings, NOT hardcoded
+  if (settings.returnPolicy) {
+    section += `
+### Return Policy
+${settings.returnPolicy}
+`;
+  } else {
+    section += `
+### Return Policy
+- If customer asks about returns, say: "এই বিষয়টা confirm করে বলছি" and do NOT invent a policy.
+`;
+  }
 
+  // Exchange Policy — from settings
+  if (settings.exchangePolicy) {
+    section += `
+### Exchange Policy
+${settings.exchangePolicy}
+`;
+  }
+
+  // Quality Guarantee — from settings, omit if empty
+  if (settings.qualityGuarantee) {
+    section += `
 ### Quality Assurance
-- ১০০% অথেনটিক প্রোডাক্ট
-- কোয়ালিটি চেক করে পাঠানো হয়
+${settings.qualityGuarantee}
+`;
+  }
 
+  // Custom FAQs — from settings
+  if (settings.customFaqs && settings.customFaqs.length > 0) {
+    section += `
+### Business FAQ
+`;
+    for (const faq of settings.customFaqs) {
+      if (faq.question && faq.answer) {
+        section += `**Q:** ${faq.question}\n**A:** ${faq.answer}\n\n`;
+      }
+    }
+  }
+
+  section += `
 **NOTE:** If customer asks something NOT covered here, say you'll confirm and get back to them, or offer to connect with support.
 `;
+
+  return section;
 }
 
 // ============================================

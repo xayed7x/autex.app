@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
+import { logApiUsage } from '@/lib/ai/usage-tracker';
 
 type Product = Database['public']['Tables']['products']['Row'];
 
@@ -29,13 +30,6 @@ export interface Tier3MatchResult {
   };
 }
 
-/**
- * Token cost rates for GPT-4o-mini
- */
-const COST_RATES = {
-  INPUT_PER_MILLION: 0.15, // $0.15 per 1M input tokens
-  OUTPUT_PER_MILLION: 0.60, // $0.60 per 1M output tokens
-};
 
 /**
  * Converts an image URL to Base64 data URI
@@ -152,52 +146,9 @@ export async function analyzeImageWithAI(
   }
 }
 
-/**
- * Calculates the cost of an OpenAI API call
- * 
- * @param usage - Token usage from OpenAI response
- * @returns Cost in USD
- */
-export function calculateCost(usage: {
-  prompt_tokens: number;
-  completion_tokens: number;
-}): number {
-  const inputCost = (usage.prompt_tokens / 1_000_000) * COST_RATES.INPUT_PER_MILLION;
-  const outputCost = (usage.completion_tokens / 1_000_000) * COST_RATES.OUTPUT_PER_MILLION;
-  return inputCost + outputCost;
-}
 
-/**
- * Tracks API usage and cost in the database
- * 
- * @param workspaceId - Workspace ID
- * @param imageHash - Image hash
- * @param cost - Cost in USD
- */
-export async function trackAPIUsage(
-  workspaceId: string,
-  imageHash: string,
-  cost: number
-): Promise<void> {
-  const supabase = createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
 
-  try {
-    await supabase.from('api_usage').insert({
-      workspace_id: workspaceId,
-      api_type: 'openai_vision',
-      cost,
-      image_hash: imageHash,
-    });
 
-    console.log(`✓ Tracked API usage: $${cost.toFixed(6)}`);
-  } catch (error) {
-    console.error('Error tracking API usage:', error);
-    // Don't throw - tracking failures shouldn't break the main flow
-  }
-}
 
 /**
  * Finds a matching product using Tier 3 (AI Vision) algorithm
@@ -236,14 +187,16 @@ export async function findTier3Match(
 
     for (const product of products) {
       let score = 0;
-      const productKeywords = product.search_keywords || [];
+      const productKeywords: string[] = Array.isArray(product.search_keywords) 
+        ? product.search_keywords
+        : [];
 
       // MAGIC UPLOAD SCORING: Use auto-generated keywords for matching
 
       // Category match: Check if category exists in keywords (+10 points)
       if (aiAnalysis.category && productKeywords.length > 0) {
         const categoryLower = aiAnalysis.category.toLowerCase();
-        const hasCategoryMatch = productKeywords.some(keyword =>
+        const hasCategoryMatch = productKeywords.some((keyword: string) =>
           keyword.toLowerCase().includes(categoryLower) || categoryLower.includes(keyword.toLowerCase())
         );
         if (hasCategoryMatch) {
@@ -255,7 +208,7 @@ export async function findTier3Match(
       // Color match: Check if color exists in keywords (+15 points)
       if (aiAnalysis.color && productKeywords.length > 0) {
         const colorLower = aiAnalysis.color.toLowerCase();
-        const hasColorMatch = productKeywords.some(keyword =>
+        const hasColorMatch = productKeywords.some((keyword: string) =>
           keyword.toLowerCase().includes(colorLower) || colorLower.includes(keyword.toLowerCase())
         );
         if (hasColorMatch) {
@@ -269,7 +222,7 @@ export async function findTier3Match(
         let matchedCount = 0;
         for (const aiKeyword of aiAnalysis.visual_description_keywords) {
           const aiKeywordLower = aiKeyword.toLowerCase();
-          const hasMatch = productKeywords.some(keyword =>
+          const hasMatch = productKeywords.some((keyword: string) =>
             keyword.toLowerCase().includes(aiKeywordLower) || aiKeywordLower.includes(keyword.toLowerCase())
           );
           if (hasMatch) matchedCount++;
@@ -285,7 +238,7 @@ export async function findTier3Match(
       // Brand/text match: Check if brand exists in keywords (+20 points)
       if (aiAnalysis.brand_text && productKeywords.length > 0) {
         const brandLower = aiAnalysis.brand_text.toLowerCase();
-        const hasBrandMatch = productKeywords.some(keyword =>
+        const hasBrandMatch = productKeywords.some((keyword: string) =>
           keyword.toLowerCase().includes(brandLower) || brandLower.includes(keyword.toLowerCase())
         );
         if (hasBrandMatch) {
@@ -298,18 +251,17 @@ export async function findTier3Match(
       if (productKeywords.length === 0) {
         console.log(`  ⚠️ Product has no keywords, using fallback matching`);
         
-        // Category fallback
-        if (aiAnalysis.category && product.category) {
-          const categoryMatch = product.category.toLowerCase().includes(aiAnalysis.category.toLowerCase()) ||
-                               aiAnalysis.category.toLowerCase().includes(product.category.toLowerCase());
+        // Category fallback (using search_keywords instead of category)
+        if (aiAnalysis.category && productKeywords.length > 0) {
+          const categoryMatch = productKeywords.some((k: string) => k.toLowerCase().includes(aiAnalysis.category!.toLowerCase()));
           if (categoryMatch) score += 10;
         }
 
-        // Color fallback
+        // Color fallback (using colors array)
         if (aiAnalysis.color) {
           const colorLower = aiAnalysis.color.toLowerCase();
-          if (product.dominant_colors) {
-            const hasColorMatch = product.dominant_colors.some(c =>
+          if (product.colors && product.colors.length > 0) {
+            const hasColorMatch = product.colors.some((c: string) =>
               c.toLowerCase().includes(colorLower) || colorLower.includes(c.toLowerCase())
             );
             if (hasColorMatch) score += 15;

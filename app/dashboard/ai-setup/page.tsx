@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Bot,
   MessageSquare,
@@ -31,6 +32,9 @@ import {
   ExternalLink,
   AlertTriangle,
   Sparkles,
+  X,
+  CheckCircle,
+  XCircle,
 } from "lucide-react"
 import { TestChatWidget } from "@/components/chat/test-chat-widget"
 import {
@@ -97,6 +101,10 @@ export default function AISetupPage() {
     paymentInstructions: "✅ অর্ডার confirm হয়েছে!\n\n💰 Payment options:\n৳{totalAmount} টাকা পাঠান:\n{paymentNumber}\n\nPayment করার পর শেষের ২ ডিজিট (last 2 digits) পাঠান। 🔢\n\nExample: যদি transaction ID হয় BKC123456**78**, তাহলে পাঠান: 78",
     paymentReview: "ধন্যবাদ {name}! 🙏\n\nআপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉",
     invalidPaymentDigits: "⚠️ দুঃখিত! শুধু ২টা digit দিতে হবে।\n\nExample: 78 বা 45\n\nআবার চেষ্টা করুন। 🔢",
+    // Order Status Notification Messages
+    statusConfirmed: "আলহামদুলিল্লাহ {name} ভাইয়া! 🎉\nআপনার অর্ডারটি confirm করা হয়েছে।\nআপনার পণ্য ইনশাআল্লাহ {deliveryDays} দিনের মধ্যে পৌঁছে যাবে। 📦\nআমাদের সাথে কেনাকাটার জন্য অনেক ধন্যবাদ! 🙏",
+    statusDelivered: "আলহামদুলিল্লাহ {name}! আপনার পার্সেলটি সফলভাবে ডেলিভারি করা হয়েছে। 📦\nপণ্যটি হাতে পেয়ে কেমন লেগেছে, তা জানাতে ভুলবেন না! 😍\nআমাদের সাথে থাকার জন্য ধন্যবাদ! 🙏",
+    statusCancelled: "দুঃখিত {name}, আপনার অর্ডারটি (Order #{orderNumber}) কোনো কারণবশত cancel করা হয়েছে। 😔\nযদি কোনো প্রশ্ন থাকে, তাহলে দয়া করে আমাদের জানাবেন। 🙏",
     // Dynamic interruption messages
     delivery_info: "🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳60\n• ঢাকার বাইরে: ৳120\n• Delivery সময়: 3-5 business days",
     return_policy: "🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।\n\n• পণ্য অব্যবহৃত থাকতে হবে\n• Original packaging এ থাকতে হবে\n• ২ দিনের মধ্যে আমাদের জানাতে হবে",
@@ -110,6 +118,14 @@ export default function AISetupPage() {
   const [outOfStockMessage, setOutOfStockMessage] = useState('দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️')
 
   const [advancedOpen, setAdvancedOpen] = useState(false)
+
+  // Business Policies
+  const [returnPolicy, setReturnPolicy] = useState('')
+  const [exchangePolicy, setExchangePolicy] = useState('')
+  const [qualityGuarantee, setQualityGuarantee] = useState('')
+  const [businessCategory, setBusinessCategory] = useState('')
+  const [businessAddress, setBusinessAddress] = useState('')
+  const [customFaqs, setCustomFaqs] = useState<Array<{ question: string; answer: string }>>([])
 
   const toneExamples = {
     friendly: "দারুণ! এটা আমাদের Red Saree! 😊 Price: ৳3,000",
@@ -168,6 +184,14 @@ export default function AISetupPage() {
           setQuickFormPrompt(s.quick_form_prompt || quickFormPrompt)
           setQuickFormError(s.quick_form_error || quickFormError)
           setOutOfStockMessage(s.out_of_stock_message || outOfStockMessage)
+
+          // Business Policies
+          setReturnPolicy(s.return_policy || '')
+          setExchangePolicy(s.exchange_policy || '')
+          setQualityGuarantee(s.quality_guarantee || '')
+          setBusinessCategory(s.business_category || '')
+          setBusinessAddress(s.business_address || '')
+          setCustomFaqs(s.custom_faqs || [])
         }
       } catch (error) {
         console.error("Error fetching settings:", error)
@@ -215,6 +239,13 @@ export default function AISetupPage() {
         quick_form_prompt: quickFormPrompt,
         quick_form_error: quickFormError,
         out_of_stock_message: outOfStockMessage,
+        // Business Policies
+        returnPolicy,
+        exchangePolicy,
+        qualityGuarantee,
+        businessCategory,
+        businessAddress,
+        customFaqs,
       }
 
       const response = await fetch('/api/settings/ai', {
@@ -274,6 +305,9 @@ export default function AISetupPage() {
       paymentInstructions: "✅ অর্ডার confirm হয়েছে!\n\n💰 Payment options:\n৳{totalAmount} টাকা পাঠান:\n{paymentNumber}\n\nPayment করার পর শেষের ২ ডিজিট (last 2 digits) পাঠান। 🔢\n\nExample: যদি transaction ID হয় BKC123456**78**, তাহলে পাঠান: 78",
       paymentReview: "ধন্যবাদ {name}! 🙏\n\nআপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉",
       invalidPaymentDigits: "⚠️ দুঃখিত! শুধু ২টা digit দিতে হবে।\n\nExample: 78 বা 45\n\nআবার চেষ্টা করুন। 🔢",
+      statusConfirmed: "আলহামদুলিল্লাহ {name} ভাইয়া! 🎉\nআপনার অর্ডারটি confirm করা হয়েছে।\nআপনার পণ্য ইনশাআল্লাহ {deliveryDays} দিনের মধ্যে পৌঁছে যাবে। 📦\nআমাদের সাথে কেনাকাটার জন্য অনেক ধন্যবাদ! 🙏",
+      statusDelivered: "আলহামদুলিল্লাহ {name}! আপনার পার্সেলটি সফলভাবে ডেলিভারি করা হয়েছে। 📦\nপণ্যটি হাতে পেয়ে কেমন লেগেছে, তা জানাতে ভুলবেন না! 😍\nআমাদের সাথে থাকার জন্য ধন্যবাদ! 🙏",
+      statusCancelled: "দুঃখিত {name}, আপনার অর্ডারটি (Order #{orderNumber}) কোনো কারণবশত cancel করা হয়েছে। 😔\nযদি কোনো প্রশ্ন থাকে, তাহলে দয়া করে আমাদের জানাবেন। 🙏",
       // Dynamic interruption messages
       delivery_info: "🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳60\n• ঢাকার বাইরে: ৳120\n• Delivery সময়: 3-5 business days",
       return_policy: "🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।\n\n• পণ্য অব্যবহৃত থাকতে হবে\n• Original packaging এ থাকতে হবে\n• ২ দিনের মধ্যে আমাদের জানাতে হবে",
@@ -284,6 +318,14 @@ export default function AISetupPage() {
     setQuickFormPrompt('দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:')
     setQuickFormError('দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা')
     setOutOfStockMessage('দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️')
+    
+    // Reset business policies
+    setReturnPolicy('')
+    setExchangePolicy('')
+    setQualityGuarantee('')
+    setBusinessCategory('')
+    setBusinessAddress('')
+    setCustomFaqs([])
     
     toast.success("Settings reset to default")
   }
@@ -604,34 +646,50 @@ export default function AISetupPage() {
                {/* Behavior Switches */}
                <div className="space-y-4">
                  <Label className="text-sm font-semibold mb-2 block">Behavior Rules</Label>
-                 <div className="relative">
-                   {/* Coming Soon Overlay */}
-                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-[1px] rounded-lg">
-                     <Badge variant="secondary" className="bg-zinc-900 text-white dark:bg-white dark:text-black px-4 py-1.5 h-auto text-xs font-bold gap-2 shadow-xl">
-                       <Sparkles className="h-3 w-3" />
-                       Coming Soon
-                     </Badge>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   {/* LIVE: Ask for Size/Color */}
+                   <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/5">
+                     <div className="space-y-0.5">
+                       <Label className="text-sm font-medium">Ask for Size/Color</Label>
+                       <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Include size & color fields when collecting order info</p>
+                     </div>
+                     <Switch
+                       checked={askSize}
+                       onCheckedChange={setAskSize}
+                     />
                    </div>
-                   
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 opacity-40 pointer-events-none">
-                     {[
-                       { label: "Handle Multi-Product Orders", desc: "Allow bot to process multiple items at once" },
-                       { label: "Ask for Size/Color", desc: "Always confirm variants before ordering" },
-                       { label: "Check Stock Levels", desc: "Verify inventory before confirming" },
-                       { label: "Suggest Alternatives", desc: "Offer similar items if OOS" },
-                       { label: "Send Order Confirmation", desc: "Send summary message after order" },
-                       { label: "Image Confirmation", desc: "Show product image in summary" },
-                     ].map((item, i) => (
-                       <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/5">
-                         <div className="space-y-0.5">
-                           <Label className="text-sm font-medium">{item.label}</Label>
-                           <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{item.desc}</p>
-                         </div>
-                         <Switch checked={false} disabled />
-                       </div>
-                     ))}
-                  </div>
+
+                   {/* LIVE: Check Stock Levels */}
+                   <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/5">
+                     <div className="space-y-0.5">
+                       <Label className="text-sm font-medium">Check Stock Levels</Label>
+                       <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Verify inventory before confirming an order</p>
+                     </div>
+                     <Switch
+                       checked={showStock}
+                       onCheckedChange={setShowStock}
+                     />
+                   </div>
+
+                   {/* COMING SOON: Multi-Product */}
+                   <div className="relative flex items-center justify-between p-3 rounded-lg border border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/5 opacity-50">
+                     <div className="space-y-0.5">
+                       <Label className="text-sm font-medium">Handle Multi-Product Orders</Label>
+                       <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Allow bot to process multiple items at once</p>
+                     </div>
+                     <Badge variant="secondary" className="bg-zinc-900 text-white dark:bg-white dark:text-black text-[10px] px-2 py-0.5">Soon</Badge>
+                   </div>
+
+                   {/* COMING SOON: Suggest Alternatives */}
+                   <div className="relative flex items-center justify-between p-3 rounded-lg border border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/5 opacity-50">
+                     <div className="space-y-0.5">
+                       <Label className="text-sm font-medium">Suggest Alternatives</Label>
+                       <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Offer similar items when out of stock</p>
+                     </div>
+                     <Badge variant="secondary" className="bg-zinc-900 text-white dark:bg-white dark:text-black text-[10px] px-2 py-0.5">Soon</Badge>
+                   </div>
                  </div>
+               </div>
 
                  <Separator className="bg-zinc-100 dark:bg-white/10" />
 
@@ -650,7 +708,6 @@ export default function AISetupPage() {
                         Use {"{productName}"} to include the product name.
                       </p>
                   </div>
-               </div>
                </div>
             </SmartCard>
 
@@ -743,6 +800,58 @@ export default function AISetupPage() {
                      className="bg-zinc-50 border-zinc-200 focus:ring-black dark:bg-white/5 dark:border-white/10 dark:focus:ring-white resize-none font-mono text-sm"
                    />
                    <p className="text-xs text-zinc-400">Shown when input is not 2 digits.</p>
+                 </div>
+
+                 <Separator className="bg-zinc-100 dark:bg-white/10 my-6" />
+                 
+                 <div className="space-y-4">
+                   <h4 className="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Order Status Notifications</h4>
+                   <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">Sent automatically when business owner changes order status in Dashboard.</p>
+                   
+                   {/* Order Confirmed (Dashboard Action) */}
+                   <div className="space-y-2">
+                     <div className="flex items-center gap-2">
+                       <CheckCircle className="h-4 w-4 text-green-500" />
+                       <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Order Confirmed</Label>
+                     </div>
+                     <Textarea
+                       rows={4}
+                       value={fastLaneMessages.statusConfirmed}
+                       onChange={(e) => setFastLaneMessages({...fastLaneMessages, statusConfirmed: e.target.value})}
+                       className="bg-zinc-50 border-zinc-200 focus:ring-black dark:bg-white/5 dark:border-white/10 dark:focus:ring-white resize-none font-mono text-sm"
+                     />
+                     <p className="text-xs text-zinc-400">Use {"{name}"} and {"{deliveryDays}"} placeholders.</p>
+                   </div>
+
+                   {/* Order Delivered (Dashboard Action) */}
+                   <div className="space-y-2">
+                     <div className="flex items-center gap-2">
+                       <Package className="h-4 w-4 text-purple-500" />
+                       <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Order Delivered</Label>
+                     </div>
+                     <Textarea
+                       rows={3}
+                       value={fastLaneMessages.statusDelivered}
+                       onChange={(e) => setFastLaneMessages({...fastLaneMessages, statusDelivered: e.target.value})}
+                       className="bg-zinc-50 border-zinc-200 focus:ring-black dark:bg-white/5 dark:border-white/10 dark:focus:ring-white resize-none font-mono text-sm"
+                     />
+                     <p className="text-xs text-zinc-400">Sent when marked as Delivered. Use {"{name}"} placeholder.</p>
+                   </div>
+
+                   {/* Order Cancelled (Dashboard Action) */}
+                   <div className="space-y-2">
+                     <div className="flex items-center gap-2">
+                       <XCircle className="h-4 w-4 text-red-500" />
+                       <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Order Cancelled</Label>
+                     </div>
+                     <Textarea
+                       rows={3}
+                       value={fastLaneMessages.statusCancelled}
+                       onChange={(e) => setFastLaneMessages({...fastLaneMessages, statusCancelled: e.target.value})}
+                       className="bg-zinc-50 border-zinc-200 focus:ring-black dark:bg-white/5 dark:border-white/10 dark:focus:ring-white resize-none font-mono text-sm"
+                     />
+                     <p className="text-xs text-zinc-400">Sent when marked as Cancelled. Use {"{name}"} and {"{orderNumber}"} placeholders.</p>
+                   </div>
                  </div>
                </div>
              </SmartCard>
@@ -896,21 +1005,146 @@ export default function AISetupPage() {
                       Shown when customer asks: "payment?", "কিভাবে?", "bKash?", etc.
                     </p>
                 </div>
+              </div>
+             </SmartCard>
+
+             {/* Business Policies Card */}
+             <SmartCard variant="static" className="p-6 md:p-8 space-y-8">
+               <div className="flex items-center gap-3 mb-6">
+                <div className="h-10 w-10 rounded-xl bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
+                  <span className="text-lg">📋</span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Business Policies</h3>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">Policies the AI uses to answer customer questions.</p>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                {/* Business Category */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Business Category</Label>
+                  <Select value={businessCategory || undefined} onValueChange={setBusinessCategory}>
+                    <SelectTrigger className="bg-zinc-50 border-zinc-200 dark:bg-white/5 dark:border-white/10">
+                      <SelectValue placeholder="Select category..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Women's Fashion">Women&apos;s Fashion</SelectItem>
+                      <SelectItem value="Men's Clothing">Men&apos;s Clothing</SelectItem>
+                      <SelectItem value="Electronics">Electronics</SelectItem>
+                      <SelectItem value="Groceries">Groceries</SelectItem>
+                      <SelectItem value="Beauty">Beauty</SelectItem>
+                      <SelectItem value="Home & Living">Home &amp; Living</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Business Address */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Business Address (Optional)</Label>
+                  <Input
+                    value={businessAddress}
+                    onChange={(e) => setBusinessAddress(e.target.value)}
+                    placeholder="e.g. House 5, Road 12, Dhanmondi, Dhaka"
+                    className="bg-zinc-50 border-zinc-200 dark:bg-white/5 dark:border-white/10"
+                  />
+                </div>
 
                 <Separator className="bg-zinc-100 dark:bg-white/10" />
 
-                <div className="space-y-2 pt-2">
-                    <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Return Policy Message</Label>
-                    <Textarea
-                      rows={5}
-                      value={fastLaneMessages.return_policy}
-                      onChange={(e) => setFastLaneMessages({...fastLaneMessages, return_policy: e.target.value})}
-                      placeholder="Your return and exchange policy..."
-                      className="bg-zinc-50 border-zinc-200 focus:ring-black dark:bg-white/5 dark:border-white/10 dark:focus:ring-white resize-none"
-                    />
-                    <p className="text-xs text-zinc-400">
-                      Shown when customer asks: "return?", "exchange?", "ফেরত?", etc.
-                    </p>
+                {/* Return Policy */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Return Policy</Label>
+                  <Textarea
+                    value={returnPolicy}
+                    onChange={(e) => setReturnPolicy(e.target.value)}
+                    placeholder="e.g. 7 days return policy. Product must be unused with original packaging."
+                    rows={3}
+                    className="bg-zinc-50 border-zinc-200 dark:bg-white/5 dark:border-white/10 resize-none"
+                  />
+                  <p className="text-xs text-zinc-400">AI uses this to answer return-related questions. Leave empty to respond with &quot;let me confirm.&quot;</p>
+                </div>
+
+                {/* Exchange Policy */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Exchange Policy</Label>
+                  <Textarea
+                    value={exchangePolicy}
+                    onChange={(e) => setExchangePolicy(e.target.value)}
+                    placeholder="e.g. Exchange within 3 days for size issues. Customer pays return shipping."
+                    rows={3}
+                    className="bg-zinc-50 border-zinc-200 dark:bg-white/5 dark:border-white/10 resize-none"
+                  />
+                </div>
+
+                {/* Quality Guarantee */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Quality Guarantee</Label>
+                  <Textarea
+                    value={qualityGuarantee}
+                    onChange={(e) => setQualityGuarantee(e.target.value)}
+                    placeholder="e.g. 100% authentic products. Quality checked before dispatch."
+                    rows={2}
+                    className="bg-zinc-50 border-zinc-200 dark:bg-white/5 dark:border-white/10 resize-none"
+                  />
+                </div>
+
+                <Separator className="bg-zinc-100 dark:bg-white/10" />
+
+                {/* Custom FAQs */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Custom FAQs</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCustomFaqs([...customFaqs, { question: '', answer: '' }])}
+                      className="h-7 text-xs border-zinc-200 dark:border-white/10"
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add FAQ
+                    </Button>
+                  </div>
+                  <p className="text-xs text-zinc-400">Teach the AI answers to common questions specific to your business.</p>
+                  
+                  {customFaqs.map((faq, idx) => (
+                    <div key={idx} className="space-y-2 p-3 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50/50 dark:bg-white/5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-zinc-500 font-medium">FAQ #{idx + 1}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCustomFaqs(customFaqs.filter((_, i) => i !== idx))}
+                          className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <Input
+                        value={faq.question}
+                        onChange={(e) => {
+                          const updated = [...customFaqs];
+                          updated[idx] = { ...updated[idx], question: e.target.value };
+                          setCustomFaqs(updated);
+                        }}
+                        placeholder="Customer question, e.g. 'Do you have gift wrapping?'"
+                        className="bg-white dark:bg-black/20 h-8 text-sm"
+                      />
+                      <Textarea
+                        value={faq.answer}
+                        onChange={(e) => {
+                          const updated = [...customFaqs];
+                          updated[idx] = { ...updated[idx], answer: e.target.value };
+                          setCustomFaqs(updated);
+                        }}
+                        placeholder="Answer the AI should give..."
+                        rows={2}
+                        className="bg-white dark:bg-black/20 text-sm resize-none"
+                      />
+                    </div>
+                  ))}
                 </div>
               </div>
              </SmartCard>

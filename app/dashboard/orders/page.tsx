@@ -43,7 +43,7 @@ interface OrderItem {
   product_image_url?: string
 }
 
-type OrderStatus = "pending" | "confirmed" | "shipped" | "cancelled" | "processing" | "completed"
+type OrderStatus = "pending" | "shipped" | "cancelled" | "processing" | "completed"
 
 interface Order {
   id: string
@@ -65,6 +65,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400" },
   processing: { label: "Processing", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" },
   completed: { label: "Completed", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" },
+  shipped: { label: "Shipped", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400" },
   cancelled: { label: "Cancelled", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
 }
 
@@ -254,6 +255,12 @@ export default function OrdersPage() {
                   >
                     Cancelled
                   </TabsTrigger>
+                  <TabsTrigger 
+                    value="shipped" 
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 data-[state=active]:bg-purple-500/10 data-[state=active]:text-purple-600 dark:data-[state=active]:text-purple-400 data-[state=active]:border-purple-500/20 hover:bg-purple-500/10 hover:border-purple-500/20 transition-all duration-200"
+                  >
+                    Shipped
+                  </TabsTrigger>
                 </TabsList>
               </Tabs>
 
@@ -383,6 +390,12 @@ export default function OrdersPage() {
                               <DropdownMenuItem onClick={() => updateOrderStatus(order.id, 'completed')}>
                                 <Check className="h-4 w-4 mr-2" />
                                 Mark as Confirmed
+                              </DropdownMenuItem>
+                            )}
+                            {order.status === 'completed' && (
+                              <DropdownMenuItem onClick={() => updateOrderStatus(order.id, 'shipped')}>
+                                <Package className="h-4 w-4 mr-2" />
+                                Mark Delivered
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuItem 

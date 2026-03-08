@@ -90,7 +90,8 @@ export interface AIDirectorDecision {
     | 'SEND_PRODUCT_CARD'      // Send product card with image
     | 'EXECUTE_SEQUENCE'       // Execute multiple actions in sequence (Phase 2)
     | 'CALL_TOOL'              // Call an internal tool (Phase 3 - Agent Mode)
-    | 'FLAG_MANUAL';           // Flag for manual response - AI doesn't have knowledge
+    | 'FLAG_MANUAL'            // Flag for manual response - AI doesn't have knowledge
+    | 'WAIT_FOR_MORE';         // Message is ambiguous/too short — wait for clarification
   
   /** Response message to send to user */
   response: string;
@@ -176,6 +177,15 @@ export async function aiDirector(input: AIDirectorInput): Promise<AIDirectorDeci
     const systemPrompt = buildSystemPrompt(input.settings);
     const userPrompt = buildUserPrompt(input);
     
+    console.log(`\n📋 [AI-DIRECTOR] ═══════════════════════════════════════════`);
+    console.log(`📋 [AI-DIRECTOR] SYSTEM PROMPT (first 1000 chars):`);
+    console.log(systemPrompt.substring(0, 1000));
+    console.log(`📋 [AI-DIRECTOR] ... (${systemPrompt.length} total chars)`);
+    console.log(`📋 [AI-DIRECTOR] ───────────────────────────────────────────`);
+    console.log(`📋 [AI-DIRECTOR] USER PROMPT (FULL):`);
+    console.log(userPrompt);
+    console.log(`📋 [AI-DIRECTOR] ═══════════════════════════════════════════\n`);
+    
     console.log('📝 Calling OpenAI GPT-4o-mini...');
     
     // Call OpenAI
@@ -195,6 +205,9 @@ export async function aiDirector(input: AIDirectorInput): Promise<AIDirectorDeci
     
     console.log('✅ OpenAI response received');
     console.log(`Tokens: ${usage?.total_tokens || 0} (input: ${usage?.prompt_tokens || 0}, output: ${usage?.completion_tokens || 0})`);
+    console.log(`\n📋 [AI-DIRECTOR] FULL RAW JSON RESPONSE:`);
+    console.log(responseText);
+    console.log(`📋 [AI-DIRECTOR] ───────────────────────────────────────────\n`);
     
     // Parse JSON response
     let decision: AIDirectorDecision;
@@ -250,6 +263,46 @@ export async function aiDirector(input: AIDirectorInput): Promise<AIDirectorDeci
 // ============================================
 
 /**
+ * Builds a style guide section from the owner's configured message templates.
+ * This is injected into the AI's system prompt so it can match the owner's
+ * tone, language, and phrasing — even though Fast Lane no longer sends
+ * these messages directly.
+ */
+function buildOwnerStyleGuide(settings?: WorkspaceSettings): string {
+  if (!settings) return '';
+
+  const lines: string[] = [];
+  const fm = settings.fastLaneMessages;
+  const oos = settings.out_of_stock_message;
+
+  // Only include section if at least one template is customized
+  const hasCustomTemplates = fm?.productConfirm || fm?.nameCollected || 
+    fm?.phoneCollected || fm?.orderConfirmed || fm?.productDecline ||
+    fm?.objectionResponse || fm?.deliveryInfo || oos;
+
+  if (!hasCustomTemplates) return '';
+
+  lines.push('**OWNER\'S PREFERRED MESSAGE STYLE:**');
+  lines.push('These are the exact messages the store owner wants to use for key moments.');
+  lines.push('Use these as your guide for tone, language, and phrasing.');
+  lines.push('You don\'t have to copy them word for word, but your responses should');
+  lines.push('feel consistent with these:');
+  lines.push('');
+
+  if (fm?.productConfirm)     lines.push(`- After product confirmed, asking for name: "${fm.productConfirm}"`);
+  if (fm?.nameCollected)      lines.push(`- After name collected, asking for phone: "${fm.nameCollected}"`);
+  if (fm?.phoneCollected)     lines.push(`- After phone collected, asking for address: "${fm.phoneCollected}"`);
+  if (fm?.orderConfirmed)     lines.push(`- Order confirmed message: "${fm.orderConfirmed}"`);
+  if (fm?.paymentInstructions)lines.push(`- Payment request message: "${fm.paymentInstructions}"`);
+  if (fm?.productDecline)     lines.push(`- Product declined message: "${fm.productDecline}"`);
+  if (oos)                    lines.push(`- Out of stock message: "${oos}"`);
+  if (fm?.objectionResponse)  lines.push(`- Objection response: "${fm.objectionResponse}"`);
+  if (fm?.deliveryInfo)       lines.push(`- Delivery info response: "${fm.deliveryInfo}"`);
+
+  return lines.join('\n');
+}
+
+/**
  * Builds the system prompt that defines the AI's role and behavior
  * ENHANCED with 20+ examples for complex scenarios!
  */
@@ -260,6 +313,9 @@ function buildSystemPrompt(settings?: WorkspaceSettings): string {
   const insideDhakaCharge = settings?.deliveryCharges?.insideDhaka || 60;
   const outsideDhakaCharge = settings?.deliveryCharges?.outsideDhaka || 120;
   const useEmojis = settings?.useEmojis ?? true;
+  const codEnabled = settings?.paymentMethods?.cod?.enabled === true;
+  const deliveryTimeStr = settings?.deliveryTime || '';
+  const returnPolicyStr = settings?.returnPolicy || '';
   
   // Tone descriptions
   const toneDescriptions = {
@@ -270,6 +326,13 @@ function buildSystemPrompt(settings?: WorkspaceSettings): string {
   
   const toneDescription = toneDescriptions[tone as keyof typeof toneDescriptions] || toneDescriptions.friendly;
   const emoji = useEmojis;
+  
+  // Extract enabled payment methods
+  const enabledPaymentMethods = [];
+  if (settings?.paymentMethods?.bkash?.enabled) enabledPaymentMethods.push('bKash');
+  if (settings?.paymentMethods?.nagad?.enabled) enabledPaymentMethods.push('Nagad');
+  if (codEnabled) enabledPaymentMethods.push('Cash on Delivery');
+  const paymentMethodsStr = enabledPaymentMethods.length > 0 ? enabledPaymentMethods.join(', ') : 'Not configured — owner has not set up payment methods yet';
   
   return `You are an AI Director for ${businessName}'s conversational e-commerce chatbot. Your role is to make intelligent decisions about how to handle user messages that the Fast Lane (pattern matching) could not handle.
 
@@ -290,6 +353,7 @@ The user's message was too complex for simple keyword detection. Your job is to 
 **CONVERSATION STATES:**
 - IDLE: Waiting for user to start shopping
 - CONFIRMING_PRODUCT: User is deciding whether to order a product
+- AWAITING_CUSTOMER_DETAILS: Fast Lane collected partial info. You MUST guide them through the rest.
 - SELECTING_CART_ITEMS: User has multiple products pending, selecting which to order
 - COLLECTING_MULTI_VARIATIONS: Collecting size/color for each cart item
 - COLLECTING_NAME: Collecting customer's name
@@ -299,16 +363,28 @@ The user's message was too complex for simple keyword detection. Your job is to 
 
 **STAGE-SPECIFIC BEHAVIOR (CRITICAL — follow these personality modes!):**
 
+When in **AWAITING_CUSTOMER_DETAILS** or general order collection:
+→ The order collection sequence MUST ALWAYS BE:
+  1. Negotiate (if needed).
+  2. Confirm intent to order (if not already clear).
+  3. Collect name (Name MUST be collected first).
+  4. Collect phone.
+  5. Collect address.
+  6. Collect size and color (if applicable, ONLY AFTER address).
+  7. Show order summary.
+→ NEVER ask for size/color before name, phone, and address.
+
 When in **IDLE** or **CONFIRMING_PRODUCT**:
 → Be exploratory and warm. Ask questions to understand the customer. Never rush.
 → Sound like: "কি রকম পছন্দ ভাইয়া?" NOT "Order করবেন?"
 → If product has description, share one selling point with genuine excitement.
-→ Proactively mention COD if customer seems hesitant: "COD আছে, আগে দেখে তারপর টাকা দিবেন"
+${codEnabled ? '→ Proactively mention COD if customer seems hesitant: "COD আছে, আগে দেখে তারপর টাকা দিবেন"' : '→ Do NOT mention COD — it is NOT enabled for this business.'}
 
-When in **negotiation** (price discussion):
+When in **negotiation** (price discussion) (in CONFIRMING_PRODUCT or AWAITING_CUSTOMER_DETAILS):
+→ IMPORTANT: Fast Lane calculates the negotiation math. Look at the "Negotiation Context" in your input. Use the \`newPrice\` it provides.
 → Be confident but empathetic. NEVER apologize for the price. Always counter with a reason.
 → Sound like: "এই price এ quality টা really unbeatable ভাইয়া" NOT "দুঃখিত দাম কমাতে পারছি না"
-→ Use COD as a closing move: "COD এ নিলে risk নেই"
+${codEnabled ? '→ Use COD as a closing move: "COD এ নিলে risk নেই"' : ''}
 
 When in **COLLECTING_NAME / COLLECTING_PHONE / COLLECTING_ADDRESS**:
 → Be conversational and encouraging. Each question should feel like friendly chat, not a government form.
@@ -316,9 +392,10 @@ When in **COLLECTING_NAME / COLLECTING_PHONE / COLLECTING_ADDRESS**:
 → Sound like: "phone number টা দিয়েন 📱" NOT "আপনার ফোন নম্বর লিখুন"
 → Sound like: "ঠিকানাটা দেন, courier ঠিকমতো পৌঁছে দেব ইনশাআল্লাহ 📍" NOT "ডেলিভারি ঠিকানা প্রদান করুন"
 
-When in **CONFIRMING_ORDER**:
+When in **CONFIRMING_ORDER** (or when transitioning to it after collecting address):
+→ You MUST output a full order summary in your response text before asking for final confirmation. Include Name, Phone, Address, Products, Delivery charge, and Total.
 → Be decisive and positive. Reduce any doubt. Reaffirm their good decision.
-→ Sound like: "দারুণ choice ভাইয়া! confirm করে ফেলেন 😊"
+→ Sound like: "আপনার অর্ডার সামারি নিচে দেওয়া হলো: ... দারুণ choice ভাইয়া! confirm করে ফেলেন 😊"
 → Never introduce new doubts or re-explain things they already know.
 
 When **post-order** (just confirmed):
@@ -342,6 +419,10 @@ When **post-order** (just confirmed):
 - FLAG_MANUAL: Flag conversation for manual owner response (when you DON'T have the information to answer)
   - Use ONLY when you genuinely don't have the information in your knowledge
   - Provide a polite response and flagReason in actionData
+- WAIT_FOR_MORE: Message is ambiguous or too short to understand intent (e.g., single letter "k", "hmm", "eta")
+  - Use when you genuinely cannot determine what the user wants
+  - System will send a gentle clarification message
+  - Do NOT use this for valid short inputs like "yes", "no", phone numbers, or names
 
 **LANGUAGE POLICY (CRITICAL):**
 - Language mix: ${bengaliPercent}% Bengali, ${100 - bengaliPercent}% English
@@ -359,6 +440,8 @@ When **post-order** (just confirmed):
 - ${useEmojis ? 'Use emojis strategically to make messages engaging 😊' : 'Avoid using emojis - keep it text-only'}
 - Keep responses concise but helpful
 - Never lose customer data or cart items accidentally
+
+${buildOwnerStyleGuide(settings)}
 
 **RESPONSE FORMAT:**
 You MUST respond with valid JSON in this exact format:
@@ -388,11 +471,11 @@ IF YOUR CONFIDENCE IS BELOW 70, use SEND_RESPONSE to ask a clarifying question i
 
 ✅ YOU MAY ANSWER CONFIDENTLY (ONLY these exact topics):
 1. Delivery charges: ঢাকায় ৳${insideDhakaCharge}, ঢাকার বাইরে ৳${outsideDhakaCharge}
-2. Delivery time: সাধারণত ঢাকায় ১-২ দিন, ঢাকার বাইরে ৩-৫ দিন
-3. Product info: Only from products in cart or search results (name, price, size, color, stock)
+2. Delivery time: ${deliveryTimeStr ? deliveryTimeStr : 'NOT CONFIGURED — if asked, say "এই বিষয়টা confirm করে বলছি" and FLAG_MANUAL'}
+3. Product info: Only from products in cart or search results (name, price, size, color, stock, product_attributes)
 4. Cart/Order details: Current cart items, quantities, total calculation
-5. Basic return: ৩ দিনের মধ্যে সমস্যা জানালে exchange/refund
-6. Payment methods: bKash, Nagad, Cash on Delivery
+5. Return/Exchange: ${returnPolicyStr ? returnPolicyStr : 'NOT CONFIGURED — if asked, say "এই বিষয়টা আমি confirm করে জানাচ্ছি" and FLAG_MANUAL'}
+6. Payment methods: ${paymentMethodsStr}. DO NOT offer any payment method not in this list.
 7. Order flow: Guiding through name → phone → address → confirmation
 
 🚫 ANYTHING ELSE = FLAG_MANUAL! Examples:
@@ -502,13 +585,20 @@ Example 6 - Return Policy Question Mid-Checkout:
 User: "product problem hole return korte parbo?"
 State: COLLECTING_PHONE
 Response:
-{
+${returnPolicyStr ? `{
   "action": "SEND_RESPONSE",
-  "response": "${emoji ? '🔄 ' : ''}হ্যাঁ, product এ কোনো সমস্যা থাকলে ৩ দিনের মধ্যে জানাবেন। আমরা exchange/refund করে দিবো।\\n\\nএখন আপনার ফোন নম্বর দিন ${emoji ? '📱' : ''}",
+  "response": "${emoji ? '🔄 ' : ''}${returnPolicyStr}\\n\\nএখন আপনার ফোন নম্বর দিন ${emoji ? '📱' : ''}",
   "newState": "COLLECTING_PHONE",
   "confidence": 90,
-  "reasoning": "User asking about return policy - answer and re-prompt for phone"
-}
+  "reasoning": "User asking about return policy - answered from configured policy and re-prompted for phone"
+}` : `{
+  "action": "FLAG_MANUAL",
+  "response": "${emoji ? '🔄 ' : ''}এই বিষয়টা আমি confirm করে জানাচ্ছি ${emoji ? '😊' : ''}\\n\\nএখন আপনার ফোন নম্বর দিন ${emoji ? '📱' : ''}",
+  "newState": "COLLECTING_PHONE",
+  "actionData": { "flagReason": "Return policy question - not configured" },
+  "confidence": 70,
+  "reasoning": "Return policy not configured - flag for manual and continue checkout"
+}`}
 
 ---
 **CATEGORY 3: SIZE/COLOR RELATED**
@@ -1314,10 +1404,10 @@ State: CONFIRMING_ORDER
 Response:
 {
   "action": "SEND_RESPONSE",
-  "response": "${emoji ? '✅ ' : ''}bKash Payment:\\n\\n${emoji ? '📱 ' : ''}Number: 01700000000\\n${emoji ? '💰 ' : ''}Amount: ৳{total}\\n\\nPayment হলে transaction এর last 2 digit বলুন।",
+  "response": "${emoji ? '✅ ' : ''}অর্ডার confirm হয়েছে!\\n\\n${emoji ? '💰 ' : ''}Payment options:\\n৳{totalAmount} টাকা পাঠান:\\n{paymentNumber}\\n\\nPayment করার পর শেষের ২ ডিজিট (last 2 digits) পাঠান।",
   "newState": "COLLECTING_PAYMENT_DIGITS",
   "confidence": 95,
-  "reasoning": "User chose bKash - show details and wait for digits"
+  "reasoning": "User chose bKash - show details and wait for digits. Use the payment request template style."
 }
 
 ---
@@ -1620,6 +1710,25 @@ function buildUserPrompt(input: AIDirectorInput): string {
       } else {
         prompt += `Negotiable: No — Price is FIXED\n`;
       }
+      
+      // Product Attributes (rich details)
+      const attrs = itemAny.product_attributes;
+      if (attrs) {
+        if (attrs.fabric) prompt += `Fabric: ${attrs.fabric}\n`;
+        if (attrs.gsm) prompt += `GSM: ${attrs.gsm}\n`;
+        if (attrs.fitType) prompt += `Fit: ${attrs.fitType}\n`;
+        if (attrs.careInstructions) prompt += `Care: ${attrs.careInstructions}\n`;
+        if (attrs.occasion) prompt += `Occasion: ${attrs.occasion}\n`;
+        if (attrs.brand) prompt += `Brand: ${attrs.brand}\n`;
+        if (attrs.countryOfOrigin) prompt += `Origin: ${attrs.countryOfOrigin}\n`;
+        if (attrs.returnEligible !== undefined) prompt += `Return Eligible: ${attrs.returnEligible ? 'Yes' : 'No'}\n`;
+        if (attrs.warranty) prompt += `Warranty: ${attrs.warranty}\n`;
+        if (attrs.weight) prompt += `Weight: ${attrs.weight}\n`;
+        if (attrs.sizeChart && attrs.sizeChart.length > 0) {
+          const chartStr = attrs.sizeChart.map((s: any) => `${s.size}: Chest ${s.chest}", Length ${s.length}"`).join(', ');
+          prompt += `Size Chart: ${chartStr}\n`;
+        }
+      }
     });
     const cartTotal = input.currentContext.cart.reduce((sum, item) => sum + (item.productPrice * item.quantity), 0);
     prompt += `\nSubtotal: ৳${cartTotal}\n`;
@@ -1647,6 +1756,21 @@ function buildUserPrompt(input: AIDirectorInput): string {
     if (input.currentContext.checkout.totalAmount) {
       prompt += `- Total: ৳${input.currentContext.checkout.totalAmount}\n`;
     }
+  }
+  
+  // Negotiation context
+  const negotiationContext = (input.currentContext.metadata as any)?.fastLaneNegotiationContext;
+  if (negotiationContext) {
+    prompt += `\n**NEGOTIATION CONTEXT (FAST LANE CALCULATED):**\n`;
+    prompt += `- Action: ${negotiationContext.action}\n`;
+    prompt += `- Current Price: ৳${negotiationContext.currentPrice}\n`;
+    prompt += `- New Offer Price: ৳${negotiationContext.newPrice}\n`;
+    if (negotiationContext.negotiationState) {
+      prompt += `- Round: ${negotiationContext.negotiationState.round}/5\n`;
+      prompt += `- Customer Max Offer: ৳${negotiationContext.negotiationState.customerMaxOffer}\n`;
+      prompt += `- Our Min Offer: ৳${negotiationContext.negotiationState.botMinOffer}\n`;
+    }
+    prompt += `-> USE THIS NEGOTIATION DATA TO FORMULATE YOUR RESPONSE!\n`;
   }
   
   // Image recognition result

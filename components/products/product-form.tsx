@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Upload, X, Plus, Trash2, ImagePlus } from 'lucide-react';
+import { Loader2, Upload, X, Plus, Trash2, ImagePlus, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import { PremiumButton } from '@/components/ui/premium/premium-button';
 import { SmartCard } from '@/components/ui/premium/smart-card';
@@ -55,6 +55,45 @@ interface PricingPolicy {
   bulkDiscounts: BulkDiscount[];
 }
 
+// Size chart entry for measurement data
+interface SizeChartEntry {
+  size: string;
+  chest: string;
+  length: string;
+}
+
+// Rich product attributes
+interface ProductAttributes {
+  fabric: string;
+  gsm: string;
+  fitType: string;
+  careInstructions: string;
+  occasion: string;
+  sizeChart: SizeChartEntry[];
+  brand: string;
+  countryOfOrigin: string;
+  returnEligible: boolean;
+  warranty: string;
+  weight: string;
+}
+
+const DEFAULT_PRODUCT_ATTRIBUTES: ProductAttributes = {
+  fabric: '',
+  gsm: '',
+  fitType: '',
+  careInstructions: '',
+  occasion: '',
+  sizeChart: [],
+  brand: '',
+  countryOfOrigin: '',
+  returnEligible: true,
+  warranty: '',
+  weight: '',
+};
+
+const FIT_TYPES = ['regular', 'slim', 'oversized', 'relaxed'];
+const OCCASION_OPTIONS = ['Casual', 'Formal', 'Party', 'Office', 'Sports'];
+
 const productFormSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
   price: z.string().min(1, 'Price is required'),
@@ -76,6 +115,7 @@ interface Product {
   size_stock?: SizeStockItem[] | null;
   variant_stock?: VariantStockItem[] | null;
   pricing_policy?: PricingPolicy | null;
+  product_attributes?: ProductAttributes | null;
 }
 
 interface ProductFormProps {
@@ -116,6 +156,10 @@ export function ProductForm({
   // Pricing policy state
   const [isNegotiable, setIsNegotiable] = useState(false);
   const [minPrice, setMinPrice] = useState<string>('');
+
+  // Product attributes state
+  const [productAttributes, setProductAttributes] = useState<ProductAttributes>({ ...DEFAULT_PRODUCT_ATTRIBUTES });
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [bulkDiscounts, setBulkDiscounts] = useState<BulkDiscount[]>([]);
 
   const form = useForm<ProductFormValues>({
@@ -184,6 +228,18 @@ export function ProductForm({
         setMinPrice('');
         setBulkDiscounts([]);
       }
+
+      // Load product attributes
+      if (product.product_attributes) {
+        setProductAttributes({ ...DEFAULT_PRODUCT_ATTRIBUTES, ...product.product_attributes });
+        // Auto-open if any attributes are filled
+        const attrs = product.product_attributes;
+        if (attrs.fabric || attrs.fitType || attrs.careInstructions || attrs.occasion || attrs.brand || (attrs.sizeChart && attrs.sizeChart.length > 0)) {
+          setDetailsOpen(true);
+        }
+      } else {
+        setProductAttributes({ ...DEFAULT_PRODUCT_ATTRIBUTES });
+      }
     } else {
       form.reset({
         name: '',
@@ -198,6 +254,9 @@ export function ProductForm({
       setIsNegotiable(false);
       setMinPrice('');
       setBulkDiscounts([]);
+      // Reset product attributes
+      setProductAttributes({ ...DEFAULT_PRODUCT_ATTRIBUTES });
+      setDetailsOpen(false);
     }
     setNewSize('');
     setNewQuantity('10');
@@ -333,6 +392,9 @@ export function ProductForm({
         bulkDiscounts: bulkDiscounts.filter(d => d.minQty > 0 && d.discountPercent > 0),
       };
       formData.append('pricing_policy', JSON.stringify(pricingPolicy));
+
+      // Send product attributes
+      formData.append('product_attributes', JSON.stringify(productAttributes));
 
       // Handle multiple images
       const newImageFiles = imageSlots.filter(slot => slot.type === 'new' && slot.file);
@@ -694,6 +756,210 @@ export function ProductForm({
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Product Details Section (Collapsible) */}
+            <div className="border border-white/10 rounded-xl overflow-hidden bg-white/5">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors"
+                onClick={() => setDetailsOpen(!detailsOpen)}
+              >
+                <div>
+                  <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                    📋 Product Details
+                  </h4>
+                  <p className="text-xs text-zinc-500">Fabric, fit type, care instructions, size chart & more</p>
+                </div>
+                <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform duration-200 ${detailsOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {detailsOpen && (
+                <div className="p-4 pt-0 space-y-4 border-t border-white/5 animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Row 1: Fabric + Fit Type */}
+                  <div className="grid grid-cols-2 gap-4 pt-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Fabric / Material</label>
+                      <Input
+                        value={productAttributes.fabric}
+                        onChange={(e) => setProductAttributes({ ...productAttributes, fabric: e.target.value })}
+                        placeholder="e.g. 100% Cotton"
+                        className="bg-zinc-900/50 border-white/10 h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Fit Type</label>
+                      <Select
+                        value={productAttributes.fitType || undefined}
+                        onValueChange={(v) => setProductAttributes({ ...productAttributes, fitType: v })}
+                      >
+                        <SelectTrigger className="bg-zinc-900/50 border-white/10 h-9 text-sm">
+                          <SelectValue placeholder="Select fit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FIT_TYPES.map(f => (
+                            <SelectItem key={f} value={f} className="capitalize">{f}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Care Instructions */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Care Instructions</label>
+                    <Textarea
+                      value={productAttributes.careInstructions}
+                      onChange={(e) => setProductAttributes({ ...productAttributes, careInstructions: e.target.value })}
+                      placeholder="e.g. Machine wash cold, do not bleach"
+                      rows={2}
+                      className="bg-zinc-900/50 border-white/10 text-sm resize-none"
+                    />
+                  </div>
+
+                  {/* Occasion (multi-select badges) */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Occasion</label>
+                    <div className="flex flex-wrap gap-2">
+                      {OCCASION_OPTIONS.map(occ => {
+                        const selected = productAttributes.occasion.split(',').map(s => s.trim()).filter(Boolean);
+                        const isActive = selected.includes(occ);
+                        return (
+                          <button
+                            key={occ}
+                            type="button"
+                            className={`
+                              h-7 px-3 rounded-md text-xs font-medium transition-all duration-200 border
+                              ${isActive
+                                ? 'bg-white text-black border-white shadow-[0_0_8px_rgba(255,255,255,0.2)]'
+                                : 'bg-transparent text-zinc-400 border-white/10 hover:border-white/30 hover:text-white'
+                              }
+                            `}
+                            onClick={() => {
+                              const current = productAttributes.occasion.split(',').map(s => s.trim()).filter(Boolean);
+                              const updated = isActive
+                                ? current.filter(o => o !== occ)
+                                : [...current, occ];
+                              setProductAttributes({ ...productAttributes, occasion: updated.join(', ') });
+                            }}
+                          >
+                            {occ}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Size Chart */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Size Chart (inches)</label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setProductAttributes({
+                          ...productAttributes,
+                          sizeChart: [...productAttributes.sizeChart, { size: '', chest: '', length: '' }]
+                        })}
+                        className="h-7 text-xs"
+                      >
+                        + Add Row
+                      </Button>
+                    </div>
+                    {productAttributes.sizeChart.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-[10px] text-zinc-500 uppercase font-bold tracking-wider px-1">
+                          <span>Size</span>
+                          <span>Chest</span>
+                          <span>Length</span>
+                          <span></span>
+                        </div>
+                        {productAttributes.sizeChart.map((row, idx) => (
+                          <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                            <Input
+                              value={row.size}
+                              onChange={(e) => {
+                                const updated = [...productAttributes.sizeChart];
+                                updated[idx] = { ...updated[idx], size: e.target.value };
+                                setProductAttributes({ ...productAttributes, sizeChart: updated });
+                              }}
+                              placeholder="S"
+                              className="bg-zinc-900/50 border-white/10 h-8 text-xs"
+                            />
+                            <Input
+                              value={row.chest}
+                              onChange={(e) => {
+                                const updated = [...productAttributes.sizeChart];
+                                updated[idx] = { ...updated[idx], chest: e.target.value };
+                                setProductAttributes({ ...productAttributes, sizeChart: updated });
+                              }}
+                              placeholder="36"
+                              className="bg-zinc-900/50 border-white/10 h-8 text-xs"
+                            />
+                            <Input
+                              value={row.length}
+                              onChange={(e) => {
+                                const updated = [...productAttributes.sizeChart];
+                                updated[idx] = { ...updated[idx], length: e.target.value };
+                                setProductAttributes({ ...productAttributes, sizeChart: updated });
+                              }}
+                              placeholder="27"
+                              className="bg-zinc-900/50 border-white/10 h-8 text-xs"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setProductAttributes({
+                                  ...productAttributes,
+                                  sizeChart: productAttributes.sizeChart.filter((_, i) => i !== idx)
+                                });
+                              }}
+                              className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Row: Brand + Return Eligible */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Brand (Optional)</label>
+                      <Input
+                        value={productAttributes.brand}
+                        onChange={(e) => setProductAttributes({ ...productAttributes, brand: e.target.value })}
+                        placeholder="e.g. Nike, Local Brand"
+                        className="bg-zinc-900/50 border-white/10 h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Return Eligible</label>
+                      <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-900/50 h-9">
+                        <span className="text-xs text-zinc-400">{productAttributes.returnEligible ? 'Yes' : 'No'}</span>
+                        <button
+                          type="button"
+                          onClick={() => setProductAttributes({ ...productAttributes, returnEligible: !productAttributes.returnEligible })}
+                          className={`relative w-9 h-5 rounded-full transition-colors ${
+                            productAttributes.returnEligible ? 'bg-green-500' : 'bg-zinc-700'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                              productAttributes.returnEligible ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <FormField

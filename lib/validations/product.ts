@@ -26,6 +26,28 @@ const pricingPolicySchema = z.object({
   bulkDiscounts: z.array(bulkDiscountSchema).optional().default([]),
 });
 
+// Size chart entry schema
+const sizeChartEntrySchema = z.object({
+  size: z.string().min(1),
+  chest: z.string().optional().default(''),
+  length: z.string().optional().default(''),
+});
+
+// Product attributes schema — rich product details
+const productAttributesSchema = z.object({
+  fabric: z.string().optional().default(''),
+  gsm: z.string().optional().default(''),
+  fitType: z.string().optional().default(''),
+  careInstructions: z.string().optional().default(''),
+  occasion: z.string().optional().default(''),
+  sizeChart: z.array(sizeChartEntrySchema).optional().default([]),
+  brand: z.string().optional().default(''),
+  countryOfOrigin: z.string().optional().default(''),
+  returnEligible: z.boolean().optional().default(true),
+  warranty: z.string().optional().default(''),
+  weight: z.string().optional().default(''),
+});
+
 /**
  * Schema for creating a new product
  */
@@ -40,7 +62,8 @@ export const createProductSchema = z.object({
   sizes: z.array(z.string()).optional(),
   size_stock: z.array(sizeStockItemSchema).optional(),
   variant_stock: z.array(variantStockItemSchema).optional(),
-  pricing_policy: pricingPolicySchema.optional(), // NEW: Pricing and negotiation rules
+  pricing_policy: pricingPolicySchema.optional(),
+  product_attributes: productAttributesSchema.optional(),
 });
 
 /**
@@ -94,6 +117,16 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
     }
   }
 
+  // Parse product_attributes JSON if present
+  let productAttributes;
+  if (formData.get('product_attributes')) {
+    try {
+      productAttributes = JSON.parse(formData.get('product_attributes') as string);
+    } catch (e) {
+      console.error('Failed to parse product_attributes:', e);
+    }
+  }
+
   const data = {
     name: formData.get('name') as string,
     price: parseFloat(formData.get('price') as string),
@@ -114,6 +147,7 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
     size_stock: sizeStock,
     variant_stock: variantStock,
     pricing_policy: pricingPolicy,
+    product_attributes: productAttributes,
   };
 
   return createProductSchema.parse(data);
@@ -162,6 +196,13 @@ export function validateProductUpdateFormData(formData: FormData): UpdateProduct
       data.pricing_policy = JSON.parse(formData.get('pricing_policy') as string);
     } catch (e) {
       console.error('Failed to parse pricing_policy:', e);
+    }
+  }
+  if (formData.has('product_attributes')) {
+    try {
+      data.product_attributes = JSON.parse(formData.get('product_attributes') as string);
+    } catch (e) {
+      console.error('Failed to parse product_attributes:', e);
     }
   }
 

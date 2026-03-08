@@ -89,10 +89,15 @@ export async function searchProductsByKeywords(
       
       // Search in search_keywords array (case-insensitive contains)
       orConditions.push(`search_keywords.cs.{${keyword}}`);
+      
+      // Search in colors array (case-insensitive contains)
+      orConditions.push(`colors.cs.{${keyword}}`);
     });
 
     // Apply OR filter
-    queryBuilder = queryBuilder.or(orConditions.join(','));
+    const orFilterString = orConditions.join(',');
+    console.log(`🔍 [DB QUERY] Supabase OR filter: ${orFilterString}`);
+    queryBuilder = queryBuilder.or(orFilterString);
 
     // Limit results to 5
     queryBuilder = queryBuilder.limit(5);
@@ -106,11 +111,14 @@ export async function searchProductsByKeywords(
     }
 
     if (!data || data.length === 0) {
-      console.log('No products found for query:', query);
+      console.log(`🔍 [DB RESULT] No products found for query: "${query}"`);
       return [];
     }
 
     console.log(`✓ Found ${data.length} product(s) matching query: "${query}"`);
+    data.forEach((product: any, i: number) => {
+      console.log(`   📦 [DB RESULT ${i + 1}] id=${product.id} | name="${product.name}" | price=৳${product.price} | stock=${product.stock_quantity} | search_keywords=${JSON.stringify(product.search_keywords)}`);
+    });
     
     return data;
   } catch (error) {
@@ -182,11 +190,6 @@ export async function searchProductsByKeywordsWithScoring(
           (kw) => kw.toLowerCase().includes(keyword)
         )) {
           score += 4;
-        }
-
-        // Check category (lower weight)
-        if (product.category?.toLowerCase().includes(keyword)) {
-          score += 1;
         }
       });
 

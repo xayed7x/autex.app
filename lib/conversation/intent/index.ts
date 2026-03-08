@@ -42,9 +42,21 @@ export async function processWithIntent(
   
   console.log(`📤 [INTENT] Handler result: handled=${result.handled}, newState=${result.newState}`);
   
-  // Step 3: If not handled, use AI Salesman Core
-  if (!result.handled && settings) {
-    console.log('🤖 [AI SALESMAN] Handler couldn\'t handle - using AI Salesman Core...');
+  // Step 3: If not handled, decide whether to use AI Salesman Core or route to AI Director
+  // 
+  // CRITICAL GUARD: AI Salesman Core should ONLY handle messages about an ACTIVE product
+  // in context (negotiation, questions about it, ordering it). It should NEVER handle:
+  // - PRODUCT_SEARCH intents (customer looking for a NEW product)
+  // - UNKNOWN intents in IDLE state (likely a product search or general question)
+  // These must fall through to AI Director which has SEARCH_PRODUCTS capability.
+  
+  const isProductSearch = intent.intent === 'PRODUCT_SEARCH';
+  const isUnknownInIdle = intent.intent === 'UNKNOWN' && context.state === 'IDLE';
+  const hasActiveProduct = context.cart && context.cart.length > 0;
+  const shouldSkipSalesman = isProductSearch || isUnknownInIdle;
+  
+  if (!result.handled && settings && !shouldSkipSalesman && hasActiveProduct) {
+    console.log('🤖 [AI SALESMAN] Active product in context + non-search intent → using AI Salesman Core...');
     
     try {
       // Get product from cart OR from pendingImages (for pre-Order Now queries)
@@ -126,6 +138,10 @@ export async function processWithIntent(
       console.error('❌ [AI SALESMAN] Error:', error);
       // Fall through to return unhandled result
     }
+  } else if (!result.handled && shouldSkipSalesman) {
+    console.log(`🚫 [AI SALESMAN] SKIPPED — intent=${intent.intent}, state=${context.state}, reason=${isProductSearch ? 'PRODUCT_SEARCH → route to AI Director' : 'UNKNOWN in IDLE → route to AI Director'}`);
+  } else if (!result.handled && !hasActiveProduct) {
+    console.log(`🚫 [AI SALESMAN] SKIPPED — no active product in context, routing to AI Director`);
   }
   
   return {

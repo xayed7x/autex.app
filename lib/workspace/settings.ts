@@ -23,6 +23,10 @@ export interface FastLaneMessages {
   urgencyResponse: string;
   objectionResponse: string;
   sellerInfo: string;
+  // Order Status Notification Messages
+  statusConfirmed: string;
+  statusDelivered: string;
+  statusCancelled: string;
 }
 
 export interface WorkspaceSettings {
@@ -55,6 +59,13 @@ export interface WorkspaceSettings {
   quick_form_prompt: string;
   quick_form_error: string;
   out_of_stock_message: string;
+  // Business Policies
+  returnPolicy: string;
+  exchangePolicy: string;
+  qualityGuarantee: string;
+  businessCategory: string;
+  businessAddress: string;
+  customFaqs: Array<{ question: string; answer: string }>;
 }
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -70,8 +81,8 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
   },
   deliveryTime: "3-5 business days",
   paymentMethods: {
-    bkash: { enabled: true, number: "01915969330" },
-    nagad: { enabled: true, number: "01915969330" },
+    bkash: { enabled: false, number: "" },
+    nagad: { enabled: false, number: "" },
     cod: { enabled: false },
   },
   paymentMessage: "Payment করতে আমাদের bKash এ send করুন।\nScreenshot পাঠালে আমরা verify করব।",
@@ -89,21 +100,32 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
     phoneCollected: "পেয়েছি! 📱\n\nএখন আপনার ডেলিভারি ঠিকানাটি দিন। 📍\n(Example: House 123, Road 4, Dhanmondi, Dhaka)",
     orderConfirmed: "আলহামদুলিল্লাহ! অর্ডারটা confirm হয়ে গেছে ✅\n\nআমরা ২৪ ঘণ্টার মধ্যে call দেব, তারপর ৩-৫ দিনে delivery হবে ইনশাআল্লাহ 🚚\n\nআপনার product টার জন্য অপেক্ষা করেন — হতাশ হবেন না ইনশাআল্লাহ! 😊\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🙏",
     orderCancelled: "অর্ডার cancel করা হয়েছে। 😊\n\nকোনো সমস্যা নেই! নতুন অর্ডার করতে product এর ছবি পাঠান।",
-    paymentInstructions: "✅ অর্ডার confirm হয়েছে!\n\n💰 Payment options:\n৳{totalAmount} টাকা পাঠান:\n{paymentNumber}\n\nPayment করার পর শেষের ২ ডিজিট (last 2 digits) পাঠান। 🔢\n\nExample: যদি transaction ID হয় BKC123456**78**, তাহলে পাঠান: 78",
+    paymentInstructions: "💰 ডেলিভারি চার্জ ৳{deliveryCharge} টাকা advance পাঠান:\n{paymentNumber}\n\n✅ Payment করার পর transaction ID এর শেষ ২ ডিজিট পাঠান।\n\nExample: যদি transaction ID হয় BKC123456**78**, তাহলে পাঠান: 78",
     paymentReview: "ধন্যবাদ {name}! 🙏\n\nআপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉",
     invalidPaymentDigits: "⚠️ দুঃখিত! শুধু ২টা digit দিতে হবে।\n\nExample: 78 বা 45\n\nআবার চেষ্টা করুন। 🔢",
     // Dynamic interruption messages
-    deliveryInfo: "🚚 Delivery Information:\n• ঢাকার মধ্যে: ৳60\n• ঢাকার বাইরে: ৳120\n• Delivery সময়: 3-5 business days",
-    returnPolicy: "🔄 Return Policy:\nপণ্য হাতে পাওয়ার পর যদি মনে হয় এটা সঠিক নয়, তাহলে ২ দিনের মধ্যে ফেরত দিতে পারবেন।\n\n• পণ্য অব্যবহৃত থাকতে হবে\n• Original packaging এ থাকতে হবে\n• ২ দিনের মধ্যে আমাদের জানাতে হবে",
-    paymentInfo: "💳 Payment Methods:\nআমরা নিম্নলিখিত payment methods গ্রহণ করি:\n\n• bKash: 01915969330\n• Nagad: 01915969330\n• Cash on Delivery\n\nযেকোনো method দিয়ে payment করতে পারবেন।",
-    urgencyResponse: "🚀 চিন্তার কারণ নেই! আমরা দ্রুত ডেলিভারি নিশ্চিত করি।\nঢাকার মধ্যে ২-৩ দিন এবং বাইরে ৩-৫ দিনের মধ্যে পেয়ে যাবেন।",
-    objectionResponse: "✨ আমাদের প্রতিটি পণ্য ১০০% অথেনটিক এবং হাই কোয়ালিটি।\nআপনি নিশ্চিন্তে অর্ডার করতে পারেন, পছন্দ না হলে রিটার্ন করার সুযোগ তো থাকছেই!",
-    sellerInfo: "🏢 আমাদের অফিস মিরপুর, ঢাকা।\n📞 প্রয়োজনে কল করুন: 01915969330\n⏰ আমরা প্রতিদিন সকাল ১০টা থেকে রাত ১০টা পর্যন্ত খোলা আছি।",
+    deliveryInfo: "[Configure in AI Setup]",
+    returnPolicy: "[Configure in AI Setup]",
+    paymentInfo: "[Configure in AI Setup]",
+    urgencyResponse: "🚀 চিন্তার কারণ নেই! আমরা দ্রুত ডেলিভারি নিশ্চিত করি।",
+    objectionResponse: "✨ আপনি নিশ্চিন্তে অর্ডার করতে পারেন!",
+    sellerInfo: "[Configure in AI Setup]",
+    // Order Status Notification Messages
+    statusConfirmed: "আলহামদুলিল্লাহ {name} ভাইয়া! 🎉\nআপনার অর্ডারটি confirm করা হয়েছে।\nআপনার পণ্য ইনশাআল্লাহ {deliveryDays} দিনের মধ্যে পৌঁছে যাবে। 📦\nআমাদের সাথে কেনাকাটার জন্য অনেক ধন্যবাদ! 🙏",
+    statusDelivered: "আলহামদুলিল্লাহ {name}! আপনার পার্সেলটি সফলভাবে ডেলিভারি করা হয়েছে। 📦\nপণ্যটি হাতে পেয়ে কেমন লেগেছে, তা জানাতে ভুলবেন না! 😍\nআমাদের সাথে থাকার জন্য ধন্যবাদ! 🙏",
+    statusCancelled: "দুঃখিত {name}, আপনার অর্ডারটি (Order #{orderNumber}) কোনো কারণবশত cancel করা হয়েছে। 😔\nযদি কোনো প্রশ্ন থাকে, তাহলে দয়া করে আমাদের জানাবেন। 🙏"
   },
   order_collection_style: 'conversational',
   quick_form_prompt: 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:',
   quick_form_error: 'দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা',
   out_of_stock_message: 'দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️',
+  // Business Policies
+  returnPolicy: '',
+  exchangePolicy: '',
+  qualityGuarantee: '',
+  businessCategory: '',
+  businessAddress: '',
+  customFaqs: [],
 };
 
 /**
@@ -128,6 +150,9 @@ function transformFastLaneMessages(dbMessages: any): FastLaneMessages | null {
     urgencyResponse: dbMessages.urgency_response || dbMessages.urgencyResponse,
     objectionResponse: dbMessages.objection_response || dbMessages.objectionResponse,
     sellerInfo: dbMessages.seller_info || dbMessages.sellerInfo,
+    statusConfirmed: dbMessages.status_confirmed || dbMessages.statusConfirmed,
+    statusDelivered: dbMessages.status_delivered || dbMessages.statusDelivered,
+    statusCancelled: dbMessages.status_cancelled || dbMessages.statusCancelled,
   };
 }
 
@@ -182,6 +207,13 @@ export async function loadWorkspaceSettings(
       quick_form_prompt: (settings as any).quick_form_prompt || DEFAULT_SETTINGS.quick_form_prompt,
       quick_form_error: (settings as any).quick_form_error || DEFAULT_SETTINGS.quick_form_error,
       out_of_stock_message: (settings as any).out_of_stock_message || DEFAULT_SETTINGS.out_of_stock_message,
+      // Business Policies
+      returnPolicy: (settings as any).return_policy || DEFAULT_SETTINGS.returnPolicy,
+      exchangePolicy: (settings as any).exchange_policy || DEFAULT_SETTINGS.exchangePolicy,
+      qualityGuarantee: (settings as any).quality_guarantee || DEFAULT_SETTINGS.qualityGuarantee,
+      businessCategory: (settings as any).business_category || DEFAULT_SETTINGS.businessCategory,
+      businessAddress: (settings as any).business_address || DEFAULT_SETTINGS.businessAddress,
+      customFaqs: (settings as any).custom_faqs || DEFAULT_SETTINGS.customFaqs,
     };
   } catch (error) {
     console.error('Error loading workspace settings:', error);

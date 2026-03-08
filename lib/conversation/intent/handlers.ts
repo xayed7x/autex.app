@@ -513,12 +513,11 @@ export function handleDeliveryQuery(ctx: HandlerContext): IntentHandlerResult {
 }
 
 export function handlePaymentQuery(ctx: HandlerContext): IntentHandlerResult {
+  // Let AI Director handle — it has the correct payment methods
+  // injected into its system prompt from workspace settings
   return {
-    handled: true,
-    response: `💳 পেমেন্ট অপশন:\n\n` +
-      `• ক্যাশ অন ডেলিভারি (COD) ✅\n` +
-      `• বিকাশ / নগদ / রকেট\n\n` +
-      `অর্ডার করবেন? 😊`,
+    handled: false,
+    response: '',
     newState: ctx.context.state,
     updatedContext: {},
   };
@@ -589,6 +588,18 @@ export function handleComplaint(ctx: HandlerContext): IntentHandlerResult {
   };
 }
 
+export function handleProductSearch(ctx: HandlerContext): IntentHandlerResult {
+  // PRODUCT_SEARCH must be routed to AI Director for SEARCH_PRODUCTS action
+  // We return handled=false so the orchestrator falls through to AI Director
+  console.log(`🔍 [HANDLER] PRODUCT_SEARCH detected — routing to AI Director (not AI Salesman)`);
+  return {
+    handled: false,
+    response: '',
+    newState: ctx.context.state,
+    updatedContext: {},
+  };
+}
+
 export function handleUnknown(ctx: HandlerContext): IntentHandlerResult {
   return {
     handled: false,
@@ -621,6 +632,7 @@ const handlers: Record<IntentType, (ctx: HandlerContext) => IntentHandlerResult>
   CONFIRM_YES: handleConfirmYes,
   CONFIRM_NO: handleConfirmNo,
   
+  PRODUCT_SEARCH: handleProductSearch, // Route to AI Director for DB search
   PRODUCT_QUERY: handleUnknown, // Let AI Director handle
   PRICE_QUERY: handleLastPriceQuery,
   STOCK_QUERY: handleUnknown, // Let AI Director handle

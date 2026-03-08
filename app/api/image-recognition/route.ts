@@ -6,9 +6,8 @@ import { checkCache, saveToCache } from '@/lib/image-recognition/cache';
 import {
   analyzeImageWithAI,
   findTier3Match,
-  calculateCost,
-  trackAPIUsage,
 } from '@/lib/image-recognition/tier3';
+import { logApiUsage, calculateCostUSD } from '@/lib/ai/usage-tracker';
 import { uploadToCloudinary } from '@/lib/cloudinary/upload';
 
 /**
@@ -76,10 +75,22 @@ export async function POST(request: NextRequest) {
     } else if (imageUrl) {
       // Handle image URL
       publicImageUrl = imageUrl;
-      const response = await fetch(imageUrl);
+      let response;
+      try {
+        response = await fetch(imageUrl, {
+          signal: AbortSignal.timeout(8000) // 8s timeout
+        });
+      } catch (error) {
+        console.error('❌ Failed to fetch image (Network/Timeout error):', error);
+        return NextResponse.json(
+          { success: false, error: 'Failed to fetch image from URL due to network or timeout issues' },
+          { status: 400 }
+        );
+      }
+      
       if (!response.ok) {
         return NextResponse.json(
-          { success: false, error: 'Failed to fetch image from URL' },
+          { success: false, error: `Failed to fetch image from URL (Status: ${response.status})` },
           { status: 400 }
         );
       }
@@ -214,11 +225,24 @@ export async function POST(request: NextRequest) {
       console.log('  AI Analysis:', analysis);
 
       // Calculate cost
-      const cost = calculateCost(usage);
-      console.log(`  Cost: $${cost.toFixed(6)}`);
+      const gptUsage = {
+        promptTokens: usage.prompt_tokens,
+        completionTokens: usage.completion_tokens,
+        totalTokens: usage.total_tokens,
+        cachedPromptTokens: (usage as any).prompt_tokens_details?.cached_tokens,
+      };
+      
+      const costUSD = calculateCostUSD('gpt-4o', gptUsage);
+      console.log(`  Cost: $${costUSD.toFixed(6)}`);
 
       // Track API usage
-      await trackAPIUsage(workspaceId, imageHash, cost);
+      logApiUsage({
+        workspaceId,
+        imageHash,
+        model: 'gpt-4o',
+        featureName: 'image_recognition_tier3',
+        usage: gptUsage
+      });
 
       // Find match based on AI analysis
       const tier3Result = await findTier3Match(analysis, workspaceId);
@@ -247,7 +271,7 @@ export async function POST(request: NextRequest) {
           cost: {
             inputTokens: usage.prompt_tokens,
             outputTokens: usage.completion_tokens,
-            totalCost: cost,
+            totalCost: costUSD,
           },
           processingTime: Date.now() - startTime,
         });
@@ -272,7 +296,7 @@ export async function POST(request: NextRequest) {
         cost: {
           inputTokens: usage.prompt_tokens,
           outputTokens: usage.completion_tokens,
-          totalCost: cost,
+          totalCost: costUSD,
         },
         debug: {
           tier1Distance: tier1Result.distance,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { 
   sendTrialEndingEmail, 
   sendTrialExpiredEmail, 
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * Helper to get owner email from workspace
  */
 async function getOwnerEmail(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   ownerId: string
 ): Promise<string | null> {
   try {

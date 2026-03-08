@@ -18,6 +18,11 @@ export type Database = {
           image_hash: string | null
           workspace_id: string
           conversation_id: string | null
+          model: string | null
+          prompt_tokens: number | null
+          completion_tokens: number | null
+          total_tokens: number | null
+          feature_name: string | null
         }
         Insert: {
           api_type: string
@@ -27,6 +32,11 @@ export type Database = {
           image_hash?: string | null
           workspace_id: string
           conversation_id?: string | null
+          model?: string | null
+          prompt_tokens?: number | null
+          completion_tokens?: number | null
+          total_tokens?: number | null
+          feature_name?: string | null
         }
         Update: {
           api_type?: string
@@ -36,6 +46,11 @@ export type Database = {
           image_hash?: string | null
           workspace_id?: string
           conversation_id?: string | null
+          model?: string | null
+          prompt_tokens?: number | null
+          completion_tokens?: number | null
+          total_tokens?: number | null
+          feature_name?: string | null
         }
         Relationships: [
           {
@@ -59,61 +74,70 @@ export type Database = {
           bot_pause_until: string | null
           control_mode: string | null
           created_at: string | null
-          customer_id: string
+          customer_psid: string
           customer_name: string | null
           customer_profile_pic_url: string | null
-          fb_page_id: string
+          fb_page_id: number
           id: string
           is_test: boolean | null
           last_manual_reply_at: string | null
           last_manual_reply_by: string | null
           last_message_at: string | null
-          state: string | null
+          current_state: string | null
           workspace_id: string
           outcome: string | null
           needs_manual_response: boolean | null
           manual_flag_reason: string | null
           manual_flagged_at: string | null
+          memory_summary: string | null
+          memory_summarized_at: string | null
+          context: Json | null
         }
         Insert: {
           bot_pause_until?: string | null
           control_mode?: string | null
           created_at?: string | null
-          customer_id: string
+          customer_psid: string
           customer_name?: string | null
           customer_profile_pic_url?: string | null
-          fb_page_id: string
+          fb_page_id: number
           id?: string
           is_test?: boolean | null
           last_manual_reply_at?: string | null
           last_manual_reply_by?: string | null
           last_message_at?: string | null
-          state?: string | null
+          current_state?: string | null
           workspace_id: string
           outcome?: string | null
           needs_manual_response?: boolean | null
           manual_flag_reason?: string | null
           manual_flagged_at?: string | null
+          memory_summary?: string | null
+          memory_summarized_at?: string | null
+          context?: Json | null
         }
         Update: {
           bot_pause_until?: string | null
           control_mode?: string | null
           created_at?: string | null
-          customer_id?: string
+          customer_psid?: string
           customer_name?: string | null
           customer_profile_pic_url?: string | null
-          fb_page_id?: string
+          fb_page_id?: number
           id?: string
           is_test?: boolean | null
           last_manual_reply_at?: string | null
           last_manual_reply_by?: string | null
           last_message_at?: string | null
-          state?: string | null
+          current_state?: string | null
           workspace_id?: string
           outcome?: string | null
           needs_manual_response?: boolean | null
           manual_flag_reason?: string | null
           manual_flagged_at?: string | null
+          memory_summary?: string | null
+          memory_summarized_at?: string | null
+          context?: Json | null
         }
         Relationships: [
           {
@@ -134,33 +158,30 @@ export type Database = {
       }
       facebook_pages: {
         Row: {
-          access_token: string
-          bot_enabled: boolean | null
+          bot_enabled: boolean
           created_at: string | null
-          id: string
-          name: string
-          page_id: string
-          status: string | null
+          id: number
+          page_name: string
+          encrypted_access_token: string
+          status: string
           workspace_id: string
         }
         Insert: {
-          access_token: string
-          bot_enabled?: boolean | null
+          bot_enabled?: boolean
           created_at?: string | null
-          id?: string
-          name: string
-          page_id: string
-          status?: string | null
+          id: number
+          page_name: string
+          encrypted_access_token: string
+          status?: string
           workspace_id: string
         }
         Update: {
-          access_token?: string
-          bot_enabled?: boolean | null
+          bot_enabled?: boolean
           created_at?: string | null
-          id?: string
-          name?: string
-          page_id?: string
-          status?: string | null
+          id?: number
+          page_name?: string
+          encrypted_access_token?: string
+          status?: string
           workspace_id?: string
         }
         Relationships: [
@@ -175,32 +196,38 @@ export type Database = {
       }
       image_recognition_cache: {
         Row: {
-          created_at: string | null
           id: string
           image_hash: string
-          recognition_result: Json
-          workspace_id: string
+          ai_response: Json | null
+          matched_product_id: string | null
+          confidence_score: number | null
+          created_at: string | null
+          expires_at: string | null
         }
         Insert: {
-          created_at?: string | null
           id?: string
           image_hash: string
-          recognition_result: Json
-          workspace_id: string
+          ai_response?: Json | null
+          matched_product_id?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          expires_at?: string | null
         }
         Update: {
-          created_at?: string | null
           id?: string
           image_hash?: string
-          recognition_result?: Json
-          workspace_id?: string
+          ai_response?: Json | null
+          matched_product_id?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          expires_at?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "image_recognition_cache_workspace_id_fkey"
-            columns: ["workspace_id"]
+            foreignKeyName: "image_recognition_cache_matched_product_id_fkey"
+            columns: ["matched_product_id"]
             isOneToOne: false
-            referencedRelation: "workspaces"
+            referencedRelation: "products"
             referencedColumns: ["id"]
           }
         ]
@@ -248,40 +275,43 @@ export type Database = {
       }
       order_items: {
         Row: {
-          color: string | null
           created_at: string | null
           id: string
           order_id: string
-          price: number
           product_id: string | null
-          product_image: string | null
+          product_image_url: string | null
           product_name: string
+          product_price: number
           quantity: number
-          size: string | null
+          selected_color: string | null
+          selected_size: string | null
+          subtotal: number
         }
         Insert: {
-          color?: string | null
           created_at?: string | null
           id?: string
           order_id: string
-          price: number
           product_id?: string | null
-          product_image?: string | null
+          product_image_url?: string | null
           product_name: string
+          product_price: number
           quantity: number
-          size?: string | null
+          selected_color?: string | null
+          selected_size?: string | null
+          subtotal: number
         }
         Update: {
-          color?: string | null
           created_at?: string | null
           id?: string
           order_id?: string
-          price?: number
           product_id?: string | null
-          product_image?: string | null
+          product_image_url?: string | null
           product_name?: string
+          product_price?: number
           quantity?: number
-          size?: string | null
+          selected_color?: string | null
+          selected_size?: string | null
+          subtotal?: number
         }
         Relationships: [
           {
@@ -302,70 +332,85 @@ export type Database = {
       }
       orders: {
         Row: {
-          collection_style: string | null
-          conversation_id: string
-          created_at: string | null
-          customer_address: string | null
-          customer_name: string | null
-          customer_phone: string | null
-          fb_page_id: string
           id: string
-          notes: string | null
-          payment_digits: string | null
-          product_color: string | null
-          product_id: string | null
-          product_image: string | null
-          product_name: string
-          product_size: string | null
-          quantity: number
-          status: string
-          total_price: number
-          updated_at: string | null
           workspace_id: string
+          fb_page_id: number
+          customer_name: string
+          customer_phone: string
+          customer_address: string
+          product_details: Json | null
+          status: string | null
+          created_at: string | null
+          product_id: string | null
+          conversation_id: string | null
+          quantity: number | null
+          product_price: number | null
+          delivery_charge: number | null
+          total_amount: number | null
+          payment_status: string | null
+          order_number: string | null
+          updated_at: string | null
+          product_image_url: string | null
+          product_variations: Json | null
+          payment_last_two_digits: string | null
+          is_test: boolean | null
+          selected_size: string | null
+          selected_color: string | null
+          size_stock_id: string | null
         }
         Insert: {
-          collection_style?: string | null
-          conversation_id: string
-          created_at?: string | null
-          customer_address?: string | null
-          customer_name?: string | null
-          customer_phone?: string | null
-          fb_page_id: string
           id?: string
-          notes?: string | null
-          payment_digits?: string | null
-          product_color?: string | null
-          product_id?: string | null
-          product_image?: string | null
-          product_name: string
-          product_size?: string | null
-          quantity: number
-          status?: string
-          total_price: number
-          updated_at?: string | null
           workspace_id: string
+          fb_page_id: number
+          customer_name: string
+          customer_phone: string
+          customer_address: string
+          product_details?: Json | null
+          status?: string | null
+          created_at?: string | null
+          product_id?: string | null
+          conversation_id?: string | null
+          quantity?: number | null
+          product_price?: number | null
+          delivery_charge?: number | null
+          total_amount?: number | null
+          payment_status?: string | null
+          order_number?: string | null
+          updated_at?: string | null
+          product_image_url?: string | null
+          product_variations?: Json | null
+          payment_last_two_digits?: string | null
+          is_test?: boolean | null
+          selected_size?: string | null
+          selected_color?: string | null
+          size_stock_id?: string | null
         }
         Update: {
-          collection_style?: string | null
-          conversation_id?: string
-          created_at?: string | null
-          customer_address?: string | null
-          customer_name?: string | null
-          customer_phone?: string | null
-          fb_page_id?: string
           id?: string
-          notes?: string | null
-          payment_digits?: string | null
-          product_color?: string | null
-          product_id?: string | null
-          product_image?: string | null
-          product_name?: string
-          product_size?: string | null
-          quantity?: number
-          status?: string
-          total_price?: number
-          updated_at?: string | null
           workspace_id?: string
+          fb_page_id?: number
+          customer_name?: string
+          customer_phone?: string
+          customer_address?: string
+          product_details?: Json | null
+          status?: string | null
+          created_at?: string | null
+          product_id?: string | null
+          conversation_id?: string | null
+          quantity?: number | null
+          product_price?: number | null
+          delivery_charge?: number | null
+          total_amount?: number | null
+          payment_status?: string | null
+          order_number?: string | null
+          updated_at?: string | null
+          product_image_url?: string | null
+          product_variations?: Json | null
+          payment_last_two_digits?: string | null
+          is_test?: boolean | null
+          selected_size?: string | null
+          selected_color?: string | null
+          size_stock_id?: string | null
         }
         Relationships: [
           {
@@ -450,28 +495,28 @@ export type Database = {
       }
       pre_registrations: {
         Row: {
-          business_name: string | null
           created_at: string | null
           email: string
           full_name: string
           id: string
-          phone: string
+          phone_number: string | null
+          selected_plan: string
         }
         Insert: {
-          business_name?: string | null
           created_at?: string | null
           email: string
           full_name: string
           id?: string
-          phone: string
+          phone_number?: string | null
+          selected_plan: string
         }
         Update: {
-          business_name?: string | null
           created_at?: string | null
           email?: string
           full_name?: string
           id?: string
-          phone?: string
+          phone_number?: string | null
+          selected_plan?: string
         }
         Relationships: []
       }
@@ -484,8 +529,10 @@ export type Database = {
           image_urls: string[] | null
           name: string
           price: number
+          pricing_policy: Json | null
+          product_attributes: Json | null
           requires_size_selection: boolean | null
-          search_keywords: string | null
+          search_keywords: string[] | null
           size_stock: Json | null
           sizes: string[] | null
           stock_quantity: number | null
@@ -493,6 +540,10 @@ export type Database = {
           variant_stock: Json | null
           variations: Json | null
           workspace_id: string
+          image_hash: string | null
+          dominant_colors: string[] | null
+          visual_features: Json | null
+          image_hashes: string[] | null
         }
         Insert: {
           colors?: string[] | null
@@ -502,8 +553,10 @@ export type Database = {
           image_urls?: string[] | null
           name: string
           price: number
+          pricing_policy?: Json | null
+          product_attributes?: Json | null
           requires_size_selection?: boolean | null
-          search_keywords?: string | null
+          search_keywords?: string[] | null
           size_stock?: Json | null
           sizes?: string[] | null
           stock_quantity?: number | null
@@ -511,6 +564,10 @@ export type Database = {
           variant_stock?: Json | null
           variations?: Json | null
           workspace_id: string
+          image_hash?: string | null
+          dominant_colors?: string[] | null
+          visual_features?: Json | null
+          image_hashes?: string[] | null
         }
         Update: {
           colors?: string[] | null
@@ -520,8 +577,10 @@ export type Database = {
           image_urls?: string[] | null
           name?: string
           price?: number
+          pricing_policy?: Json | null
+          product_attributes?: Json | null
           requires_size_selection?: boolean | null
-          search_keywords?: string | null
+          search_keywords?: string[] | null
           size_stock?: Json | null
           sizes?: string[] | null
           stock_quantity?: number | null
@@ -529,6 +588,10 @@ export type Database = {
           variant_stock?: Json | null
           variations?: Json | null
           workspace_id?: string
+          image_hash?: string | null
+          dominant_colors?: string[] | null
+          visual_features?: Json | null
+          image_hashes?: string[] | null
         }
         Relationships: [
           {
@@ -543,90 +606,106 @@ export type Database = {
       profiles: {
         Row: {
           business_name: string | null
-          created_at: string | null
+          created_at: string
           id: string
           phone: string | null
-          updated_at: string | null
+          updated_at: string
         }
         Insert: {
           business_name?: string | null
-          created_at?: string | null
+          created_at?: string
           id: string
           phone?: string | null
-          updated_at?: string | null
+          updated_at?: string
         }
         Update: {
           business_name?: string | null
-          created_at?: string | null
+          created_at?: string
           id?: string
           phone?: string | null
-          updated_at?: string | null
+          updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       users: {
         Row: {
-          created_at: string | null
-          email: string
+          avatar_url: string | null
+          full_name: string | null
           id: string
-          password_hash: string
+          updated_at: string | null
         }
         Insert: {
-          created_at?: string | null
-          email: string
-          id?: string
-          password_hash: string
+          avatar_url?: string | null
+          full_name?: string | null
+          id: string
+          updated_at?: string | null
         }
         Update: {
-          created_at?: string | null
-          email?: string
+          avatar_url?: string | null
+          full_name?: string | null
           id?: string
-          password_hash?: string
+          updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "users_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       webhook_events: {
         Row: {
           created_at: string | null
+          event_id: string
           event_type: string
           id: string
           payload: Json
-          processed: boolean | null
+          processed_at: string | null
         }
         Insert: {
           created_at?: string | null
+          event_id: string
           event_type: string
           id?: string
           payload: Json
-          processed?: boolean | null
+          processed_at?: string | null
         }
         Update: {
           created_at?: string | null
+          event_id?: string
           event_type?: string
           id?: string
           payload?: Json
-          processed?: boolean | null
+          processed_at?: string | null
         }
         Relationships: []
       }
       workspace_members: {
         Row: {
           created_at: string | null
-          id: string
           role: string
           user_id: string
           workspace_id: string
         }
         Insert: {
           created_at?: string | null
-          id?: string
           role?: string
           user_id: string
           workspace_id: string
         }
         Update: {
           created_at?: string | null
-          id?: string
           role?: string
           user_id?: string
           workspace_id?: string
@@ -650,40 +729,106 @@ export type Database = {
       }
       workspace_settings: {
         Row: {
-          ai_context: string | null
-          ai_greeting: string | null
-          ai_personality: string | null
-          created_at: string | null
           id: string
-          out_of_stock_message: string | null
-          updated_at: string | null
           workspace_id: string
+          business_name: string | null
+          greeting_message: string | null
+          conversation_tone: string | null
+          bengali_percent: number | null
+          use_emojis: boolean | null
+          confidence_threshold: number | null
+          show_image_confirmation: boolean | null
+          delivery_charge_inside_dhaka: number | null
+          delivery_charge_outside_dhaka: number | null
+          delivery_time: string | null
+          auto_mention_delivery: boolean | null
+          payment_methods: Json | null
+          payment_message: string | null
+          behavior_rules: Json | null
+          advanced_config: Json | null
+          created_at: string | null
+          updated_at: string | null
+          fast_lane_messages: Json | null
+          order_collection_style: string
+          quick_form_prompt: string
+          quick_form_error: string
+          out_of_stock_message: string | null
+          return_policy: string | null
+          quality_guarantee: string | null
+          business_category: string | null
+          business_address: string | null
+          exchange_policy: string | null
+          custom_faqs: Json | null
         }
         Insert: {
-          ai_context?: string | null
-          ai_greeting?: string | null
-          ai_personality?: string | null
-          created_at?: string | null
           id?: string
-          out_of_stock_message?: string | null
-          updated_at?: string | null
           workspace_id: string
+          business_name?: string | null
+          greeting_message?: string | null
+          conversation_tone?: string | null
+          bengali_percent?: number | null
+          use_emojis?: boolean | null
+          confidence_threshold?: number | null
+          show_image_confirmation?: boolean | null
+          delivery_charge_inside_dhaka?: number | null
+          delivery_charge_outside_dhaka?: number | null
+          delivery_time?: string | null
+          auto_mention_delivery?: boolean | null
+          payment_methods?: Json | null
+          payment_message?: string | null
+          behavior_rules?: Json | null
+          advanced_config?: Json | null
+          created_at?: string | null
+          updated_at?: string | null
+          fast_lane_messages?: Json | null
+          order_collection_style: string
+          quick_form_prompt: string
+          quick_form_error: string
+          out_of_stock_message?: string | null
+          return_policy?: string | null
+          quality_guarantee?: string | null
+          business_category?: string | null
+          business_address?: string | null
+          exchange_policy?: string | null
+          custom_faqs?: Json | null
         }
         Update: {
-          ai_context?: string | null
-          ai_greeting?: string | null
-          ai_personality?: string | null
-          created_at?: string | null
           id?: string
-          out_of_stock_message?: string | null
-          updated_at?: string | null
           workspace_id?: string
+          business_name?: string | null
+          greeting_message?: string | null
+          conversation_tone?: string | null
+          bengali_percent?: number | null
+          use_emojis?: boolean | null
+          confidence_threshold?: number | null
+          show_image_confirmation?: boolean | null
+          delivery_charge_inside_dhaka?: number | null
+          delivery_charge_outside_dhaka?: number | null
+          delivery_time?: string | null
+          auto_mention_delivery?: boolean | null
+          payment_methods?: Json | null
+          payment_message?: string | null
+          behavior_rules?: Json | null
+          advanced_config?: Json | null
+          created_at?: string | null
+          updated_at?: string | null
+          fast_lane_messages?: Json | null
+          order_collection_style?: string
+          quick_form_prompt?: string
+          quick_form_error?: string
+          out_of_stock_message?: string | null
+          return_policy?: string | null
+          quality_guarantee?: string | null
+          business_category?: string | null
+          business_address?: string | null
+          exchange_policy?: string | null
+          custom_faqs?: Json | null
         }
         Relationships: [
           {
             foreignKeyName: "workspace_settings_workspace_id_fkey"
             columns: ["workspace_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           }

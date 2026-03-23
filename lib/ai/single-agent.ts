@@ -425,6 +425,12 @@ function buildOrderCollectionInstruction(
 
   // === SHARED ORDER SUMMARY + POST-ORDER RULES ===
   const orderSummaryRule = `
+**PRE-ORDER CART CHECK (CRITICAL):**
+Before you begin the ORDER COLLECTION flow below, you MUST look at the CURRENT CART STATE.
+- If the cart is empty (0 items) AND the customer wants to order the product you were just discussing (e.g., from an image match, search result, or context), you MUST call the \`add_to_cart\` tool to add that product to the cart FIRST.
+- After the \`add_to_cart\` tool succeeds, THEN you can proceed to ask for their details as instructed below.
+- Do NOT ask for their address/info if their cart is empty.
+
 **MANDATORY ORDER SUMMARY BEFORE SAVE:**
 After collecting ALL customer info (name, phone, address, and size/color/quantity if applicable), you MUST show this exact summary format using real data from the cart and checkout context:
 

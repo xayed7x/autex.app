@@ -29,6 +29,13 @@ export interface FastLaneMessages {
   statusCancelled: string;
 }
 
+export interface ConversationExample {
+  id: string;
+  customer: string;
+  agent: string;
+  scenario?: 'negotiation' | 'greeting' | 'complaint' | 'product_inquiry' | 'out_of_stock';
+}
+
 export interface WorkspaceSettings {
   businessName: string;
   greeting: string;
@@ -66,6 +73,7 @@ export interface WorkspaceSettings {
   businessCategory: string;
   businessAddress: string;
   customFaqs: Array<{ question: string; answer: string }>;
+  conversationExamples: ConversationExample[];
 }
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -126,6 +134,7 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
   businessCategory: '',
   businessAddress: '',
   customFaqs: [],
+  conversationExamples: [],
 };
 
 /**
@@ -214,6 +223,7 @@ export async function loadWorkspaceSettings(
       businessCategory: (settings as any).business_category || DEFAULT_SETTINGS.businessCategory,
       businessAddress: (settings as any).business_address || DEFAULT_SETTINGS.businessAddress,
       customFaqs: (settings as any).custom_faqs || DEFAULT_SETTINGS.customFaqs,
+      conversationExamples: (settings as any).conversation_examples || DEFAULT_SETTINGS.conversationExamples,
     };
   } catch (error) {
     console.error('Error loading workspace settings:', error);

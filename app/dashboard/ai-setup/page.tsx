@@ -117,6 +117,20 @@ export default function AISetupPage() {
   const [quickFormError, setQuickFormError] = useState('দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা')
   const [outOfStockMessage, setOutOfStockMessage] = useState('দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️')
 
+  // Conversation Examples (Few-Shot)
+  const [conversationExamples, setConversationExamples] = useState<Array<{
+    id: string;
+    customer: string;
+    agent: string;
+    scenario?: 'negotiation' | 'greeting' | 'complaint' | 'product_inquiry' | 'out_of_stock' | string;
+  }>>([])
+  
+  // Example Add Form
+  const [showAddExample, setShowAddExample] = useState(false)
+  const [newExampleCustomer, setNewExampleCustomer] = useState('')
+  const [newExampleAgent, setNewExampleAgent] = useState('')
+  const [newExampleScenario, setNewExampleScenario] = useState('greeting')
+
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   // Business Policies
@@ -184,7 +198,6 @@ export default function AISetupPage() {
           setQuickFormPrompt(s.quick_form_prompt || quickFormPrompt)
           setQuickFormError(s.quick_form_error || quickFormError)
           setOutOfStockMessage(s.out_of_stock_message || outOfStockMessage)
-
           // Business Policies
           setReturnPolicy(s.return_policy || '')
           setExchangePolicy(s.exchange_policy || '')
@@ -192,6 +205,10 @@ export default function AISetupPage() {
           setBusinessCategory(s.business_category || '')
           setBusinessAddress(s.business_address || '')
           setCustomFaqs(s.custom_faqs || [])
+          
+          if (s.conversation_examples) {
+            setConversationExamples(s.conversation_examples)
+          }
         }
       } catch (error) {
         console.error("Error fetching settings:", error)
@@ -246,6 +263,7 @@ export default function AISetupPage() {
         businessCategory,
         businessAddress,
         customFaqs,
+        conversationExamples,
       }
 
       const response = await fetch('/api/settings/ai', {
@@ -853,6 +871,149 @@ export default function AISetupPage() {
                      <p className="text-xs text-zinc-400">Sent when marked as Cancelled. Use {"{name}"} and {"{orderNumber}"} placeholders.</p>
                    </div>
                  </div>
+               </div>
+             </SmartCard>
+           </div>
+           
+           {/* Conversation Examples Card */}
+           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
+             <SmartCard variant="static" className="p-6 md:p-8 space-y-8">
+               <div className="flex items-center gap-3 mb-6">
+                 <div className="h-10 w-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center">
+                   <MessageSquare className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                 </div>
+                 <div>
+                   <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Conversation Examples (AI Training)</h3>
+                   <p className="text-sm text-zinc-500 dark:text-zinc-400">এই examples দেখে AI আপনার business এর style শিখবে। ৫-১০টা example দিলে সবচেয়ে ভালো কাজ করে।</p>
+                 </div>
+               </div>
+
+               <div className="space-y-6">
+                  {conversationExamples.length > 0 ? (
+                    <div className="space-y-4">
+                      {conversationExamples.map((ex) => (
+                        <div key={ex.id} className="p-4 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50/50 dark:bg-white/5 space-y-3 relative group">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                            onClick={() => setConversationExamples(prev => prev.filter(e => e.id !== ex.id))}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                          </Button>
+                          
+                          {ex.scenario && (
+                            <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-semibold mb-2 bg-white dark:bg-black">
+                              {ex.scenario.replace('_', ' ')}
+                            </Badge>
+                          )}
+                          
+                          <div className="space-y-1">
+                            <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">Customer said:</span>
+                            <div className="text-sm text-zinc-900 dark:text-zinc-100 bg-white dark:bg-black/40 p-3 rounded-lg border border-zinc-100 dark:border-white/5">{ex.customer}</div>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">Agent should say:</span>
+                            <div className="text-sm text-zinc-900 dark:text-zinc-100 bg-orange-50 dark:bg-orange-500/10 p-3 rounded-lg border border-orange-100 dark:border-orange-500/20">{ex.agent}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 px-4 border-2 border-dashed border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50/50 dark:bg-white/5">
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">No examples added yet. Add examples to train the AI's interaction style.</p>
+                    </div>
+                  )}
+
+                  {!showAddExample ? (
+                    <Button 
+                      variant="outline" 
+                      className="w-full border-dashed border-2 hover:bg-zinc-50 dark:hover:bg-white/5"
+                      onClick={() => setShowAddExample(true)}
+                    >
+                      <Plus className="mr-2 h-4 w-4" /> Add Example
+                    </Button>
+                  ) : (
+                    <div className="p-5 rounded-xl border-2 border-orange-200 dark:border-orange-500/30 bg-orange-50/50 dark:bg-orange-500/5 space-y-4 relative">
+                      <h4 className="font-semibold text-sm">Add New Example</h4>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs">Scenario (Optional)</Label>
+                        <select 
+                          className="flex h-9 w-full items-center justify-between rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm shadow-sm ring-offset-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950 dark:ring-offset-zinc-950 dark:placeholder:text-zinc-400 dark:focus:ring-zinc-300"
+                          value={newExampleScenario}
+                          onChange={(e) => setNewExampleScenario(e.target.value)}
+                        >
+                          <option value="greeting">Greeting / First Message</option>
+                          <option value="negotiation">Price Negotiation</option>
+                          <option value="product_inquiry">Product Details Inquiry</option>
+                          <option value="complaint">Complaint / Issue</option>
+                          <option value="out_of_stock">Out of Stock Handling</option>
+                          <option value="other">Other scenario</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs">Customer said:</Label>
+                        <Textarea 
+                          value={newExampleCustomer}
+                          onChange={(e) => setNewExampleCustomer(e.target.value)}
+                          placeholder="e.g. ভাই এই শার্টের দাম কমানো যাবে?"
+                          className="resize-none"
+                          rows={2}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs">Agent should say:</Label>
+                        <Textarea 
+                          value={newExampleAgent}
+                          onChange={(e) => setNewExampleAgent(e.target.value)}
+                          placeholder="e.g. আপু, এই শার্টটা আসলেই অনেক premium quality! তবে আপনার জন্য ৳50 ছাড় দিতে পারি 😊"
+                          className="resize-none"
+                          rows={3}
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => {
+                            setShowAddExample(false);
+                            setNewExampleCustomer('');
+                            setNewExampleAgent('');
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          size="sm"
+                          className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                          onClick={() => {
+                            if (!newExampleCustomer.trim() || !newExampleAgent.trim()) {
+                              toast.error('Both customer and agent messages are required');
+                              return;
+                            }
+                            const newEx = {
+                              id: crypto.randomUUID(),
+                              customer: newExampleCustomer,
+                              agent: newExampleAgent,
+                              scenario: newExampleScenario
+                            };
+                            setConversationExamples([...conversationExamples, newEx]);
+                            setShowAddExample(false);
+                            setNewExampleCustomer('');
+                            setNewExampleAgent('');
+                            toast.success('Example added');
+                          }}
+                        >
+                          Save Example
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                </div>
              </SmartCard>
            </div>

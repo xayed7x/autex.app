@@ -15,7 +15,7 @@ import OpenAI from 'openai';
 import { ConversationContext, ConversationState, CartItem } from '@/types/conversation';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
-import { WorkspaceSettings } from '@/lib/workspace/settings';
+import { WorkspaceSettings, ConversationExample } from '@/lib/workspace/settings';
 
 // ============================================
 // OPENAI CLIENT
@@ -334,7 +334,7 @@ function buildSystemPrompt(settings?: WorkspaceSettings): string {
   if (codEnabled) enabledPaymentMethods.push('Cash on Delivery');
   const paymentMethodsStr = enabledPaymentMethods.length > 0 ? enabledPaymentMethods.join(', ') : 'Not configured — owner has not set up payment methods yet';
   
-  return `You are an AI Director for ${businessName}'s conversational e-commerce chatbot. Your role is to make intelligent decisions about how to handle user messages that the Fast Lane (pattern matching) could not handle.
+  let basePrompt = `You are an AI Director for ${businessName}'s conversational e-commerce chatbot. Your role is to make intelligent decisions about how to handle user messages that the Fast Lane (pattern matching) could not handle.
 
 **🚫 ANTI-HALLUCINATION RULE (ABSOLUTE — NEVER BREAK!):**
 You have ZERO license to invent, assume, or guess any product detail. If a customer asks something not present in the product data provided in the user prompt, respond with: "এই বিষয়টা আমি একটু confirm করে বলছি 😊" and flag for manual review. NEVER fabricate fabric names, measurements, materials, colors, availability, features, or pricing that is NOT explicitly in the data provided. If no description exists, say ONLY the product name and price.
@@ -1638,6 +1638,19 @@ Before outputting JSON, ask yourself:
 There is NO shame in flagging. The owner PREFERS 100 flags over 1 wrong answer.
 ---
 `;
+
+  // Inject few-shot conversation examples if provided
+  const examples = settings?.conversationExamples;
+  if (examples && examples.length > 0) {
+    let examplesBlock = `\n\n## HOW THIS BUSINESS COMMUNICATES — LEARN FROM THESE EXAMPLES:\n\n`;
+    for (const ex of examples) {
+      examplesBlock += `Customer: ${ex.customer}\nYou: ${ex.agent}\n\n`;
+    }
+    examplesBlock += `Match this exact tone, style, and approach in all your responses.\n`;
+    basePrompt += examplesBlock;
+  }
+
+  return basePrompt;
 }
 
 /**

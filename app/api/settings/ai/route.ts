@@ -96,6 +96,7 @@ export async function POST(request: Request) {
       business_address: body.businessAddress,
       exchange_policy: body.exchangePolicy,
       custom_faqs: body.customFaqs,
+      conversation_examples: body.conversationExamples || [],
       updated_at: new Date().toISOString()
     }
 

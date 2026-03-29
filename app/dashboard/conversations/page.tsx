@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
-import { Search, Send, ArrowLeft, ExternalLink } from "lucide-react"
+import { Search, Send, ArrowLeft, ExternalLink, Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-provider"
@@ -154,6 +154,8 @@ export default function ConversationsPage() {
   const [changingState, setChangingState] = useState(false) // Loading state for state change
   const [resetDialogOpen, setResetDialogOpen] = useState(false) // Confirmation dialog for IDLE reset
   const [pendingState, setPendingState] = useState<string | null>(null) // State waiting for confirmation
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // Needs Reply filter state
@@ -354,6 +356,33 @@ export default function ConversationsPage() {
       console.error("Error fetching conversation detail:", error)
     } finally {
       if (!silent) setDetailLoading(false)
+    }
+  }
+
+  const handleDeleteConversation = async () => {
+    if (!selectedConversation) return
+    
+    setDeleting(true)
+    try {
+      const response = await fetch(`/api/conversations/${selectedConversation.id}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to delete conversation')
+      }
+
+      toast.success('Conversation deleted')
+      setSelectedConversation(null)
+      setMobileView('list')
+      setDeleteDialogOpen(false)
+      fetchConversations()
+    } catch (error: any) {
+      console.error('Error deleting conversation:', error)
+      toast.error(error.message || 'Failed to delete conversation')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -833,6 +862,35 @@ export default function ConversationsPage() {
                     View Order
                   </Button>
                 )}
+                <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors h-8 w-8"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    title="Delete conversation"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete the conversation with <strong>{selectedConversation.customer_name}</strong> and all its messages. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+                      <AlertDialogAction 
+                        onClick={handleDeleteConversation}
+                        disabled={deleting}
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        {deleting ? 'Deleting...' : 'Delete'}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
 
               {/* Manual Flag Banner */}

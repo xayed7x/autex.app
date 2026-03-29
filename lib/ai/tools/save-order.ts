@@ -379,7 +379,7 @@ async function verifyStock(
   for (const item of cart) {
     const { data: product } = await supabase
       .from('products')
-      .select('stock_quantity, name, variant_stock, size_stock')
+      .select('stock_quantity, name, variant_stock, size_stock, sizes, colors')
       .eq('id', item.productId)
       .single();
 
@@ -391,64 +391,112 @@ async function verifyStock(
     const reqSize = itemAny.selectedSize || itemAny.variations?.size;
     const reqColor = itemAny.selectedColor || itemAny.variations?.color;
 
-    if (reqSize && reqColor && product.variant_stock) {
+    // Determine what this product actually supports based on DB
+    const hasVariantStock = product.variant_stock && 
+      (Array.isArray(product.variant_stock) 
+        ? product.variant_stock.length > 0 
+        : Object.keys(product.variant_stock).length > 0);
+    
+    const hasSizeStock = product.size_stock && 
+      (Array.isArray(product.size_stock) 
+        ? product.size_stock.length > 0 
+        : Object.keys(product.size_stock).length > 0);
+
+    const productHasColors = product.colors && 
+      Array.isArray(product.colors) && 
+      product.colors.length > 0;
+
+    const productHasSizes = product.sizes && 
+      Array.isArray(product.sizes) && 
+      product.sizes.length > 0;
+
+    // PATH 1: Product has both size and color in DB
+    if (productHasColors && productHasSizes && hasVariantStock && reqSize && reqColor) {
       let exactQuantity = 0;
       let availableCombos: string[] = [];
-      const vsList = Array.isArray(product.variant_stock) ? product.variant_stock : [];
+      const vsList = Array.isArray(product.variant_stock) 
+        ? product.variant_stock 
+        : [];
 
       if (vsList.length > 0) {
-         const exactMatch = vsList.find((v: any) => v.size?.toUpperCase() === reqSize.toUpperCase() && v.color?.toLowerCase() === reqColor.toLowerCase());
-         exactQuantity = exactMatch ? (exactMatch.quantity || 0) : 0;
-         availableCombos = vsList.filter((v: any) => (v.quantity || 0) > 0).map((v: any) => `${v.size} (${v.color})`);
+        const exactMatch = vsList.find((v: any) => 
+          v.size?.toUpperCase() === reqSize.toUpperCase() && 
+          v.color?.toLowerCase() === reqColor.toLowerCase()
+        );
+        exactQuantity = exactMatch ? (exactMatch.quantity || 0) : 0;
+        availableCombos = vsList
+          .filter((v: any) => (v.quantity || 0) > 0)
+          .map((v: any) => `${v.size} (${v.color})`);
       } else if (typeof product.variant_stock === 'object') {
-         const exactKey = `${reqSize}_${reqColor}`;
-         const keyMatch = Object.keys(product.variant_stock).find(k => k.toUpperCase() === exactKey.toUpperCase());
-         if (keyMatch) exactQuantity = Number((product.variant_stock as any)[keyMatch]) || 0;
-
-         Object.entries(product.variant_stock).forEach(([k, v]) => {
-            if (Number(v) > 0) availableCombos.push(k.replace('_', ' (').concat(')'));
-         });
+        const exactKey = `${reqSize}_${reqColor}`;
+        const keyMatch = Object.keys(product.variant_stock)
+          .find(k => k.toUpperCase() === exactKey.toUpperCase());
+        if (keyMatch) exactQuantity = Number((product.variant_stock as any)[keyMatch]) || 0;
+        Object.entries(product.variant_stock).forEach(([k, v]) => {
+          if (Number(v) > 0) availableCombos.push(k.replace('_', ' (').concat(')'));
+        });
       }
 
-      console.log(`\n🔍 [STOCK CHECK]\nRequested: Size ${reqSize} | Color ${reqColor} | Quantity: ${item.quantity}\nvariant_stock: ${JSON.stringify(product.variant_stock)}\nMatch: {"size":"${reqSize}","color":"${reqColor}","quantity":${exactQuantity}}\nResult: ${exactQuantity < item.quantity ? 'BLOCKED ❌' : 'PASSED ✅'}\n`);
+      console.log(`\n🔍 [STOCK CHECK - PATH 1: Size+Color]\nProduct: ${product.name}\nRequested: Size ${reqSize} | Color ${reqColor} | Qty: ${item.quantity}\nAvailable: ${exactQuantity}\nResult: ${exactQuantity < item.quantity ? 'BLOCKED ❌' : 'PASSED ✅'}\n`);
 
       if (exactQuantity < item.quantity) {
         if (exactQuantity === 0) {
-            return `দুঃখিত, ${reqSize} সাইজে ${reqColor} কালার এখন স্টকে নেই। পাওয়া যাচ্ছে: ${availableCombos.join(', ')}`;
+          return `দুঃখিত, ${reqSize} সাইজে ${reqColor} কালার এখন স্টকে নেই। পাওয়া যাচ্ছে: ${availableCombos.join(', ')}`;
         }
         return `দুঃখিত, ${reqSize} সাইজে ${reqColor} কালার মাত্র ${exactQuantity}টি আছে। আপনি সর্বোচ্চ ${exactQuantity}টি অর্ডার করতে পারবেন।`;
       }
-    } else if (reqSize && product.size_stock) {
+
+    // PATH 2: Product has only size (no color) in DB
+    } else if (productHasSizes && !productHasColors && reqSize) {
       let exactQuantity = 0;
       let availableCombos: string[] = [];
-      const ssList = Array.isArray(product.size_stock) ? product.size_stock : [];
-      
-      if (ssList.length > 0) {
-         const exactMatch = ssList.find((s: any) => s.size?.toUpperCase() === reqSize.toUpperCase());
-         exactQuantity = exactMatch ? (exactMatch.quantity || 0) : 0;
-         availableCombos = ssList.filter((s: any) => (s.quantity || 0) > 0).map((s: any) => s.size);
-      } else if (typeof product.size_stock === 'object') {
-         const keyMatch = Object.keys(product.size_stock).find(k => k.toUpperCase() === reqSize.toUpperCase());
-         if (keyMatch) exactQuantity = Number((product.size_stock as any)[keyMatch]) || 0;
-         
-         Object.entries(product.size_stock).forEach(([k, v]) => {
+
+      if (hasSizeStock) {
+        const ssList = Array.isArray(product.size_stock) 
+          ? product.size_stock 
+          : [];
+
+        if (ssList.length > 0) {
+          const exactMatch = ssList.find((s: any) => 
+            s.size?.toUpperCase() === reqSize.toUpperCase()
+          );
+          exactQuantity = exactMatch ? (exactMatch.quantity || 0) : 0;
+          availableCombos = ssList
+            .filter((s: any) => (s.quantity || 0) > 0)
+            .map((s: any) => s.size);
+        } else if (typeof product.size_stock === 'object') {
+          const keyMatch = Object.keys(product.size_stock)
+            .find(k => k.toUpperCase() === reqSize.toUpperCase());
+          if (keyMatch) exactQuantity = Number((product.size_stock as any)[keyMatch]) || 0;
+          Object.entries(product.size_stock).forEach(([k, v]) => {
             if (Number(v) > 0) availableCombos.push(k);
-         });
+          });
+        }
+      } else {
+        // Fallback to stock_quantity if no size_stock
+        exactQuantity = product.stock_quantity ?? 0;
       }
-      
-      console.log(`\n🔍 [STOCK CHECK]\nRequested: Size ${reqSize}\nsize_stock: ${JSON.stringify(product.size_stock)}\nMatch: {"size":"${reqSize}","quantity":${exactQuantity}}\nResult: ${exactQuantity < item.quantity ? 'BLOCKED ❌' : 'PASSED ✅'}\n`);
-      
+
+      console.log(`\n🔍 [STOCK CHECK - PATH 2: Size only]\nProduct: ${product.name}\nRequested: Size ${reqSize} | Qty: ${item.quantity}\nAvailable: ${exactQuantity}\nResult: ${exactQuantity < item.quantity ? 'BLOCKED ❌' : 'PASSED ✅'}\n`);
+
       if (exactQuantity < item.quantity) {
-        return `দুঃখিত, ${reqSize} সাইজটি এখন স্টকে নেই। পাওয়া যাচ্ছে: ${availableCombos.join(', ')}`;
+        if (exactQuantity === 0) {
+          return `দুঃখিত, ${reqSize} সাইজটি এখন স্টকে নেই। পাওয়া যাচ্ছে: ${availableCombos.join(', ')}`;
+        }
+        return `দুঃখিত, ${reqSize} সাইজে মাত্র ${exactQuantity}টি আছে। আপনি সর্বোচ্চ ${exactQuantity}টি অর্ডার করতে পারবেন।`;
       }
+
+    // PATH 3: Product has no size, no color — simple quantity check
     } else {
       const available = product.stock_quantity ?? 0;
+      
+      console.log(`\n🔍 [STOCK CHECK - PATH 3: Quantity only]\nProduct: ${product.name}\nRequested Qty: ${item.quantity}\nAvailable: ${available}\nResult: ${available < item.quantity ? 'BLOCKED ❌' : 'PASSED ✅'}\n`);
+
       if (available < item.quantity) {
-        return `"${product.name}" has only ${available} in stock, but ${item.quantity} requested.`;
+        return `দুঃখিত, "${product.name}" এ মাত্র ${available}টি আছে। আপনি সর্বোচ্চ ${available}টি অর্ডার করতে পারবেন।`;
       }
     }
   }
-
   return null;
 }
 

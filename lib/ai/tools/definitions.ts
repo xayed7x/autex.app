@@ -70,6 +70,10 @@ const addToCart: ChatCompletionTool = {
           type: 'string',
           description: 'Selected color (e.g., "Red", "Blue"). Only if customer specified.',
         },
+        negotiatedPrice: {
+          type: 'number',
+          description: 'If a price was negotiated and customer agreed, pass the final agreed price here. This overrides the listed price.',
+        },
       },
       required: ['productId'],
     },

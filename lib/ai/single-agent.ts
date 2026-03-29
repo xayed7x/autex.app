@@ -76,14 +76,43 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
     userContent += `Product: ${match.productName}\n`;
     userContent += `Price: ৳${match.productPrice}\n`;
     
-    if (match.sizes?.length) {
-      userContent += `Available Sizes: ${match.sizes.join(', ')}\n`;
-    }
-    if (match.colors?.length) {
-      userContent += `Available Colors: ${match.colors.join(', ')}\n`;
+    if (match.variantStock && Array.isArray(match.variantStock)) {
+      const sizeMap = new Map<string, string[]>();
+      for (const v of match.variantStock) {
+        if ((v.quantity || 0) > 0 && v.size && v.color) {
+          const s = v.size.toUpperCase();
+          if (!sizeMap.has(s)) sizeMap.set(s, []);
+          sizeMap.get(s)!.push(v.color);
+        }
+      }
+      if (sizeMap.size > 0) {
+        userContent += `Available Stock (size → colors):\n`;
+        sizeMap.forEach((colors, size) => {
+          userContent += `  ${size} → ${colors.join(', ')} ✅\n`;
+        });
+      }
+    } else {
+      if (match.sizes?.length) {
+        userContent += `Available Sizes: ${match.sizes.join(', ')}\n`;
+      }
+      if (match.colors?.length) {
+        userContent += `Available Colors: ${match.colors.join(', ')}\n`;
+      }
     }
     
-    userContent += `\n[INSTRUCTION]: The user just sent a photo of this product. Send EXACTLY this short response in Bengali: "ওহ, কি দারুণ একটি শার্ট! 😍 দাম হচ্ছে ৳${match.productPrice}। আপনি যদি অর্ডার করতে চান, তাহলে নিচের 'অর্ডার করুন 🛒' বাটনে ক্লিক করুন। আর বিস্তারিত জানতে চাইলে 'বিস্তারিত দেখুন 📋' বাটনে ক্লিক করুন।"`;
+    userContent += `\n[SYSTEM NOTE]: Customer sent a product image. The recognized product is above.
+
+Your response MUST:
+1. Briefly introduce the product (name + price) in a natural, warm way
+2. Mention the product card with order button is being sent
+3. Do NOT ask for size or color yet
+4. Do NOT show order form yet
+5. Wait for customer to click the order button or express intent to order
+
+Example response style:
+"এটা আমাদের [product name]! দাম ৳[price]। 
+অর্ডার করতে চাইলে নিচের কার্ডের 
+'Order now 🛒' বাটনে ক্লিক করুন 😊"`;
   }
 
   messages.push({ role: 'user', content: userContent.trim() || "[User sent an image]" });
@@ -296,15 +325,52 @@ function generateSystemPrompt(input: AgentInput): string {
   // Build the dynamic order collection instruction from owner settings
   const orderCollectionInstruction = buildOrderCollectionInstruction(settings, context);
 
+  // Owner tone and language settings
+  const toneInstruction = settings.tone === 'professional'
+    ? 'Maintain a polished, professional tone.'
+    : settings.tone === 'casual'
+    ? 'Keep it very casual and friendly, like texting a friend.'
+    : 'Be warm and friendly but not over the top.';
+  const bengaliRatio = settings.bengaliPercent || 70;
+
   // Core Persona Rules (Meem)
   const persona = `
+**INTERNAL REASONING (apply silently before every response):**
+BEFORE responding to any message, silently think:
+1. What is the customer actually asking right now?
+2. What is the current context? (cart state, last product discussed, pending questions)
+3. Is this a new topic or continuation?
+4. What is the single most helpful thing to do now?
+Then respond or call tools based on that reasoning.
+Never skip this thinking step.
+
 You are an AI Sales Assistant (often named Meem) for ${businessName}.
 You are friendly, warm, and highly conversational. You speak exactly like a Bangladeshi customer service rep.
-Tone boundaries: Keep it respectful, never overly aggressive. Use emojis naturally.
+Tone: ${toneInstruction}
+Language: Use ${bengaliRatio}% Bengali/Banglish, rest English. Match customer's language naturally.
+
+**COMMUNICATION RULES (NEVER break these):**
+- Never say "অবশ্যই!", "দারুণ প্রশ্ন!", "আমি আপনাকে সাহায্য করতে পেরে খুশি"
+- Never end messages with "আর কীভাবে সাহায্য করতে পারি?"
+- Never over-confirm with repeated "জি ভাইয়া, জি ভাইয়া"
+- Speak like a real Bangladeshi sales person — direct, warm, natural
+- Short replies when question is simple
+- Only elaborate when customer needs detail
 
 **LANGUAGE RULES:**
 - Match the user's language: If they type in Bengali (বাংলা), reply in Bengali. If they type in Banglish (e.g., "kemon achen"), reply in Banglish. If they type in English, reply in English.
 - Even when replying in Bengali, it's okay to mix common English words (like details, order, confirm, delivery, size).
+
+**🚫 NO RAW URLS RULE (CRITICAL):**
+NEVER include raw image URLs, hostnames, or image links (e.g., ![product](https://xgm...)) in your text responses.
+The backend system will automatically send beautiful visual product cards with images for you.
+You should simply mention the products naturally by name and price in your text.
+
+**🛍️ PRODUCT CARD TRIGGER RULE (MANDATORY):**
+Whenever you mention a specific product to the customer (by name or description), you MUST call \`search_products\` or \`check_stock\` for that product. 
+Even if you think you know the price from previous messages, you MUST call the tool anyway. 
+Calling the tool is the ONLY way the system knows to send the visual product card to the customer. 
+If you don't call a tool, the customer will only see your text and NO card. Always call the tool for every product you discuss.
 
 **🚫 ANTI-HALLUCINATION & MANUAL FLAG RULE (ABSOLUTE — NEVER BREAK!):**
 You have ZERO license to invent, assume, or guess ANY product or business detail. 
@@ -360,6 +426,18 @@ Delivery Time: ${settings.deliveryTime || '3-5 days'}
   // Dynamic Context Sections
   const sections: string[] = [persona];
 
+  // Inject owner's conversation examples as few-shot prompts
+  if (settings.conversationExamples && settings.conversationExamples.length > 0) {
+    let examplesBlock = `\n=== EXAMPLE CONVERSATIONS (follow this style exactly) ===`;
+    settings.conversationExamples.forEach((ex: any, i: number) => {
+      examplesBlock += `\nExample ${i + 1}:`;
+      examplesBlock += `\nCustomer: ${ex.customer}`;
+      examplesBlock += `\nMeem: ${ex.agent}`;
+    });
+    examplesBlock += `\n======================================================`;
+    sections.push(examplesBlock);
+  }
+
   // 1. Memory Summary (Step 1)
   if (memorySummary) {
     sections.push(`
@@ -381,7 +459,7 @@ ${cartDesc}
   // 3. Negotiation Rules (Step 6)
   const negotiationRules = buildNegotiationRules(context.cart || []);
   if (negotiationRules) {
-    sections.push(negotiationRules);
+    sections.push(negotiationRules + `\n\nWhen a customer agrees to your offered price and wants to order, call add_to_cart with negotiatedPrice set to the exact price you offered. Never forget the agreed price — it must be passed to the cart.`);
   }
 
   return sections.join('\n\n');

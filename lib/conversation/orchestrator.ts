@@ -221,6 +221,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           tier: result.match?.tier,
           sizes: result.match?.product?.sizes,
           colors: result.match?.product?.colors,
+          variantStock: result.match?.product?.variant_stock,
         },
       };
 
@@ -364,7 +365,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           id: p.id,
           name: p.name,
           price: p.price,
-          imageUrl: p.image_urls?.[0] || undefined,
+          imageUrl: p.imageUrl || p.image_urls?.[0] || undefined,
           stock: p.stock_quantity ?? p.manual_stock,
           variations: {
             colors: availableColors,

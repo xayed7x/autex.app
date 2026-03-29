@@ -26,6 +26,8 @@ export interface ProductSearchResult {
   inStock: boolean;
   stockMessage?: string;
   imageUrl: string | null;
+  variantStock?: any;
+  sizeStock?: any;
   pricingPolicy: {
     isNegotiable: boolean;
     minPrice: number | null;
@@ -174,6 +176,8 @@ function toCompactProduct(row: Record<string, any>, requestedSize?: string, requ
     imageUrl: Array.isArray(row.image_urls) && row.image_urls.length > 0
       ? row.image_urls[0]
       : null,
+    variantStock: row.variant_stock || null,
+    sizeStock: row.size_stock || null,
     pricingPolicy: {
       isNegotiable: pricingPolicy?.isNegotiable ?? false,
       minPrice: pricingPolicy?.minPrice ?? null,

@@ -143,3 +143,68 @@ export async function PATCH(
   }
 }
 
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const supabase = await createClient()
+    
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Get workspace
+    const { data: workspace, error: workspaceError } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('owner_id', user.id)
+      .single()
+
+    if (workspaceError || !workspace) {
+      return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
+    }
+
+    // Verify conversation belongs to this workspace
+    const { data: conversation, error: convError } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('id', id)
+      .eq('workspace_id', workspace.id)
+      .single()
+
+    if (convError || !conversation) {
+      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
+    }
+
+    // Delete messages first (FK constraint)
+    await supabase
+      .from('messages')
+      .delete()
+      .eq('conversation_id', id)
+
+    // Delete the conversation
+    const { error: deleteError } = await supabase
+      .from('conversations')
+      .delete()
+      .eq('id', id)
+      .eq('workspace_id', workspace.id)
+
+    if (deleteError) {
+      console.error('Error deleting conversation:', deleteError)
+      return NextResponse.json({ error: deleteError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Conversation delete API error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+

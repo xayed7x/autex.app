@@ -154,6 +154,7 @@ export interface PendingImage {
     tier?: string;
     sizes?: string[];
     colors?: string[];
+    variantStock?: Array<{ size?: string; color?: string; quantity?: number }>;
   };
 }
 

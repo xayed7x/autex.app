@@ -167,6 +167,7 @@ async function executeAddToCart(
   const quantity = Number(args.quantity) || 1;
   const selectedSize = args.selectedSize ? String(args.selectedSize) : undefined;
   const selectedColor = args.selectedColor ? String(args.selectedColor) : undefined;
+  const negotiatedPrice = args.negotiatedPrice ? Number(args.negotiatedPrice) : undefined;
 
   if (!productId) {
     return {
@@ -222,10 +223,15 @@ async function executeAddToCart(
     });
   }
 
+  // Use negotiated price if provided and valid, otherwise use listed price
+  const effectivePrice = (negotiatedPrice && negotiatedPrice > 0) 
+    ? negotiatedPrice 
+    : productAny.price;
+
   const newItem: CartItem = {
     productId: productAny.id,
     productName: productAny.name,
-    productPrice: productAny.price,
+    productPrice: effectivePrice,
     quantity,
     imageUrl: Array.isArray(productAny.image_urls) && productAny.image_urls.length > 0
       ? productAny.image_urls[0]
@@ -240,25 +246,53 @@ async function executeAddToCart(
 
   const updatedCart = addToCart(ctx.conversationContext.cart || [], newItem);
 
+  // Build negotiation metadata if a negotiated price was used
+  const negotiationMeta = (negotiatedPrice && negotiatedPrice > 0)
+    ? { 
+        aiLastOffer: negotiatedPrice, 
+        productId: productAny.id,
+        roundNumber: 1,
+        currentPrice: productAny.price
+      }
+    : undefined;
+
   return {
     result: {
       success: true,
       data: {
         productName: productAny.name,
-        price: productAny.price,
+        price: effectivePrice,
+        listedPrice: productAny.price,
+        negotiatedPrice: negotiatedPrice || null,
         quantity,
         cartSize: updatedCart.length,
         sizes: newItem.sizes,
         colors: newItem.colors,
       },
-      message: `Added "${productAny.name}" (৳${productAny.price}) to cart. Cart now has ${updatedCart.length} item(s).`,
+      message: negotiatedPrice
+        ? `Added "${productAny.name}" (negotiated: ৳${effectivePrice}, listed: ৳${productAny.price}) to cart. Cart now has ${updatedCart.length} item(s).`
+        : `Added "${productAny.name}" (৳${effectivePrice}) to cart. Cart now has ${updatedCart.length} item(s).`,
     },
     sideEffects: {
       updatedContext: {
         cart: updatedCart,
         metadata: {
           ...ctx.conversationContext.metadata,
-          negotiation: undefined, // Reset negotiation for new product
+          negotiation: negotiationMeta, // Set negotiation if price was negotiated, reset otherwise
+          identifiedProducts: [
+            {
+              id: productAny.id,
+              name: productAny.name,
+              price: effectivePrice,
+              stock: stockQuantity,
+              inStock: true,
+              sizes: newItem.sizes,
+              colors: newItem.colors,
+              imageUrl: newItem.imageUrl || null,
+              variantStock: productAny.variant_stock || null,
+              sizeStock: productAny.size_stock || null,
+            }
+          ],
         },
       },
     },
@@ -518,7 +552,7 @@ async function executeCheckStock(
 
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, name, price, stock_quantity, manual_stock, product_settings, sizes, colors, variant_stock, size_stock')
+      .select('id, name, price, stock_quantity, manual_stock, product_settings, sizes, colors, variant_stock, size_stock, image_urls')
       .eq('workspace_id', ctx.workspaceId)
       .ilike('name', `%${query}%`)
       .limit(3);
@@ -562,12 +596,16 @@ async function executeCheckStock(
       }
 
       return {
+        id: p.id,
         name: p.name,
         price: p.price,
         stock: actualStock,
         inStock,
         sizes: p.sizes || [],
         colors: p.colors || [],
+        imageUrl: Array.isArray(p.image_urls) && p.image_urls.length > 0 ? p.image_urls[0] : null,
+        variantStock: p.variant_stock || null,
+        sizeStock: p.size_stock || null,
       };
     });
 
@@ -577,7 +615,14 @@ async function executeCheckStock(
         data: { found: true, products: stockInfo },
         message: `Found ${stockInfo.length} product(s): ${stockInfo.map((p) => `${p.name} (stock: ${p.stock}${!p.inStock ? ' - OUT OF STOCK' : ''})`).join(', ')}.`,
       },
-      sideEffects: {},
+      sideEffects: {
+        updatedContext: {
+          metadata: {
+            ...ctx.conversationContext.metadata,
+            identifiedProducts: stockInfo,
+          },
+        },
+      },
     };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

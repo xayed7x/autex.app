@@ -222,12 +222,12 @@ export async function sendProductCard(
                 buttons: [
                   {
                     type: 'postback',
-                    title: 'অর্ডার করুন 🛒',
+                    title: 'Order now 🛒',
                     payload: `ORDER_NOW_${product.id}`,
                   },
                   {
                     type: 'postback',
-                    title: 'বিস্তারিত দেখুন 📋',
+                    title: 'Description 📋',
                     payload: `VIEW_DETAILS_${product.id}`,
                   },
                 ],
@@ -358,12 +358,12 @@ export async function sendProductCarousel(
         buttons: [
           {
             type: 'postback',
-            title: 'অর্ডার করুন 🛒',
+            title: 'Order now 🛒',
             payload: `ORDER_NOW_${product.id}`,
           },
           {
             type: 'postback',
-            title: 'বিস্তারিত দেখুন 📋',
+            title: 'Description 📋',
             payload: `VIEW_DETAILS_${product.id}`,
           },
         ],

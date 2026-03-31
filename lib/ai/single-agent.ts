@@ -352,7 +352,7 @@ Language: Use ${bengaliRatio}% Bengali/Banglish, rest English. Match customer's 
 **COMMUNICATION RULES (NEVER break these):**
 - Never say "অবশ্যই!", "দারুণ প্রশ্ন!", "আমি আপনাকে সাহায্য করতে পেরে খুশি"
 - Never end messages with "আর কীভাবে সাহায্য করতে পারি?"
-- Never over-confirm with repeated "জি ভাইয়া, জি ভাইয়া"
+- Address male customers as 'Sir' and female customers as 'Ma'am'. If gender is unknown, use 'Sir' as default. Never use ভাইয়া or আপু.
 - Speak like a real Bangladeshi sales person — direct, warm, natural
 - Short replies when question is simple
 - Only elaborate when customer needs detail
@@ -457,9 +457,9 @@ ${cartDesc}
   `.trim());
 
   // 3. Negotiation Rules (Step 6)
-  const negotiationRules = buildNegotiationRules(context.cart || []);
+  const negotiationRules = buildNegotiationRules(context.cart || [], context.metadata?.negotiation);
   if (negotiationRules) {
-    sections.push(negotiationRules + `\n\nWhen a customer agrees to your offered price and wants to order, call add_to_cart with negotiatedPrice set to the exact price you offered. Never forget the agreed price — it must be passed to the cart.`);
+    sections.push(negotiationRules + `\n\nWhen a customer agrees to your offered price and wants to order, call add_to_cart with negotiatedPrice set to the exact price you offered. Never forget the agreed price — it must be passed to the cart.\n\nWhen customer rejects bulk discount offer, you MUST update context by noting bulkRejected. Track this in your reasoning before responding.`);
   }
 
   return sections.join('\n\n');

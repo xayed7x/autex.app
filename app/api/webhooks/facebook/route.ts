@@ -125,6 +125,20 @@ export async function POST(request: NextRequest) {
           await processMessagingEvent(supabase, entry.id, event);
         }
       }
+      
+      // NEW: Handle feed/comment events
+      if (entry.changes) {
+        for (const change of entry.changes) {
+          if (
+            change.field === 'feed' &&
+            change.value?.item === 'comment' &&
+            change.value?.verb === 'add' &&
+            change.value?.message // ignore emoji-only or empty
+          ) {
+            await processCommentEvent(supabase, entry.id, change.value);
+          }
+        }
+      }
     }
 
     return NextResponse.json({ status: 'ok' }, { status: 200 });
@@ -185,6 +199,24 @@ async function processMessagingEvent(
     console.log(`🔍 [SOURCE DETECTION] Is Owner Message: ${isOwnerMessage}`);
     console.log(`🔍 [SOURCE DETECTION] Customer PSID: ${customerPsid}`);
 
+    const referral = event.referral || event.postback?.referral;
+    
+    if (referral && referral.ref) {
+      console.log(`🔗 [REFERRAL] Referral flow triggered. Ref: ${referral.ref}`);
+      
+      if (referral.ref.startsWith('product_')) {
+        const productId = referral.ref.replace('product_', '');
+        await sendReferralProductCard(
+          supabase,
+          pageId,
+          customerPsid,
+          fbPageCheck.workspace_id,
+          productId
+        );
+        return; // Halt standard processing
+      }
+    }
+
     // ========================================
     // HANDLE POSTBACK (Button Clicks)
     // ========================================
@@ -192,6 +224,18 @@ async function processMessagingEvent(
     if (event.postback) {
       const payload = event.postback.payload;
       console.log('🔘 Postback event detected:', payload);
+
+      // Handle "Get Started" (new thread without product referral)
+      if (payload === 'GET_STARTED') {
+        console.log(`🚀 [GET_STARTED] Generic welcome for: ${customerPsid}`);
+        const { sendMessage } = await import('@/lib/facebook/messenger');
+        await sendMessage(
+          pageId,
+          customerPsid,
+          "আসসালামু আলাইকুম! 😊 আমি Meem, এই shop এর sales team এ আছি। কীভাবে সাহায্য করতে পারি? 🛍️"
+        );
+        return; // Halt standard processing
+      }
       
       // Handle "Order Now" button click
       if (payload.startsWith('ORDER_NOW_')) {
@@ -918,5 +962,305 @@ async function processMessagingEvent(
     }
   } catch (error) {
     console.error('❌ Error processing messaging event:', error);
+  }
+}
+
+/**
+ * Process a Facebook comment event from the feed webhook
+ */
+async function processCommentEvent(
+  supabase: any,
+  pageId: string,
+  commentData: {
+    comment_id: string;
+    post_id: string;
+    from: { id: string; name: string };
+    message: string;
+    created_time: number;
+  }
+) {
+  try {
+    console.log(`💬 [COMMENT] From: ${commentData.from.name} | Text: "${commentData.message}"`);
+
+    // Step 1: Skip if comment is too short or just emojis
+    const text = commentData.message.trim();
+    const hasRealText = /[a-zA-Z\u0980-\u09FF]/.test(text);
+    if (!hasRealText || text.length < 2) {
+      console.log('💬 [COMMENT] Skipping emoji/short comment');
+      return;
+    }
+
+    // Skip if comment is from the page itself (bot's own comments)
+    const pageId_check = commentData.from?.id;
+    if (pageId_check === pageId) {
+      console.log('💬 [COMMENT] Skipping own page comment to prevent loop');
+      return;
+    }
+
+    // Step 2: Find workspace by pageId
+    const { data: fbPage } = await supabase
+      .from('facebook_pages')
+      .select('id, workspace_id, page_name, encrypted_access_token')
+      .eq('id', pageId)
+      .single();
+
+    if (!fbPage) {
+      console.log('💬 [COMMENT] No facebook_page found for pageId:', pageId);
+      return;
+    }
+
+    const commentId = commentData.comment_id;
+
+    // Use decrypted token from fbPage for API calls
+    const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+    const decryptedToken = decryptToken(fbPage.encrypted_access_token);
+
+    // Step 3: Classify comment using AI
+    const classification = await classifyComment(text);
+    console.log(`💬 [COMMENT] Classification: ${classification.type}`);
+
+    // Step 4: Search for product from post caption (BEFORE public reply)
+    let topProduct: any = null;
+    let caption: string | null = null;
+    const postId = commentData.post_id;
+    const accessToken = decryptedToken;
+    const customerId = commentData.from.id;
+
+    try {
+      console.log(`📨 [COMMENT] Fetching caption for post: ${postId}`);
+      let postCaptionStr: string | null = null;
+      try {
+        const response = await fetch(
+          `https://graph.facebook.com/v21.0/${postId}?fields=message&access_token=${accessToken}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          postCaptionStr = data.message || null;
+        }
+      } catch (error) {
+        console.error(`💬 [COMMENT] Error fetching post caption:`, error);
+      }
+      caption = postCaptionStr;
+
+      if (caption) {
+        const { searchProducts } = await import('@/lib/ai/tools/search-products');
+        console.log(`📨 [COMMENT] Searching products for caption: "${caption.substring(0, 50)}..."`);
+        
+        const searchResult = await searchProducts(caption, fbPage.workspace_id);
+        topProduct = searchResult.products?.[0];
+        
+        if (topProduct) {
+          console.log(`📨 [COMMENT] Product found: ${topProduct.name} (ID: ${topProduct.id})`);
+        } else {
+          console.log(`📨 [COMMENT] No product found matching caption.`);
+        }
+      } else {
+        console.log(`📨 [COMMENT] No caption available for post ${postId}`);
+      }
+    } catch (searchError) {
+      console.error(`📨 [COMMENT] Error searching for product:`, searchError);
+    }
+
+    // Step 5: Build reply based on classification
+    let replyText = '';
+    
+    if (classification.type === 'price_inquiry') {
+      if (topProduct) {
+        let pageUsername = fbPage.id; // Fallback
+        
+        try {
+          const uRes = await fetch(
+            `https://graph.facebook.com/v21.0/${fbPage.id}?fields=username&access_token=${decryptedToken}`
+          );
+          if (uRes.ok) {
+            const uData = await uRes.json();
+            if (uData.username) {
+              pageUsername = uData.username;
+            }
+          }
+        } catch (uErr) {
+          console.error(`💬 [COMMENT] Failed to fetch page username, using ID fallback.`, uErr);
+        }
+
+        const encodedUsername = encodeURIComponent(pageUsername);
+        const mmeLink = `m.me/${encodedUsername}?ref=product_${topProduct.id}`;
+        
+        console.log(`💬 [COMMENT] m.me link: ${mmeLink}`);
+        replyText = `details ও অর্ডারের জন্য inbox এ message করুন 👉 ${mmeLink}`;
+      } else {
+        replyText = `details জানতে inbox এ message করুন 😊 আমরা সাথে সাথে reply করবো!`;
+      }
+    } else if (classification.type === 'appreciation') {
+      replyText = `ধন্যবাদ! 🙏 আপনার ভালো লেগেছে জেনে খুশি হলাম। যেকোনো প্রয়োজনে inbox করুন 😊`;
+    } else if (classification.type === 'complaint') {
+      replyText = `আন্তরিকভাবে দুঃখিত। আমাদের inbox এ message করুন, আমরা সমস্যাটা সমাধান করবো 🙏`;
+    } else {
+      replyText = `ধন্যবাদ! যেকোনো প্রয়োজনে inbox এ message করুন 😊`;
+    }
+
+    // Step 6: Reply to comment publicly (ALWAYS succeed first)
+    try {
+      console.log(`💬 [COMMENT] Attempting public reply to ${commentId}`);
+      const publicReplyResponse = await fetch(
+        `https://graph.facebook.com/v21.0/${commentId}/comments`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: replyText,
+            access_token: decryptedToken,
+          }),
+        }
+      );
+
+      const publicResult = await publicReplyResponse.json();
+      if (!publicReplyResponse.ok) {
+        console.error(`💬 [COMMENT] Public reply failed:`, publicResult);
+      } else {
+        console.log(`💬 [COMMENT] Public reply successful: ${publicResult.id}`);
+      }
+    } catch (publicError) {
+      console.error(`💬 [COMMENT] Error sending public reply:`, publicError);
+    }
+
+    // Step 6: Save comment to DB for dashboard visibility
+    await supabase.from('messages').insert({
+      conversation_id: null,
+      sender: commentData.from.id,
+      sender_type: 'customer',
+      message_text: `[COMMENT] ${text}`,
+      message_type: 'comment',
+    });
+
+  } catch (error) {
+    console.error('💬 [COMMENT] Error processing comment:', error);
+  }
+}
+
+/**
+ * Classify a Facebook comment using GPT-4o-mini
+ */
+async function classifyComment(text: string): Promise<{ type: string }> {
+  try {
+    const OpenAI = (await import('openai')).default;
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 20,
+      messages: [
+        {
+          role: 'system',
+          content: `Classify this Facebook comment into exactly one category.
+Reply with only one word:
+- price_inquiry (asking about price, availability, how to order, "কত", "price", "দাম", "কিভাবে", "পাবো")
+- appreciation (positive comment, compliment, "সুন্দর", "nice", "love", "great")
+- complaint (negative feedback, "খারাপ", "not good", "problem", "issue")
+- other (anything else)`
+        },
+        { role: 'user', content: text }
+      ],
+    });
+
+    const result = response.choices[0]?.message?.content?.trim().toLowerCase() || 'other';
+    return { type: result };
+  } catch {
+    return { type: 'other' };
+  }
+}
+
+
+/**
+ * Shared helper to send a welcome message and product card for a referral
+ */
+async function sendReferralProductCard(
+  supabase: any,
+  pageId: string,
+  customerPsid: string,
+  workspaceId: string,
+  productId: string
+) {
+  try {
+    // Fetch product
+    const { data: product } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId)
+      .eq('workspace_id', workspaceId)
+      .single();
+
+    if (!product) {
+      console.log(`🔗 [REFERRAL] Product not found for ID: ${productId}`);
+      return;
+    }
+
+    console.log(`🔗 [REFERRAL] Sending catalog info for: ${product.name}`);
+
+    const { sendMessage, sendProductCard } = await import('@/lib/facebook/messenger');
+
+    // Send welcome text
+    await sendMessage(
+      pageId,
+      customerPsid,
+      "আসসালামু আলাইকুম! 😊 আপনি যে product টি দেখছিলেন তার details নিচে দিলাম। অর্ডার করতে বা কিছু জানতে reply করুন! 🛍️"
+    );
+
+    // Send product card
+    await sendProductCard(pageId, customerPsid, {
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      imageUrl: product.image_urls?.[0] || '',
+      stock: product.stock_quantity || 0,
+      variations: {
+        colors: product.colors || [],
+        sizes: product.sizes || [],
+      }
+    });
+
+    // Save to DB
+    const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+    const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
+
+    // Try updating existing or inserting new convo
+    const { data: convData } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('customer_psid', customerPsid)
+      .eq('fb_page_id', pageId)
+      .single();
+
+    let conversationId = convData?.id;
+
+    if (!conversationId) {
+      const { data: newConv } = await supabase
+        .from('conversations')
+        .insert({
+          workspace_id: workspaceId,
+          fb_page_id: pageId,
+          customer_psid: customerPsid,
+          customer_name: profile?.name || 'Customer',
+          customer_profile_pic_url: profile?.profile_pic,
+          current_state: 'IDLE',
+          control_mode: 'bot',
+          context: { state: 'IDLE', cart: [], checkout: {}, metadata: { messageCount: 0 } },
+          last_message_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (newConv) conversationId = newConv.id;
+    }
+
+    if (conversationId) {
+      await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        sender: 'bot',
+        sender_type: 'bot',
+        message_text: `[Sent referral product card: ${product.name}]`,
+        message_type: 'template',
+      });
+    }
+  } catch (error) {
+    console.error(`🔗 [REFERRAL] Error in sendReferralProductCard:`, error);
   }
 }

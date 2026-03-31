@@ -101,6 +101,8 @@ export interface ConversationMetadata {
     finalOfferDeclared?: boolean;
     status?: 'idle' | 'in_progress' | 'final_offered' | 'accepted' | 'declined';
     productId?: string;
+    bulkOffered?: boolean;
+    bulkRejected?: boolean;
   };
 
   /** The ID of the most recently created order in this session */

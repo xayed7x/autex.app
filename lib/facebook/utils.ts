@@ -45,7 +45,15 @@ export interface MessagingEvent {
   postback?: {
     payload: string;
     title?: string;
+    referral?: ReferralEvent;
   };
+  referral?: ReferralEvent;
+}
+
+export interface ReferralEvent {
+  ref: string;
+  source?: string;
+  type?: string;
 }
 
 export interface Message {

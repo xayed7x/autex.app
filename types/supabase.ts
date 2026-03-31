@@ -162,6 +162,7 @@ export type Database = {
           created_at: string | null
           id: number
           page_name: string
+          page_username: string | null
           encrypted_access_token: string
           status: string
           workspace_id: string
@@ -171,6 +172,7 @@ export type Database = {
           created_at?: string | null
           id: number
           page_name: string
+          page_username?: string | null
           encrypted_access_token: string
           status?: string
           workspace_id: string
@@ -180,6 +182,7 @@ export type Database = {
           created_at?: string | null
           id?: number
           page_name?: string
+          page_username?: string | null
           encrypted_access_token?: string
           status?: string
           workspace_id?: string

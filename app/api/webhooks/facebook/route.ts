@@ -1000,7 +1000,7 @@ async function processCommentEvent(
     // Step 2: Find workspace by pageId
     const { data: fbPage } = await supabase
       .from('facebook_pages')
-      .select('id, workspace_id, page_name, encrypted_access_token')
+      .select('id, workspace_id, page_name, page_username, encrypted_access_token')
       .eq('id', pageId)
       .single();
 
@@ -1066,22 +1066,7 @@ async function processCommentEvent(
     
     if (classification.type === 'price_inquiry') {
       if (topProduct) {
-        let pageUsername = fbPage.id; // Fallback
-        
-        try {
-          const uRes = await fetch(
-            `https://graph.facebook.com/v21.0/${fbPage.id}?fields=username&access_token=${decryptedToken}`
-          );
-          if (uRes.ok) {
-            const uData = await uRes.json();
-            if (uData.username) {
-              pageUsername = uData.username;
-            }
-          }
-        } catch (uErr) {
-          console.error(`💬 [COMMENT] Failed to fetch page username, using ID fallback.`, uErr);
-        }
-
+        const pageUsername = fbPage.page_username || fbPage.id;
         const encodedUsername = encodeURIComponent(pageUsername);
         const mmeLink = `m.me/${encodedUsername}?ref=product_${topProduct.id}`;
         

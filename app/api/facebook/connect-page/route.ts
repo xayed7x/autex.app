@@ -129,12 +129,33 @@ export async function POST(request: NextRequest) {
     const longLivedToken = tokenData.access_token;
     console.log('✅ Long-lived token obtained');
     
-    // Step 2: Encrypt the access token
+    // Step 2: Fetch page username
+    let pageUsername: string | null = null;
+    try {
+      console.log('🔄 Fetching page username...');
+      const usernameResponse = await fetch(
+        `https://graph.facebook.com/v21.0/${pageId}?fields=username&access_token=${longLivedToken}`
+      );
+      
+      if (usernameResponse.ok) {
+        const usernameData = await usernameResponse.json();
+        pageUsername = usernameData.username || null;
+        console.log(`📘 [CONNECT] Page username fetched: ${pageUsername}`);
+      } else {
+        const errorData = await usernameResponse.json();
+        console.warn('⚠️ [CONNECT] Failed to fetch page username:', errorData);
+      }
+    } catch (error) {
+      console.error('❌ [CONNECT] Error fetching page username:', error);
+      // Continue even if username fetch fails
+    }
+    
+    // Step 3: Encrypt the access token
     console.log('🔐 Encrypting access token...');
     const encryptedToken = encryptToken(longLivedToken);
     console.log('✅ Token encrypted');
     
-    // Step 3: Save to database using admin client to bypass RLS
+    // Step 4: Save to database using admin client to bypass RLS
     console.log('💾 Saving to database...');
     const { data: pageData, error: dbError } = await supabaseAdmin
       .from('facebook_pages')
@@ -142,6 +163,7 @@ export async function POST(request: NextRequest) {
         id: BigInt(pageId) as unknown as number, // Convert to BigInt for bigint column
         workspace_id: workspaceId,
         page_name: pageName,
+        page_username: pageUsername,
         encrypted_access_token: encryptedToken,
         bot_enabled: false, // Disable bot by default - user must complete setup first
         status: 'connected',

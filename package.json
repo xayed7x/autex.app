@@ -7,7 +7,8 @@
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
-    "setup:messenger": "tsx scripts/setup-messenger-profile.ts"
+    "setup:messenger": "tsx scripts/setup-messenger-profile.ts",
+    "backfill:usernames": "tsx scripts/backfill-page-usernames.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

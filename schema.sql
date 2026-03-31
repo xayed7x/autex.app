@@ -52,6 +52,7 @@ CREATE TABLE public.facebook_pages (
   created_at timestamp with time zone DEFAULT now(),
   status text NOT NULL DEFAULT 'connected'::text CHECK (status = ANY (ARRAY['connected'::text, 'disconnected'::text])),
   bot_enabled boolean NOT NULL DEFAULT true,
+  page_username text,
   CONSTRAINT facebook_pages_pkey PRIMARY KEY (id),
   CONSTRAINT facebook_pages_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -262,6 +263,7 @@ Screenshot পাঠালে আমরা verify করব।'::text,
   business_address text,
   exchange_policy text,
   custom_faqs jsonb DEFAULT '[]'::jsonb,
+  conversation_examples jsonb DEFAULT '[]'::jsonb,
   CONSTRAINT workspace_settings_pkey PRIMARY KEY (id),
   CONSTRAINT workspace_settings_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );

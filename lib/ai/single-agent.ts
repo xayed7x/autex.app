@@ -51,6 +51,66 @@ export interface AgentOutput {
 }
 
 // ============================================
+// REASONING PASS HELPER
+// ============================================
+
+/**
+ * Performs a separate reasoning pass without tools to guide the agent.
+ */
+async function getReasoningPass(
+  messages: ChatCompletionMessageParam[],
+  workspaceId: string,
+  conversationId: string,
+  loopIndex: number
+): Promise<string> {
+  const reasoningPrompt = `You are in REASONING MODE. Do not respond to the customer.
+Instead, think step by step:
+1. What is the customer actually asking right now?
+2. What is the current cart state?
+3. What does memory tell me about this customer?
+4. Should I call a tool? Which one and why?
+5. Is the requested size+color actually in stock?
+   Never trust cart state — always verify with tools.
+6. Does memory already have name/phone/address?
+   If yes, I should NOT ask for them again.
+7. What is the single best action to take?
+Write your reasoning clearly. This will guide your next action.`;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      ...messages,
+      { role: 'system', content: reasoningPrompt }
+    ],
+    temperature: 0, // High precision for reasoning
+  });
+
+  const reasoning = completion.choices[0].message.content || '';
+
+  if (completion.usage) {
+    logApiUsage({
+      workspaceId,
+      conversationId,
+      model: 'gpt-4o-mini',
+      featureName: 'agent_reasoning',
+      usage: {
+        promptTokens: completion.usage.prompt_tokens,
+        completionTokens: completion.usage.completion_tokens,
+        totalTokens: completion.usage.total_tokens,
+        cachedPromptTokens: (completion.usage as any).prompt_tokens_details?.cached_tokens,
+      }
+    });
+  }
+
+  console.log(`\n╔══════════════════════════════════════════
+║ 🧠 AI REASONING (before loop ${loopIndex}):
+${reasoning.split('\n').map((l: string) => `║ ${l}`).join('\n')}
+╚══════════════════════════════════════════\n`);
+
+  return reasoning;
+}
+
+// ============================================
 // MAIN AGENT FUNCTION
 // ============================================
 
@@ -61,10 +121,30 @@ export interface AgentOutput {
 export async function runAgent(input: AgentInput): Promise<AgentOutput> {
   const systemPrompt = generateSystemPrompt(input);
 
-  // Initialize message sequence for this turn
+  // Sanitize history from [THINK] blocks
+  const sanitizedHistory = input.conversationHistory.map(msg => {
+    if (typeof msg.content === 'string') {
+      return {
+        ...msg,
+        content: msg.content.replace(/\[THINK\][\s\S]*?\[\/THINK\]/g, '').trim()
+      };
+    }
+    return msg;
+  });
+
+  // Initialize message sequence for this turn (ensure current message isn't duplicated)
+  const previousHistory = [...sanitizedHistory];
+  if (
+    previousHistory.length > 0 && 
+    previousHistory[previousHistory.length - 1].role === 'user' && 
+    previousHistory[previousHistory.length - 1].content === input.messageText
+  ) {
+    previousHistory.pop();
+  }
+
   const messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
-    ...input.conversationHistory,
+    ...previousHistory,
   ];
 
   // Append current user message (handling potential image context)
@@ -121,6 +201,7 @@ Example response style:
   let finalResponse = '';
   let shouldFlag = false;
   const toolsCalled: string[] = [];
+  let nextTurnReasoning: string | null = null;
 
   // ==========================================
   // CONTEXT DUMP LOGGING
@@ -176,8 +257,8 @@ ${input.memorySummary ? `║ 🧠 MEMORY SUMMARY CONTENT:\n║ "${input.memorySu
             contentStr = `[IMAGE MESSAGE — recognition result: ${matchSuccess}]`;
          }
       }
-      const shortContent = contentStr ? contentStr.substring(0, 150).replace(/\n/g, ' ') : '';
-      console.log(`║ [${msg.role.toUpperCase()}] ${shortContent}${contentStr && contentStr.length > 150 ? '...' : ''}`);
+      const roleName = msg.role === 'user' ? 'USER' : (msg.role === 'assistant' ? 'BOT' : 'TOOL RESULT');
+      console.log(`║ [${roleName}]: ${contentStr}`);
     }
   }
 
@@ -194,13 +275,28 @@ ${input.memorySummary ? `║ 🧠 MEMORY SUMMARY CONTENT:\n║ "${input.memorySu
 
   // The Tool-Calling Loop
   while (toolLoops < MAX_TOOL_LOOPS) {
+    // PASS 1: Action Pass (Inject reasoning from previous loop if available)
+    if (nextTurnReasoning) {
+      messages.push({
+        role: 'system',
+        content: `[INTERNAL REASONING]\n${nextTurnReasoning}\n[/INTERNAL REASONING]\nNow take action based on this reasoning.`
+      });
+    }
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
       tools: AGENT_TOOL_DEFINITIONS,
       tool_choice: 'auto',
+      parallel_tool_calls: false, // Force serial turns to ensure reasoning block content
       temperature: 0.7,
     });
+
+    // Remove injected reasoning to keep history clean
+    if (nextTurnReasoning) {
+      messages.pop();
+      nextTurnReasoning = null;
+    }
 
     if (completion.usage) {
       // Fire-and-forget log token usage
@@ -221,9 +317,51 @@ ${input.memorySummary ? `║ 🧠 MEMORY SUMMARY CONTENT:\n║ "${input.memorySu
     const responseMessage = completion.choices[0].message;
     messages.push(responseMessage);
 
+    // Extract and log [THINK] block from every response
+    if (responseMessage.content) {
+      const thinkRegex = /\[THINK\]([\s\S]*?)\[\/THINK\]/g;
+      const thinkMatch = responseMessage.content.match(thinkRegex);
+      if (thinkMatch) {
+         const reasoningLog = thinkMatch[0]
+           .replace('[THINK]', '')
+           .replace('[/THINK]', '')
+           .trim();
+         console.log(`\n╔══════════════════════════════════════════
+║ 🧠 AI REASONING (loop ${toolLoops}):
+${reasoningLog.split('\n').map((l: string) => `║ ${l}`).join('\n')}
+╚══════════════════════════════════════════\n`);
+      }
+      // Always strip [THINK] blocks before storing in message history
+      responseMessage.content = responseMessage.content
+        .replace(thinkRegex, '')
+        .trim();
+    }
+
     // If no tool calls, the agent has produced a final text response
     if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
-      finalResponse = responseMessage.content || '';
+      // Final reasoning pass for the logs (sees the response added above)
+      await getReasoningPass(messages, input.workspaceId, input.conversationId, toolLoops);
+
+      let rawResponse = responseMessage.content || '';
+      
+      // Extract and log reasoning to terminal
+      const thinkRegex = /\[THINK\][\s\S]*?\[\/THINK\]/g;
+      const thinkMatch = rawResponse.match(thinkRegex);
+      if (thinkMatch) {
+        const reasoning = thinkMatch[0]
+          .replace('[THINK]', '')
+          .replace('[/THINK]', '')
+          .trim();
+        console.log(`\n╔══════════════════════════════════════════
+║ 🧠 AI REASONING (final):
+${reasoning.split('\n').map((l: string) => `║ ${l}`).join('\n')}
+╚══════════════════════════════════════════\n`);
+      }
+      
+      // Always strip before sending to customer
+      finalResponse = rawResponse
+        .replace(thinkRegex, '')
+        .trim();
       break;
     }
 
@@ -266,7 +404,6 @@ ${input.memorySummary ? `║ 🧠 MEMORY SUMMARY CONTENT:\n║ "${input.memorySu
           tool_call_id: toolCall.id,
           content: JSON.stringify(result),
         });
-
       } catch (error: any) {
         console.error(`❌ Tool execution failed: ${toolName}`, error);
         
@@ -280,6 +417,10 @@ ${input.memorySummary ? `║ 🧠 MEMORY SUMMARY CONTENT:\n║ "${input.memorySu
         });
       }
     }
+
+    // Step 4: Reasoning Pass (NOW call it AFTER tool results were pushed)
+    // This reasoning will guide the NEXT action pass
+    nextTurnReasoning = await getReasoningPass(messages, input.workspaceId, input.conversationId, toolLoops);
   }
 
   // Fallback if loop hit max iterations
@@ -335,14 +476,29 @@ function generateSystemPrompt(input: AgentInput): string {
 
   // Core Persona Rules (Meem)
   const persona = `
-**INTERNAL REASONING (apply silently before every response):**
-BEFORE responding to any message, silently think:
+**INTERNAL REASONING (ABSOLUTE RULE — NEVER SKIP):**
+For EVERY single response you generate — whether you are calling 
+a tool OR giving a plain text reply — you MUST write a [THINK] 
+block FIRST in your message content. No exceptions. Ever.
+
+Format it exactly like this:
+
+[THINK]
 1. What is the customer actually asking right now?
-2. What is the current context? (cart state, last product discussed, pending questions)
-3. Is this a new topic or continuation?
-4. What is the single most helpful thing to do now?
-Then respond or call tools based on that reasoning.
-Never skip this thinking step.
+2. What is the current cart state? Is it empty or has items?
+3. What does the memory summary tell me about this customer?
+4. If I am calling a tool — which tool, why, and what do I 
+   expect to find?
+5. If collecting order info — does memory already have name, 
+   phone, address? If yes, I must use that, not ask again.
+6. Is the requested size+color combination actually in stock? 
+   I must verify before calling add_to_cart.
+7. What is the single best action to take right now?
+[/THINK]
+
+Then either call your tool OR write your customer-facing response.
+The [THINK] block must ALWAYS appear in message.content.
+Never skip this. Never summarize it. Always answer all 7 points.
 
 You are an AI Sales Assistant (often named Meem) for ${businessName}.
 You are friendly, warm, and highly conversational. You speak exactly like a Bangladeshi customer service rep.
@@ -371,6 +527,25 @@ Whenever you mention a specific product to the customer (by name or description)
 Even if you think you know the price from previous messages, you MUST call the tool anyway. 
 Calling the tool is the ONLY way the system knows to send the visual product card to the customer. 
 If you don't call a tool, the customer will only see your text and NO card. Always call the tool for every product you discuss.
+
+**📵 FACEBOOK LITE / NO CARD FALLBACK RULE (CRITICAL):**
+Some customers use Facebook Lite or older devices where product 
+cards and buttons are NOT visible. If a customer says any of the 
+following:
+- "Order now বাটন দেখছি না"
+- "কোনো বাটন নেই"
+- "কার্ড দেখছি না"
+- "button নেই"
+- Or any variation meaning they cannot see the card/button
+
+Then you MUST:
+1. Do NOT call check_stock or search_products again
+2. Immediately acknowledge: "Sir, কোনো সমস্যা নেই! আপনি সরাসরি 
+   আমাকে তথ্য দিয়ে অর্ডার করতে পারবেন।"
+3. If cart is empty, call add_to_cart for the last discussed product first
+4. Then proceed directly to order collection flow (quick form or 
+   conversational based on settings)
+5. Never loop or retry the product card in this situation
 
 **🚫 ANTI-HALLUCINATION & MANUAL FLAG RULE (ABSOLUTE — NEVER BREAK!):**
 You have ZERO license to invent, assume, or guess ANY product or business detail. 
@@ -404,9 +579,31 @@ Call flag_for_review with a clear reason
 Never attempt to answer or guess
 Never say things like "generally orders take 3-5 days" when customer is asking about THEIR specific order
 
-**OUT OF STOCK RULE:**
-If the \`check_stock\` or \`search_products\` tool returns \`inStock: false\` for a specific requested size/color, you MUST respond exactly like this:
-"দুঃখিত ভাইয়া, এই সাইজ/কালারটি এখন স্টকে নেই। [list available options] — এগুলো থেকে নিতে চাইলে বলুন 😊"
+**OUT OF STOCK RULE (CRITICAL):**
+When check_stock or search_products tool returns a result,
+read it carefully:
+
+SUCCESS + inStock: true = item is available → proceed
+SUCCESS + inStock: false = item is OUT OF STOCK → this 
+is NOT an error, this is confirmed information
+
+When inStock is false:
+- NEVER say "stock check failed" or "there was an error"
+- NEVER retry check_stock for the same combination
+- NEVER call add_to_cart
+- Immediately read the available variants from the 
+  tool result and respond:
+  "দুঃখিত Sir, [size] সাইজে [color] কালার এখন 
+  স্টকে নেই।
+  Available আছে:
+  - S সাইজে: Red, Blue, Green
+  - M সাইজে: Red, Blue  
+  - L সাইজে: Red, Blue
+  অন্য কোনো নিতে চাইলে বলুন 😊"
+
+The tool only truly fails when success: false.
+success: true with inStock: false = confirmed out of 
+stock. Always treat this as useful information.
 
 **UNRECOGNIZED IMAGE RULE:**
 If the user sends an image but the system logs \`[IMAGE MESSAGE — recognition result: unmatched]\`, it means the system failed to load or recognize the image. You MUST respond something like:
@@ -457,7 +654,11 @@ ${cartDesc}
   `.trim());
 
   // 3. Negotiation Rules (Step 6)
-  const negotiationRules = buildNegotiationRules(context.cart || [], context.metadata?.negotiation);
+  const negotiationRules = buildNegotiationRules(
+    context.cart || [], 
+    context.metadata?.negotiation,
+    context.metadata?.identifiedProducts
+  );
   if (negotiationRules) {
     sections.push(negotiationRules + `\n\nWhen a customer agrees to your offered price and wants to order, call add_to_cart with negotiatedPrice set to the exact price you offered. Never forget the agreed price — it must be passed to the cart.\n\nWhen customer rejects bulk discount offer, you MUST update context by noting bulkRejected. Track this in your reasoning before responding.`);
   }
@@ -502,7 +703,70 @@ function buildOrderCollectionInstruction(
   const askColor = settings.behaviorRules?.askSize ?? true; // same toggle controls color
 
   // === SHARED ORDER SUMMARY + POST-ORDER RULES ===
+  const hasMemory = !!(context.checkout?.customerName && context.checkout?.customerPhone && context.checkout?.customerAddress);
+  const memoryConfirmation = hasMemory ? `
+**MEMORY CHECK BEFORE ORDER COLLECTION (CRITICAL):**
+Memory currently has these customer details:
+👤 Name: ${context.checkout?.customerName}
+📱 Phone: ${context.checkout?.customerPhone}
+📍 Address: ${context.checkout?.customerAddress}
+
+Instead of showing the full order form or asking for Name, you MUST send ONLY this message:
+"ভাইয়া, আগের তথ্য দিয়ে অর্ডার করি?
+👤 ${context.checkout?.customerName}
+📱 ${context.checkout?.customerPhone}
+📍 ${context.checkout?.customerAddress}
+
+confirm করতে 'হ্যাঁ' লিখুন, 
+নতুন ঠিকানায় পাঠাতে চাইলে নতুন 
+তথ্য দিন 😊"
+
+Then wait for customer response:
+- If customer says হ্যাঁ/yes/ok/confirm: 
+  1. Call update_customer_info with these stored details.
+  2. Then proceed to ask ONLY for size and color (if applicable):
+     "সাইজ ও কালার (স্টকে আছে):
+     S → Red, Blue, Green
+     M → Red, Green
+     পরিমাণ: (1 হলে লিখতে হবে না)"
+- If customer provides NEW information (new address, phone, etc.): 
+  Use the new information instead and proceed with standard validation.
+
+` : '';
+
   const orderSummaryRule = `
+${memoryConfirmation}
+**STOCK VERIFICATION BEFORE add_to_cart (MANDATORY):**
+IMPORTANT: The cart may contain items from a previous 
+session or a previous failed attempt. NEVER assume a 
+size+color combination is valid just because it appears 
+in the current cart. You MUST always call check_stock 
+or search_products to verify the requested size+color 
+is actually in stock BEFORE proceeding with order 
+collection. Cart state does NOT confirm stock availability.
+
+When check_stock or search_products returns a result, 
+you MUST read the inStock field carefully:
+
+- If inStock: true → proceed with add_to_cart
+- If inStock: false OR stock: 0 → this means the 
+  requested size+color is OUT OF STOCK.
+  
+When out of stock, you MUST:
+1. NEVER call check_stock again for the same combination
+2. NEVER call add_to_cart
+3. Immediately tell the customer which combinations 
+   ARE available from the tool result
+4. Respond exactly like:
+   "দুঃখিত Sir, L সাইজে Green কালার এখন স্টকে নেই।
+   L সাইজে available আছে: Red, Blue
+   অন্য কোনো সাইজ বা কালার নিতে চাইলে বলুন 😊"
+
+The tool result contains all available variants — 
+read them carefully before responding.
+Retrying the same check_stock call is NEVER the 
+correct action when inStock is false.
+
 **PRE-ORDER CART CHECK (CRITICAL):**
 Before you begin the ORDER COLLECTION flow below, you MUST look at the CURRENT CART STATE.
 - If the cart is empty (0 items) AND the customer wants to order the product you were just discussing (e.g., from an image match, search result, or context), you MUST call the \`add_to_cart\` tool to add that product to the cart FIRST.
@@ -538,15 +802,17 @@ After collecting ALL customer info (name, phone, address, and size/color/quantit
 
   // --- QUICK FORM MODE ---
   if (style === 'quick_form') {
-    let renderedForm = settings.quick_form_prompt || 'দারুণ! অর্ডারের জন্য তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
+    let renderedForm = settings.quick_form_prompt || 'দারুণ! অর্ডারের জন্য নিচের তথ্য দিন:';
+    if (!renderedForm.includes('নাম:')) renderedForm += '\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
 
     const firstCartItem = context.cart?.[0];
     const availableSizes: string[] = firstCartItem?.sizes || [];
     const availableColors: string[] = firstCartItem?.colors || [];
     const variantStock = firstCartItem?.variant_stock;
 
-    const extraFields: string[] = [];
+    const variantFields: string[] = [];
     
+    // Check if variants exist to build mandatory Size -> Color display
     if (askSize && askColor && variantStock && (Array.isArray(variantStock) || typeof variantStock === 'object')) {
         const sizeMap = new Map<string, string[]>();
         
@@ -571,30 +837,69 @@ After collecting ALL customer info (name, phone, address, and size/color/quantit
         
         if (sizeMap.size > 0) {
             const mappedLines = Array.from(sizeMap.entries()).map(([s, cList]) => `${s} → ${cList.join(', ')}`);
-            extraFields.push(`সাইজ ও কালার (স্টকে আছে):\n${mappedLines.join('\n')}`);
+            variantFields.push(`সাইজ ও কালার (স্টকে আছে):\n${mappedLines.join('\n')}`);
         } else {
-            if (askSize && availableSizes.length > 0) extraFields.push(`সাইজ: (${availableSizes.join('/')})`);
-            if (askColor && availableColors.length > 0) extraFields.push(`কালার: (${availableColors.join('/')})`);
+            if (askSize && availableSizes.length > 0) variantFields.push(`সাইজ: (${availableSizes.join('/')})`);
+            if (askColor && availableColors.length > 0) variantFields.push(`কালার: (${availableColors.join('/')})`);
         }
     } else {
+        // Fallback for cases where only sizes or only colors exist
         if (askSize && availableSizes.length > 0) {
-          extraFields.push(`সাইজ: (${availableSizes.join('/')})`);
+          variantFields.push(`সাইজ: (${availableSizes.join('/')})`);
         }
         if (askColor && availableColors.length > 0) {
-          extraFields.push(`কালার: (${availableColors.join('/')})`);
+          variantFields.push(`কালার: (${availableColors.join('/')})`);
         }
     }
     
-    extraFields.push('পরিমাণ: (1 হলে লিখতে হবে না)');
-
-    if (extraFields.length > 0) {
-      renderedForm += '\n' + extraFields.join('\n');
+    let fullForm = renderedForm;
+    if (variantFields.length > 0) {
+      fullForm += '\n' + variantFields.join('\n');
     }
+    fullForm += '\nপরিমাণ: (1 হলে লিখতে হবে না)';
 
-    return `**ORDER COLLECTION — QUICK FORM MODE:**
+    return `**COMPLETE FIELD VALIDATION BEFORE ORDER PROCESSING (MANDATORY):**
+
+When a customer submits their order information, 
+before calling update_customer_info or check_stock, 
+you MUST reason through ALL of these fields:
+
+STEP 1 — Check what fields were provided:
+- Name: provided or missing?
+- Phone: provided or missing?
+- Address: provided or missing?
+- Size: provided or missing? (if product has sizes)
+- Color: provided or missing? (if product has colors)
+- Quantity: provided? (default 1 if missing)
+
+STEP 2 — If ANY required field is missing:
+Do NOT call any tool. 
+Ask the customer specifically for the missing field:
+"ভাইয়া, আপনার [missing field] টা জানাননি। 
+[if size/color missing, show available options again]"
+
+STEP 3 — Only when ALL fields are present:
+Call check_stock with the provided size+color to 
+verify availability.
+
+STEP 4 — check_stock result:
+- inStock: true → call update_customer_info, 
+  then show order summary
+- inStock: false → tell customer this combination 
+  is unavailable, show available options, 
+  do NOT proceed with order
+
+STEP 5 — After customer confirms summary with হ্যাঁ:
+Call save_order immediately.
+
+This validation must happen through your reasoning. 
+Never skip a step. Never assume a field is present 
+without seeing it in the customer's message.
+
+**ORDER COLLECTION — QUICK FORM MODE:**
 When a customer confirms they want to order, send EXACTLY this single message (copy it verbatim, do not rephrase):
 ---
-${renderedForm}
+${fullForm}
 ---
 CRITICAL RULES:
 - Send this entire block as ONE single message. NEVER ask fields one-by-one.
@@ -612,7 +917,61 @@ ${orderSummaryRule}`;
   const step2 = msgs?.nameCollected || 'ধন্যবাদ! এখন আপনার ফোন নম্বর দিন।';
   const step3 = msgs?.phoneCollected || 'পেয়েছি! এখন আপনার ডেলিভারি ঠিকানা দিন।';
 
-  return `**ORDER COLLECTION — CONVERSATIONAL MODE:**
+  return `**COMPLETE FIELD VALIDATION BEFORE ORDER PROCESSING (MANDATORY):**
+
+When a customer submits their order information, 
+before calling update_customer_info or check_stock, 
+you MUST reason through ALL of these fields:
+
+STEP 1 — Check what fields were provided:
+- Name: provided or missing?
+- Phone: provided or missing?
+- Address: provided or missing?
+- Size: provided or missing? (if product has sizes)
+- Color: provided or missing? (if product has colors)
+- Quantity: provided? (default 1 if missing)
+
+STEP 2 — If ANY required field is missing:
+Do NOT call any tool. 
+Ask the customer specifically for the missing field:
+"ভাইয়া, আপনার [missing field] টা জানাননি। 
+[if size/color missing, show available options again]"
+
+STEP 3 — Only when ALL fields are present:
+Call check_stock with the provided size+color to 
+verify availability.
+
+STEP 4 — check_stock result:
+- inStock: true → call update_customer_info, 
+  then show order summary
+- inStock: false → tell customer this combination 
+  is unavailable, show available options, 
+  do NOT proceed with order
+
+STEP 5 — After customer confirms summary with হ্যাঁ:
+Call save_order immediately.
+
+This validation must happen through your reasoning. 
+Never skip a step. Never assume a field is present 
+without seeing it in the customer's message.
+
+**NEGOTIATION RULE (CRITICAL):**
+When a customer asks for a price discount:
+
+1. Call record_negotiation_attempt immediately
+   — do NOT add product to cart first
+   — the tool will find the product automatically from context
+
+2. Read the tool result carefully:
+   - negotiable: false → say fixed price warmly
+   - negotiable: true → follow the round instructions from NEGOTIATION STATUS in your system prompt
+
+3. NEVER assume negotiable: false without calling the tool first
+
+4. NEVER add product to cart just for negotiation
+   — cart is only for confirmed orders
+
+**ORDER COLLECTION — CONVERSATIONAL MODE:**
 Collect customer info one field at a time, in this exact sequence:
 Step 1 — Ask for Name:
 Send this message: "${step1}"

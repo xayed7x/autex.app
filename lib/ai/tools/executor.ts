@@ -115,6 +115,9 @@ export async function executeTool(
     case 'collect_payment_digits':
       return executeCollectPaymentDigits(args, ctx);
 
+    case 'record_negotiation_attempt':
+      return executeRecordNegotiationAttempt(args, ctx);
+
     default: {
       const exhaustiveCheck: never = toolName;
       return {
@@ -481,13 +484,107 @@ async function executeUpdateCustomerInfo(
 async function executeSaveOrder(
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
-  return saveOrder(
+  const result = await saveOrder(
     ctx.workspaceId,
     ctx.conversationId,
     ctx.fbPageId,
     ctx.conversationContext,
     ctx.settings
   );
+
+  // If order was successful, reset negotiation rounds
+  if (result.result.success) {
+    if (!result.sideEffects.updatedContext) result.sideEffects.updatedContext = {};
+    if (!result.sideEffects.updatedContext.metadata) {
+      result.sideEffects.updatedContext.metadata = { ...ctx.conversationContext.metadata };
+    }
+    
+    const meta = result.sideEffects.updatedContext.metadata as any;
+    if (meta.negotiation) {
+      meta.negotiation.rounds = {};
+    }
+  }
+
+  return result;
+}
+
+async function executeRecordNegotiationAttempt(
+  args: Record<string, unknown>,
+  ctx: ToolExecutionContext
+): Promise<ToolExecutionOutput> {
+  // Do not trust the productId passed by the AI. Resolve from context.
+  let productId = '';
+  const cart = ctx.conversationContext.cart || [];
+  const identified = (ctx.conversationContext.metadata as any)?.identifiedProducts || [];
+
+  if (cart.length > 0) {
+    productId = cart[0].productId;
+  } else if (identified.length > 0) {
+    // TAKE THE LAST identified product (the most recent one)
+    const lastItem = identified[identified.length - 1];
+    productId = lastItem.id || lastItem.productId;
+  }
+
+  if (!productId) {
+    return {
+      result: { 
+        success: false, 
+        data: {}, 
+        message: 'No active product found in context to negotiate for. Please SEARCH for a product first.' 
+      },
+      sideEffects: {},
+    };
+  }
+
+  // Get current rounds from metadata
+  const metadata = ctx.conversationContext.metadata || {};
+  const negotiation = (metadata as any).negotiation || { rounds: {} };
+  const rounds = negotiation.rounds || {};
+
+  // Increment round for this product
+  const currentRound = (rounds[productId] || 0) + 1;
+  rounds[productId] = currentRound;
+
+  // Get fresh product info for pricing floor from DB
+  const product = await getProductById(productId, ctx.workspaceId);
+  if (!product) {
+    return {
+      result: { success: false, data: {}, message: `Product "${productId}" not found in database.` },
+      sideEffects: {},
+    };
+  }
+
+  const pAny = product as any;
+  const pricing = pAny.pricing_policy || { isNegotiable: false };
+  const minPrice = pricing.minPrice || Math.round(pAny.price * 0.8) || 0;
+
+  const updatedMetadata = {
+    ...metadata,
+    negotiation: {
+      ...negotiation,
+      rounds: { ...rounds }
+    }
+  };
+
+  return {
+    result: {
+      success: true,
+      data: { 
+        productId,
+        productName: pAny.name,
+        listedPrice: pAny.price,
+        negotiable: pricing.isNegotiable,
+        minPrice: pricing.isNegotiable ? minPrice : null,
+        currentRound,
+      },
+      message: `Round ${currentRound} negotiation recorded for "${pAny.name}".`,
+    },
+    sideEffects: {
+      updatedContext: {
+        metadata: updatedMetadata
+      }
+    },
+  };
 }
 
 async function executeFlagForReview(

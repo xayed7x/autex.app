@@ -265,6 +265,29 @@ const collectPaymentDigits: ChatCompletionTool = {
   },
 };
 
+const recordNegotiationAttempt: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'record_negotiation_attempt',
+    description:
+      'Call this EVERY TIME a customer asks for a price discount or negotiation. ' +
+      'This tracks which negotiation round we are on.',
+    parameters: {
+      type: 'object',
+      properties: {
+        productId: {
+          type: 'string',
+          description: 'The product ID the customer is negotiating for. (Optional: the tool finds it automatically from context).',
+        },
+        customerOfferedPrice: {
+          type: 'number',
+          description: 'The price requested by the customer (if they specified one).',
+        },
+      },
+    },
+  },
+};
+
 // ============================================
 // EXPORTS
 // ============================================
@@ -281,6 +304,7 @@ export const AGENT_TOOL_DEFINITIONS: ChatCompletionTool[] = [
   trackOrder,
   calculateDelivery,
   collectPaymentDigits,
+  recordNegotiationAttempt,
 ];
 
 /** Tool names as a union type for type-safe dispatch. */
@@ -294,4 +318,5 @@ export type AgentToolName =
   | 'check_stock'
   | 'track_order'
   | 'calculate_delivery'
-  | 'collect_payment_digits';
+  | 'collect_payment_digits'
+  | 'record_negotiation_attempt';

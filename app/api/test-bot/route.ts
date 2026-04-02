@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
           .from('conversations')
           .update({
             current_state: 'IDLE',
+            memory_summary: null, // Clear old test memory
             context: {
               state: 'IDLE',
               cart: [],

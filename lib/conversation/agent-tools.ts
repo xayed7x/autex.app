@@ -33,7 +33,7 @@ export const AgentTools = {
     try {
       const { data: products, error } = await supabase
         .from('products')
-        .select('id, name, stock, manual_stock, price, variations, product_settings')
+        .select('id, name, stock_quantity, price, variations')
         .eq('workspace_id', workspaceId)
         .ilike('name', `%${searchQuery}%`)
         .limit(3);
@@ -53,7 +53,7 @@ export const AgentTools = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stockInfo = (products as any[]).map(p => ({
         name: p.name,
-        stock: p.manual_stock ? p.manual_stock : (p.product_settings as any)?.stock ?? 'Unknown',
+        stock: p.stock_quantity ?? 'Unknown',
         price: p.price,
         variations: p.variations
       }));

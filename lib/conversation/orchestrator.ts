@@ -346,55 +346,71 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const pendingProducts = currentContext.metadata?.identifiedProducts;
     let productCard: ProductCard | undefined;
     if (pendingProducts && pendingProducts.length > 0) {
-      console.log(`📦 Formatting ${pendingProducts.length} identified products as Facebook Generic Templates...`);
+      // SAFETY VALVE: Suppress cards during checkout, summary display, or after order creation to avoid spam
+      const isShowingSummary = finalResponse?.includes('📋 অর্ডার সামারি');
+      const isCollectingInfo = finalResponse?.includes('নাম:') || 
+                               finalResponse?.includes('ফোন:') || 
+                               finalResponse?.includes('ঠিকানা:');
+      const isOrderConfirmed = finalResponse?.includes('অর্ডারটি কনফার্ম করা হয়েছে') || 
+                               finalResponse?.includes('অর্ডার কনফার্ম হয়েছে') ||
+                               orderCreated;
       
-      const mappedProducts = pendingProducts.map((p: any) => {
-        let availableColors = Array.isArray(p.colors) ? [...p.colors] : [];
-        if (p.variant_stock && Array.isArray(p.variant_stock) && p.variant_stock.length > 0) {
-          availableColors = availableColors.filter(color => 
-            p.variant_stock.some((v: any) => v.color?.toLowerCase() === color.toLowerCase() && (v.quantity || 0) > 0)
-          );
-        } else if (p.variant_stock && typeof p.variant_stock === 'object' && Object.keys(p.variant_stock).length > 0) {
-          availableColors = availableColors.filter(color => {
-            const keys = Object.keys(p.variant_stock).filter(k => k.toLowerCase().includes(color.toLowerCase()));
-            return keys.some(k => Number((p.variant_stock as any)[k]) > 0);
-          });
-        }
-
-        return {
-          id: p.id,
-          name: p.name,
-          price: p.price,
-          imageUrl: p.imageUrl || p.image_urls?.[0] || undefined,
-          stock: p.stock_quantity ?? p.manual_stock,
-          variations: {
-            colors: availableColors,
-            sizes: p.sizes || []
+      if (isShowingSummary || isCollectingInfo || isOrderConfirmed) {
+        console.log('🚫 [CARD SUPPRESSION] Suppressing product card during checkout/summary/confirmation');
+        // Still clear the metadata so it doesn't leak to next turn
+        currentContext.metadata.identifiedProducts = undefined;
+        await updateContextInDb(supabase, input.conversationId, finalStateToSave, currentContext);
+      } else {
+        console.log(`📦 Formatting ${pendingProducts.length} identified products as Facebook Generic Templates...`);
+        
+        const mappedProducts = pendingProducts.map((p: any) => {
+          let availableColors = Array.isArray(p.colors) ? [...p.colors] : [];
+          if (p.variant_stock && Array.isArray(p.variant_stock) && p.variant_stock.length > 0) {
+            availableColors = availableColors.filter(color => 
+              p.variant_stock.some((v: any) => v.color?.toLowerCase() === color.toLowerCase() && (v.quantity || 0) > 0)
+            );
+          } else if (p.variant_stock && typeof p.variant_stock === 'object' && Object.keys(p.variant_stock).length > 0) {
+            availableColors = availableColors.filter(color => {
+              const keys = Object.keys(p.variant_stock).filter(k => k.toLowerCase().includes(color.toLowerCase()));
+              return keys.some(k => Number((p.variant_stock as any)[k]) > 0);
+            });
           }
-        };
-      });
 
-      if (!input.isTestMode) {
-        if (mappedProducts.length === 1) {
-           await sendProductCard(input.pageId, input.customerPsid, mappedProducts[0]);
-           productCard = mappedProducts[0];
-        } else {
-           await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts);
+          return {
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            imageUrl: p.imageUrl || p.image_urls?.[0] || undefined,
+            stock: p.stock_quantity,
+            variations: {
+              colors: availableColors,
+              sizes: p.sizes || []
+            }
+          };
+        });
+
+        if (!input.isTestMode) {
+          if (mappedProducts.length === 1) {
+             await sendProductCard(input.pageId, input.customerPsid, mappedProducts[0]);
+             productCard = mappedProducts[0];
+          } else {
+             await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts);
+          }
         }
+
+        // Log the product card as a system message
+        await supabase.from('messages').insert({
+          conversation_id: input.conversationId,
+          sender: 'bot',
+          sender_type: 'bot',
+          message_text: `[Sent Generic Template: ${mappedProducts.length} products]`,
+          message_type: 'template',
+        });
+
+        // Clear the identified products so we don't resend them on next turn
+        currentContext.metadata.identifiedProducts = undefined;
+        await updateContextInDb(supabase, input.conversationId, finalStateToSave, currentContext);
       }
-
-      // Log the product card as a system message
-      await supabase.from('messages').insert({
-        conversation_id: input.conversationId,
-        sender: 'bot',
-        sender_type: 'bot',
-        message_text: `[Sent Generic Template: ${mappedProducts.length} products]`,
-        message_type: 'template',
-      });
-
-      // Clear the identified products so we don't resend them on next turn
-      currentContext.metadata.identifiedProducts = undefined;
-      await updateContextInDb(supabase, input.conversationId, finalStateToSave, currentContext);
     }
 
     if (agentResult.shouldFlag) {

@@ -364,6 +364,37 @@ async function executeUpdateCustomerInfo(
 
   const currentCheckout = ctx.conversationContext.checkout || {};
 
+  // --- POST-ORDER PROTECTION ---
+  // If the customer updates info AFTER an order is already saved, flag for manual review
+  try {
+    const supabase = createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+
+    const { data: recentOrders } = await supabase
+      .from('orders')
+      .select('id, status')
+      .eq('conversation_id', ctx.conversationId)
+      .eq('status', 'pending')
+      .limit(1);
+
+    if (recentOrders && recentOrders.length > 0) {
+      console.log(`🚩 [POST-ORDER UPDATE] Customer trying to update info after order ${recentOrders[0].id}. Flagging.`);
+      return {
+        result: { 
+          success: false, 
+          data: { shouldFlag: true }, 
+          message: "আপনার অর্ডারটি ইতিমধ্যই কনফার্ম করা হয়েছে। তথ্য পরিবর্তন করতে চাইলে আমাদের টিম আপনার সাথে কথা বলবে। 😊" 
+        },
+        sideEffects: { shouldFlag: true },
+      };
+    }
+  } catch (err) {
+    console.error('Error checking recent orders:', err);
+  }
+
   // Calculate delivery charge if address is provided
   let deliveryCharge = currentCheckout.deliveryCharge;
   if (address) {
@@ -649,7 +680,7 @@ async function executeCheckStock(
 
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, name, price, stock_quantity, manual_stock, product_settings, sizes, colors, variant_stock, size_stock, image_urls')
+      .select('id, name, price, stock_quantity, sizes, colors, variant_stock, size_stock, image_urls')
       .eq('workspace_id', ctx.workspaceId)
       .ilike('name', `%${query}%`)
       .limit(3);
@@ -668,7 +699,7 @@ async function executeCheckStock(
     }
 
     const stockInfo = (products as Record<string, any>[]).map((p) => {
-      let actualStock = p.stock_quantity ?? p.manual_stock ?? 0;
+      let actualStock = p.stock_quantity ?? 0;
       
       if (requestedSize || requestedColor) {
         if (p.variant_stock && Array.isArray(p.variant_stock)) {
@@ -821,13 +852,39 @@ async function executeCollectPaymentDigits(
     };
   }
 
+  // --- DATABASE SYNC ---
+  // If we are awaiting digits for a specific order, update it in the DB immediately
+  const metadata = ctx.conversationContext.metadata || {};
+  const orderId = (metadata as any).awaitingPaymentOrderId;
+
+  if (orderId) {
+    try {
+      const supabase = createClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+
+      const { error } = await supabase
+        .from('orders')
+        .update({ payment_last_two_digits: digits } as any)
+        .eq('id', orderId);
+
+      if (!error) {
+        console.log(`✅ [PAYMENT SYNC] Saved digits "${digits}" to order ${orderId}`);
+      }
+    } catch (err) {
+      console.error('Failed to sync payment digits to DB:', err);
+    }
+  }
+
   const currentCheckout = ctx.conversationContext.checkout || {};
 
   return {
     result: {
       success: true,
       data: { digits },
-      message: `Payment digits "${digits}" saved successfully.`,
+      message: `Payment digits "${digits}" saved successfully to the order.`,
     },
     sideEffects: {
       updatedContext: {
@@ -835,6 +892,11 @@ async function executeCollectPaymentDigits(
           ...currentCheckout,
           paymentLastTwoDigits: digits,
         },
+        metadata: {
+          ...metadata,
+          awaitingPaymentDigits: false, // Clear the flag
+          awaitingPaymentOrderId: undefined,
+        }
       },
     },
   };

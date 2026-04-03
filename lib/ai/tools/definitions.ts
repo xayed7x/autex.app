@@ -106,7 +106,7 @@ const updateCustomerInfo: ChatCompletionTool = {
     name: 'update_customer_info',
     description:
       'Save or update the customer\'s checkout details (name, phone, address). ' +
-      'Use when the customer provides their personal information for an order. ' +
+      'MUST be called if memory has info that is missing from the Cart State. ' +
       'You can update one or more fields at a time.',
     parameters: {
       type: 'object',
@@ -136,6 +136,7 @@ const updateCustomerInfo: ChatCompletionTool = {
           description: 'Number of items the customer wants to order. Defaults to 1 if not specified.',
         },
       },
+      required: ['name', 'phone', 'address'],
     },
   },
 };
@@ -151,7 +152,25 @@ const saveOrder: ChatCompletionTool = {
       'Do NOT generate order confirmation or payment messages after calling this — the system handles those automatically.',
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        customerName: {
+          type: 'string',
+          description: 'Customer\'s full name.',
+        },
+        customerPhone: {
+          type: 'string',
+          description: 'Customer\'s phone number.',
+        },
+        customerAddress: {
+          type: 'string',
+          description: 'Full delivery address.',
+        },
+        note: {
+          type: 'string',
+          description: 'Optional delivery note.',
+        },
+      },
+      required: ['customerName', 'customerPhone', 'customerAddress'],
     },
   },
 };

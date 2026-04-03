@@ -98,7 +98,7 @@ export async function executeTool(
       return executeUpdateCustomerInfo(args, ctx);
 
     case 'save_order':
-      return executeSaveOrder(ctx);
+      return executeSaveOrder(args, ctx);
 
     case 'flag_for_review':
       return executeFlagForReview(args, ctx);
@@ -375,13 +375,14 @@ async function executeUpdateCustomerInfo(
 
     const { data: recentOrders } = await supabase
       .from('orders')
-      .select('id, status')
+      .select('id, status, payment_last_two_digits')
       .eq('conversation_id', ctx.conversationId)
       .eq('status', 'pending')
+      .order('created_at', { ascending: false })
       .limit(1);
 
-    if (recentOrders && recentOrders.length > 0) {
-      console.log(`🚩 [POST-ORDER UPDATE] Customer trying to update info after order ${recentOrders[0].id}. Flagging.`);
+    if (recentOrders && recentOrders.length > 0 && recentOrders[0].payment_last_two_digits) {
+      console.log(`🚩 [POST-ORDER UPDATE] Customer trying to update info after order ${recentOrders[0].id} is finalized. Flagging.`);
       return {
         result: { 
           success: false, 
@@ -513,14 +514,20 @@ async function executeUpdateCustomerInfo(
  * and stock deduction. See save-order.ts for complete logic.
  */
 async function executeSaveOrder(
+  args: Record<string, unknown>,
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
+  const customerName = args.customerName ? String(args.customerName) : undefined;
+  const customerPhone = args.customerPhone ? String(args.customerPhone) : undefined;
+  const customerAddress = args.customerAddress ? String(args.customerAddress) : undefined;
+
   const result = await saveOrder(
     ctx.workspaceId,
     ctx.conversationId,
     ctx.fbPageId,
     ctx.conversationContext,
-    ctx.settings
+    ctx.settings,
+    { customerName, customerPhone, customerAddress }
   );
 
   // If order was successful, reset negotiation rounds

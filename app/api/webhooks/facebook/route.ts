@@ -573,13 +573,25 @@ async function processMessagingEvent(
 
     // Extract image URL if present
     let imageUrl: string | undefined;
+    let modifiedMessageText = message.text || '';
+
     if (message.attachments && message.attachments.length > 0) {
+      // Handle Images
       const imageAttachment = message.attachments.find(
         (att) => att.type === 'image'
       );
       if (imageAttachment && imageAttachment.payload?.url) {
         imageUrl = imageAttachment.payload.url;
         console.log('📸 Image attachment detected:', imageUrl);
+      }
+
+      // Handle Audio (Voice Messages)
+      const audioAttachment = message.attachments.find(
+        (att) => att.type === 'audio'
+      );
+      if (audioAttachment) {
+        console.log('🎙️ Audio attachment detected');
+        modifiedMessageText = '[User sent a voice message]';
       }
     }
 
@@ -706,7 +718,7 @@ async function processMessagingEvent(
         conversation_id: conversation.id,
         sender: 'page', // Keep 'page' for backward compatibility
         sender_type: 'owner', // New field to distinguish owner from bot
-        message_text: messageText,
+        message_text: modifiedMessageText,
         message_type: message.attachments ? 'attachment' : 'text',
         attachments: message.attachments || null,
       });
@@ -745,9 +757,9 @@ async function processMessagingEvent(
       // Still save the customer message to database
       await supabase.from('messages').insert({
         conversation_id: conversation.id,
-        sender: 'customer',
+        sender: customerPsid,
         sender_type: 'customer',
-        message_text: messageText,
+        message_text: modifiedMessageText,
         message_type: message.attachments ? 'attachment' : 'text',
         attachments: message.attachments || null,
       });
@@ -773,9 +785,9 @@ async function processMessagingEvent(
       // Still save the customer message to database
       await supabase.from('messages').insert({
         conversation_id: conversation.id,
-        sender: 'customer',
+        sender: customerPsid,
         sender_type: 'customer',
-        message_text: messageText,
+        message_text: modifiedMessageText,
         message_type: message.attachments ? 'attachment' : 'text',
         attachments: message.attachments || null,
       });
@@ -796,9 +808,9 @@ async function processMessagingEvent(
     
     await supabase.from('messages').insert({
       conversation_id: conversation.id,
-      sender: 'customer',
+      sender: customerPsid,
       sender_type: 'customer', // New field
-      message_text: messageText,
+      message_text: modifiedMessageText,
       message_type: message.attachments ? 'attachment' : 'text',
       attachments: message.attachments || null,
     });
@@ -948,7 +960,7 @@ async function processMessagingEvent(
       await processMessage({
         pageId,
         customerPsid,
-        messageText: messageText || undefined,
+        messageText: modifiedMessageText || undefined,
         imageUrl,
         workspaceId: fbPage.workspace_id,
         fbPageId: fbPage.id,

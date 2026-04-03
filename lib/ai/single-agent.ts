@@ -944,7 +944,7 @@ STEP 4 — check_stock result:
   do NOT proceed with order
 
 STEP 5 — After customer confirms summary with yes:
-Call save_order immediately.
+Call save_order immediately, passing all customer details (name, phone, address) as arguments. Never call with empty arguments.
 
 This validation must happen through your reasoning. 
 Never skip a step. Never assume a field is present 
@@ -1009,7 +1009,7 @@ STEP 4 — check_stock result:
   do NOT proceed with order
 
 STEP 5 — After customer confirms summary with yes:
-Call save_order immediately.
+Call save_order immediately, passing all customer details (name, phone, address) as arguments. Never call with empty arguments.
 
 This validation must happen through your reasoning. 
 Never skip a step. Never assume a field is present 

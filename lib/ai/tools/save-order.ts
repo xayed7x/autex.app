@@ -54,16 +54,26 @@ const MIN_ADDRESS_LENGTH = 10;
  * @param fbPageId - Facebook page ID for the order
  * @param context - Current conversation context (cart, checkout, metadata)
  * @param settings - Workspace settings (for delivery charge calculation)
+ * @param overrides - Optional customer info passed directly by AI
  */
 export async function saveOrder(
   workspaceId: string,
   conversationId: string,
   fbPageId: number,
   context: ConversationContext,
-  settings: WorkspaceSettings
+  settings: WorkspaceSettings,
+  overrides?: { customerName?: string; customerPhone?: string; customerAddress?: string }
 ): Promise<SaveOrderOutput> {
   const cart = context.cart || [];
-  const checkout = context.checkout || {};
+  
+  // Prioritize overrides from tool arguments over context
+  const checkout = {
+    ...context.checkout,
+    ...(overrides?.customerName && { customerName: overrides.customerName }),
+    ...(overrides?.customerPhone && { customerPhone: overrides.customerPhone }),
+    ...(overrides?.customerAddress && { customerAddress: overrides.customerAddress }),
+  };
+  
   const negotiation = (context.metadata as Record<string, any>)?.negotiation;
 
   // ========================================

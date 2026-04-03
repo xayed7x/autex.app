@@ -322,6 +322,14 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       currentContext
     );
     
+    // Capture flags for card suppression BEFORE metadata is potentially modified
+    const isShowingSummary = finalResponse?.includes('📋 অর্ডার সামারি');
+    const isCollectingInfo = finalResponse?.includes('নাম:') || 
+                             finalResponse?.includes('ফোন:') || 
+                             finalResponse?.includes('ঠিকানা:');
+    const isConfirmationMsg = finalResponse?.includes('অর্ডারটি কনফার্ম করা হয়েছে') || 
+                              finalResponse?.includes('অর্ডার কনফার্ম হয়েছে');
+
     // Send response via Facebook API
     if (finalResponse) {
       if (!input.isTestMode) {
@@ -346,24 +354,19 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const pendingProducts = currentContext.metadata?.identifiedProducts;
     let productCard: ProductCard | undefined;
     if (pendingProducts && pendingProducts.length > 0) {
-      // SAFETY VALVE: Suppress cards during checkout, summary display, or after order creation to avoid spam
-      const isShowingSummary = finalResponse?.includes('📋 অর্ডার সামারি');
-      const isCollectingInfo = finalResponse?.includes('নাম:') || 
-                               finalResponse?.includes('ফোন:') || 
-                               finalResponse?.includes('ঠিকানা:');
-      const isOrderConfirmed = finalResponse?.includes('অর্ডারটি কনফার্ম করা হয়েছে') || 
-                               finalResponse?.includes('অর্ডার কনফার্ম হয়েছে') ||
-                               orderCreated;
-      
-      if (isShowingSummary || isCollectingInfo || isOrderConfirmed) {
-        console.log('🚫 [CARD SUPPRESSION] Suppressing product card during checkout/summary/confirmation');
-        // Still clear the metadata so it doesn't leak to next turn
+      // Filter out products that are already in the cart to avoid redundancy
+      const cartProductIds = (currentContext.cart || []).map(item => item.productId);
+      const uniquePendingProducts = pendingProducts.filter((p: any) => !cartProductIds.includes(p.id));
+
+      // SAFETY VALVE: Suppress cards during checkout, summary display, or after order creation
+      if (isShowingSummary || isCollectingInfo || isConfirmationMsg || orderCreated || uniquePendingProducts.length === 0) {
+        console.log('🚫 [CARD SUPPRESSION] Suppressing product card');
         currentContext.metadata.identifiedProducts = undefined;
         await updateContextInDb(supabase, input.conversationId, finalStateToSave, currentContext);
       } else {
-        console.log(`📦 Formatting ${pendingProducts.length} identified products as Facebook Generic Templates...`);
+        console.log(`📦 Formatting ${uniquePendingProducts.length} identified products as Facebook Generic Templates...`);
         
-        const mappedProducts = pendingProducts.map((p: any) => {
+        const mappedProducts = uniquePendingProducts.map((p: any) => {
           let availableColors = Array.isArray(p.colors) ? [...p.colors] : [];
           if (p.variant_stock && Array.isArray(p.variant_stock) && p.variant_stock.length > 0) {
             availableColors = availableColors.filter(color => 

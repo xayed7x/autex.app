@@ -38,6 +38,14 @@ const searchProducts: ChatCompletionTool = {
           type: 'string',
           description: 'Specific color requested by customer (e.g., "Red", "Blue"). Optional.',
         },
+        sendCard: {
+          type: 'boolean',
+          description: 
+            'Whether to send a visual product card to the customer after search. ' +
+            'Set true ONLY when customer is discovering or browsing products for the first time (new search intent). ' +
+            'Set false when customer is asking follow-up questions about a product already shown (details, fabric, price, size questions, order flow). ' +
+            'Default: true for new searches, false for follow-ups.',
+        },
       },
       required: ['query'],
     },

@@ -145,6 +145,9 @@ async function executeSearchProducts(
   const color = args.color ? String(args.color) : undefined;
   const searchResult = await searchProducts(query, ctx.workspaceId, size, color);
 
+  const sendCard = args.sendCard !== false;
+  // Default true if not specified
+
   return {
     result: {
       success: searchResult.success,
@@ -155,7 +158,13 @@ async function executeSearchProducts(
       updatedContext: {
         metadata: {
           ...ctx.conversationContext.metadata,
-          identifiedProducts: searchResult.products,
+          identifiedProducts: sendCard 
+            ? searchResult.products 
+            : ctx.conversationContext.metadata
+              ?.identifiedProducts,
+          // If sendCard false: keep existing
+          // identifiedProducts, don't overwrite
+          // So orchestrator won't send new card
         },
       },
     },

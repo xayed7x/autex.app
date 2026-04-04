@@ -116,14 +116,27 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const messageText = input.messageText?.trim() || '';
     const PAYMENT_DIGIT_REGEX = /^\d{2}$/;
 
-    if (currentContext.metadata?.awaitingPaymentDigits && PAYMENT_DIGIT_REGEX.test(messageText)) {
-      console.log(`💳 [FAST PATH] Payment digits received: ${messageText}`);
+    // Also add digit extraction for natural 
+    // language messages when flag is active:
+    let extractedDigits: string | null = null;
+    if (currentContext.metadata?.awaitingPaymentDigits) {
+      const digitMatch = messageText.match(/\b(\d{2})\b/);
+      if (digitMatch) {
+        extractedDigits = digitMatch[1];
+      }
+    }
+
+    const isExactDigits = PAYMENT_DIGIT_REGEX.test(messageText);
+    const digitsToProcess = isExactDigits ? messageText : extractedDigits;
+
+    if (currentContext.metadata?.awaitingPaymentDigits && digitsToProcess) {
+      console.log(`💳 [FAST PATH] Payment digits received: ${digitsToProcess}`);
       
       // Save payment digits to the order in the database
       const orderId = currentContext.metadata.awaitingPaymentOrderId;
       if (orderId) {
         await supabase.from('orders').update({
-          payment_last_two_digits: messageText,
+          payment_last_two_digits: digitsToProcess,
         } as any).eq('id', orderId);
         console.log(`💳 [FAST PATH] Saved payment_digits to order ${orderId}`);
       }
@@ -135,7 +148,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       
       const reviewMessage = paymentReviewTemplate
         .replace(/\{name\}/g, customerName)
-        .replace(/\{digits\}/g, messageText);
+        .replace(/\{digits\}/g, digitsToProcess);
 
       // Clear the flag
       currentContext.metadata.awaitingPaymentDigits = false;

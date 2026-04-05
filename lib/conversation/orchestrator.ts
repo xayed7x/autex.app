@@ -24,6 +24,8 @@ export interface ProcessMessageInput {
   customerPsid: string;
   messageText?: string;
   imageUrl?: string;
+  mid?: string | null;
+  replyToMid?: string | null;
   workspaceId: string;
   fbPageId: number;
   conversationId: string;
@@ -164,6 +166,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         sender_type: 'customer',
         message_text: messageText,
         message_type: 'text',
+        image_url: input.imageUrl || null,
+        mid: input.mid || null,
       });
 
       // Send response
@@ -193,16 +197,37 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // Load ALL messages for this conversation to feed the memory manager
     const { data: allMessages, error: msgError } = await supabase
       .from('messages')
-      .select('sender, message_text, created_at')
+      .select('sender, message_text, created_at, mid, image_url')
       .eq('conversation_id', input.conversationId)
       .order('created_at', { ascending: true }); // Chronological order
 
     if (msgError) throw msgError;
 
-    const chatHistory = (allMessages || []).map((msg: any) => ({
-      role: msg.sender === 'bot' ? 'assistant' : 'user',
-      content: msg.message_text || '',
-    })) as ChatCompletionMessageParam[];
+    const chatHistory = (allMessages || []).map((msg: any) => {
+      let content = msg.message_text || '';
+      if (msg.image_url) {
+        content += content ? ` [Customer sent an image]` : '[Customer sent an image]';
+      }
+      return {
+        role: msg.sender === 'bot' ? 'assistant' : 'user',
+        content,
+      };
+    }) as ChatCompletionMessageParam[];
+
+    // ========================================
+    // REPLY CONTEXT
+    // ========================================
+    let replyContext: string | undefined;
+    if (input.replyToMid && allMessages) {
+      const repliedMsg = allMessages.find((m: any) => m.mid === input.replyToMid);
+      if (repliedMsg) {
+        if (repliedMsg.sender === 'bot') {
+          replyContext = `[Customer is replying to bot's message: '${repliedMsg.message_text}']`;
+        } else if (repliedMsg.image_url) {
+          replyContext = `[Customer is replying to their own image message]`;
+        }
+      }
+    }
 
     // ========================================
     // STEP 2: HANDLE IMAGES (UNTOUCHED RECOGNITION API)
@@ -270,6 +295,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       fbPageId: input.fbPageId.toString(), // Passing as string for tool executor compatibility
       conversationId: input.conversationId,
       messageText: input.messageText || '',
+      replyContext,
       imageRecognitionResult: imageContext,
       conversationHistory: recentMessages,
       memorySummary,

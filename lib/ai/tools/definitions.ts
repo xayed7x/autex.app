@@ -64,7 +64,7 @@ const addToCart: ChatCompletionTool = {
       properties: {
         productId: {
           type: 'string',
-          description: 'The product ID to add.',
+          description: 'The product UUID (id field) obtained from a prior search_products or check_stock tool call result. NEVER pass a product name here.',
         },
         quantity: {
           type: 'number',

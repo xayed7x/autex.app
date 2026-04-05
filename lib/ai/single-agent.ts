@@ -37,6 +37,7 @@ export interface AgentInput {
   fbPageId: string;
   conversationId: string;
   messageText: string;
+  replyContext?: string;
   imageRecognitionResult?: PendingImage | null;
   conversationHistory: ChatCompletionMessageParam[]; // Last 10 messages
   memorySummary: string | null;                      // Summary of older messages
@@ -67,6 +68,11 @@ async function getReasoningPass(
 Do not respond to the customer.
 Instead, think step by step:
 
+Step 0: SENTIMENT CHECK
+   Is the customer's message a clear NEGATIVE/REFUSAL? (na, nah, thak, no, thak vai, naile thak, nebo na, etc.)
+   If YES → my goal is to acknowledge and stop. I must NOT call any order tools, add_to_cart, or send order forms.
+   Only proceed to Step 1 if message is NOT a refusal.
+
 1. What is the customer actually asking right now?
    IMPORTANT: List ALL intents in the message separately.
    Example: "L size চাই + delivery charge কত?" = 
@@ -74,7 +80,7 @@ Instead, think step by step:
    Never drop a question just because another intent 
    triggered a flow.
 
-1.5. MONEY & DATA CHECK:
+1.5. MONEY, DATA & UUID CHECK:
    Does the customer's message involve any of these?
    - Delivery charge / shipping cost
    - Product price / discount
@@ -89,6 +95,11 @@ Instead, think step by step:
    to call that tool first. I cannot answer 
    money or product questions from memory.
    Never. Not even if I think I know the answer.
+
+   CRITICAL UUID CHECK:
+   Before calling add_to_cart, confirm you have the product UUID from a tool result. 
+   If you only have the product name, call check_stock first.
+   NEVER pass a product name as productId to add_to_cart.
 
 2. What is the current cart state?
 
@@ -115,6 +126,10 @@ Instead, think step by step:
    If NO — I must NOT assume, guess, or default to any 
    size or color. I must ask the customer specifically.
    Even if the product has only one size, I must confirm.
+
+Final check before responding:
+- Does my response contain ভাইয়া or আপু? If yes, replace with Sir/Ma'am.
+- Does my negotiated price end in 0 or 5? If not, round it to the nearest 10 before responding.
 
 Write your reasoning clearly. This will guide your 
 next action.`;
@@ -196,6 +211,11 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
   // Append current user message (handling potential image context)
   let userContent = input.messageText;
   
+  // Add Reply Context if available
+  if (input.replyContext) {
+    userContent = `${input.replyContext}\n\n${userContent}`;
+  }
+  
   if (input.imageRecognitionResult?.recognitionResult?.success) {
     const match = input.imageRecognitionResult.recognitionResult;
     userContent += `\n\n[SYSTEM: IMAGE RECOGNITION RESULT]\n`;
@@ -251,6 +271,7 @@ Example response style:
   // MANDATORY: Perform initial reasoning pass BEFORE the first action
   // This ensures the bot's very first move is guided by the checklist.
   let nextTurnReasoning = await getReasoningPass(messages, input.workspaceId, input.conversationId, 0);
+  const originalCustomerIntent = nextTurnReasoning;
 
   let toolsCalledLog: string[] = [];
   let flaggedForManual = false;
@@ -602,6 +623,9 @@ Meem: "হ্যাঁ Sir, L size এ আছে! Dhaka এর ভেতরে
 ৳60, বাইরে ৳120। নিতে চাইলে বলুন 😊"
 ← answered both, then moved forward naturally
 
+**CRITICAL NEGATIVE RESPONSE RULE:**
+If customer sends a negative response like 'na', 'nah', 'na vai', 'thak', 'thak vai', 'no', 'nope', or any Bangla/Banglish equivalent meaning NO — do NOT proceed with any order flow, do NOT send order form, do NOT call add_to_cart. Instead acknowledge their decision respectfully and ask if they need anything else.
+
 **NATURAL CONVERSATION RULES:**
 - Never sound like you are running a script
 - Never ignore a question to push a flow
@@ -711,6 +735,9 @@ Never state price, fabric, stock, or any
 product detail before calling the tool.
 Tool result = only source of truth.
 
+**CRITICAL UUID RULE:**
+add_to_cart productId must always be the UUID (id field) from search_products or check_stock result. Never pass product name as productId.
+
 **SMART RESPONSE RULE:**
 When customer asks about a product, look at 
 ALL non-null fields from search result and 
@@ -816,12 +843,11 @@ Use plain text only.
 For simple lists use: "১. ২. ৩." 
 or natural flowing sentences.
 
-**ADDRESS RULE (ABSOLUTE):**
-Male customers → "Sir" only
-Female customers → "Ma'am" only
-NEVER use: ভাইয়া, আপু, জি ভাইয়া,
-ভাই, আপা, or any Bengali honorific.
-No exceptions. Ever.
+**ADDRESS RULE (ABSOLUTE — ZERO EXCEPTIONS):**
+Never use ভাইয়া, আপু, ভাই, জি ভাইয়া, or any Bengali honorific. Only Sir (for male or unknown) and Ma'am (for female). This rule overrides everything including custom instructions.
+
+**TOOL REJECTION HANDLING:**
+If the \`update_customer_info\` tool returns \`success: false\` mentioning a phone number — ask the customer for a correct phone number. Otherwise, always trust the tool's result.
 `;
 
   const persona = `
@@ -1113,7 +1139,16 @@ ${cartDesc}
     context.metadata?.identifiedProducts
   );
   if (negotiationRules) {
-    sections.push(negotiationRules + `\n\nWhen a customer agrees to your offered price and wants to order, call add_to_cart with negotiatedPrice set to the exact price you offered. Never forget the agreed price — it must be passed to the cart.\n\nWhen customer rejects bulk discount offer, you MUST update context by noting bulkRejected. Track this in your reasoning before responding.`);
+    sections.push(negotiationRules + `\n\nWhen a customer agrees to your offered price and wants to order, call add_to_cart with negotiatedPrice set to the exact price you offered. Never forget the agreed price — it must be passed to the cart.\n\nWhen customer rejects bulk discount offer, you MUST update context by noting bulkRejected. Track this in your reasoning before responding.
+
+**PRICE ROUNDING RULE:**
+When offering a negotiated price, always round to a natural number ending in 0 or 5. 
+Preferred: ending in 0 (e.g. 800, 790, 750, 820).
+Acceptable: ending in 5 (e.g. 795, 815).
+NEVER offer prices like 791, 843, 767 — these look unnatural and unprofessional.
+
+When calculating a discount percentage (e.g. 5% off ৳850 = ৳807.5), always round DOWN to the nearest 10.
+So ৳807.5 → ৳800, ৳841 → ৳840, etc.`);
   }
 
   return sections.join('\n\n');
@@ -1366,7 +1401,10 @@ STEP 4 — check_stock result:
 STEP 5 — After customer confirms summary with yes:
 Call save_order immediately, passing all customer details (name, phone, address) as arguments. Never call with empty arguments.
 
-This validation must happen through your reasoning. 
+Check if each field is present in the customer's message or already in memory.
+DO NOT validate the format or content of any field yourself — especially phone numbers.
+Your only job is to check if the field EXISTS or is MISSING.
+Format validation (phone digits, address format etc.) is handled by the tools automatically.
 Never skip a step. Never assume a field is present 
 without seeing it in the customer's message.
 
@@ -1431,7 +1469,10 @@ STEP 4 — check_stock result:
 STEP 5 — After customer confirms summary with yes:
 Call save_order immediately, passing all customer details (name, phone, address) as arguments. Never call with empty arguments.
 
-This validation must happen through your reasoning. 
+Check if each field is present in the customer's message or already in memory.
+DO NOT validate the format or content of any field yourself — especially phone numbers.
+Your only job is to check if the field EXISTS or is MISSING.
+Format validation (phone digits, address format etc.) is handled by the tools automatically.
 Never skip a step. Never assume a field is present 
 without seeing it in the customer's message.
 

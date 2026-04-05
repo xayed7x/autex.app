@@ -60,7 +60,8 @@ export interface ToolExecutionOutput {
 const BD_PHONE_REGEX = /^01[3-9]\d{8}$/;
 
 function normalizePhone(phone: string): string {
-  return phone.replace(/[\s\-()]/g, '');
+  // Normalize by removing everything that is not a digit
+  return phone.replace(/\D/g, '');
 }
 
 function isValidBDPhone(phone: string): boolean {
@@ -353,22 +354,36 @@ async function executeUpdateCustomerInfo(
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
   const name = args.name ? String(args.name).trim() : undefined;
-  const phone = args.phone ? String(args.phone).trim() : undefined;
+  let phone = args.phone ? String(args.phone).trim() : undefined;
   const address = args.address ? String(args.address).trim() : undefined;
   const size = args.size ? String(args.size).trim() : undefined;
   const color = args.color ? String(args.color).trim() : undefined;
   const quantity = args.quantity ? Number(args.quantity) : undefined;
 
-  // Validate phone if provided
-  if (phone && !isValidBDPhone(phone)) {
-    return {
-      result: {
-        success: false,
-        data: { invalidField: 'phone' },
-        message: `Invalid phone number "${phone}". Must be a valid Bangladesh number (01XXXXXXXXX, 11 digits).`,
-      },
-      sideEffects: {},
-    };
+  // Validate and normalize phone if provided
+  if (phone) {
+    let normalizedPhone = phone.replace(/\D/g, ''); // Remove all non-digits first
+    
+    // Handle international format: +8801XXXXXXXXX or 8801XXXXXXXXX
+    if (normalizedPhone.startsWith('880') && normalizedPhone.length === 13) {
+      normalizedPhone = '0' + normalizedPhone.slice(3); // Convert to 01XXXXXXXXX
+    }
+    
+    const isValid = normalizedPhone.length === 11 && normalizedPhone.startsWith('01');
+    
+    if (!isValid) {
+      return {
+        result: {
+          success: false,
+          data: { invalidField: 'phone' },
+          message: `Phone number "${phone}" is invalid. Must be 11 digits starting with 01 (e.g. 01712345678).`,
+        },
+        sideEffects: {},
+      };
+    }
+    
+    // Use the normalized version for saving
+    phone = normalizedPhone;
   }
 
   const currentCheckout = ctx.conversationContext.checkout || {};

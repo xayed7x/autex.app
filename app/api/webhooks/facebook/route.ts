@@ -570,6 +570,7 @@ async function processMessagingEvent(
 
     const messageText = message.text || '';
     const messageId = message.mid;
+    const replyToMid = message.reply_to?.mid || null;
 
     // Extract image URL if present
     let imageUrl: string | undefined;
@@ -721,6 +722,8 @@ async function processMessagingEvent(
         message_text: modifiedMessageText,
         message_type: message.attachments ? 'attachment' : 'text',
         attachments: message.attachments || null,
+        mid: messageId || null,
+        image_url: imageUrl || null,
       });
       
       // Update conversation to hybrid mode and track manual reply
@@ -813,6 +816,8 @@ async function processMessagingEvent(
       message_text: modifiedMessageText,
       message_type: message.attachments ? 'attachment' : 'text',
       attachments: message.attachments || null,
+      image_url: imageUrl || null,
+      mid: messageId || null,
     });
     
     // Update last_message_at for customer messages
@@ -962,6 +967,8 @@ async function processMessagingEvent(
         customerPsid,
         messageText: modifiedMessageText || undefined,
         imageUrl,
+        mid: messageId,
+        replyToMid,
         workspaceId: fbPage.workspace_id,
         fbPageId: fbPage.id,
         conversationId: conversation.id,

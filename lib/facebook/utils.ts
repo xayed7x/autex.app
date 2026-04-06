@@ -59,6 +59,7 @@ export interface ReferralEvent {
 export interface Message {
   mid: string;
   text?: string;
+  reply_to?: { mid: string };
   attachments?: Attachment[];
 }
 

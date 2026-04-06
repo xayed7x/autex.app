@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/types/supabase';
 import {
   verifySignature,
   generateEventId,
@@ -57,7 +55,10 @@ export async function GET(request: NextRequest) {
  * POST /api/webhooks/facebook
  * Handles incoming Facebook webhook events
  * 
- * SIMPLIFIED VERSION - All logic delegated to Orchestrator
+ * PATTERN: Respond immediately, process in background.
+ * Facebook requires a 200 OK within ~20 seconds. The AI orchestrator
+ * takes longer, so we validate the request, return 200 immediately,
+ * then fire-and-forget the heavy processing to an internal API route.
  */
 export async function POST(request: NextRequest) {
   console.log('🔥 [WEBHOOK] POST request received at:', new Date().toISOString());
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
     // ========================================
     
     const payload: FacebookWebhookPayload = JSON.parse(rawBody);
-    console.log('📦 [WEBHOOK] Payload:', JSON.stringify(payload, null, 2));
+    console.log('📦 [WEBHOOK] Payload received, entries:', payload.entry?.length || 0);
 
     if (payload.object !== 'page') {
       console.log(`⚠️ [WEBHOOK] Ignoring non-page event: ${payload.object}`);
@@ -98,57 +99,40 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // STEP 3: CREATE SUPABASE CLIENT
+    // STEP 3: FIRE-AND-FORGET BACKGROUND PROCESSING
     // ========================================
-    
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    );
+    // Determine the base URL for the internal API call.
+    // On Netlify, the URL env var is set automatically.
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+      || process.env.URL
+      || process.env.DEPLOY_URL
+      || 'https://app.autexai.com';
+
+    // Shared secret to authenticate internal calls
+    const internalSecret = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+    // Fire the background processing request — intentionally NOT awaited
+    fetch(`${baseUrl}/api/internal/process-event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-secret': internalSecret,
+      },
+      body: JSON.stringify(payload),
+    }).catch((err) => {
+      // Log but never throw — this is fire-and-forget
+      console.error('❌ [WEBHOOK] Failed to dispatch to internal processor:', err.message);
+    });
 
     // ========================================
-    // STEP 4: PROCESS EACH ENTRY
+    // STEP 4: RESPOND IMMEDIATELY
     // ========================================
-    
-    for (const entry of payload.entry) {
-      console.log(`🔄 [WEBHOOK] Processing entry: ${entry.id}`);
-      
-      // Process messaging events (Direct Messages)
-      if (entry.messaging) {
-        for (const event of entry.messaging) {
-          await processMessagingEvent(supabase, entry.id, event);
-        }
-      }
-      
-      // NEW: Handle feed/comment events
-      if (entry.changes) {
-        for (const change of entry.changes) {
-          if (
-            change.field === 'feed' &&
-            change.value?.item === 'comment' &&
-            change.value?.verb === 'add' &&
-            change.value?.message // ignore emoji-only or empty
-          ) {
-            await processCommentEvent(supabase, entry.id, change.value);
-          }
-        }
-      }
-    }
-
+    console.log('✅ [WEBHOOK] Returning 200 OK to Facebook immediately');
     return NextResponse.json({ status: 'ok' }, { status: 200 });
-  } catch (error: any) {
-    console.error('❌ [WEBHOOK ERROR]:', error.message);
-    if (error.stack) {
-      console.error('Stack trace:', error.stack.split('\n').slice(0, 5).join('\n'));
-    }
+  } catch (error) {
+    console.error('❌ [WEBHOOK] Error processing webhook:', error);
     // Return 200 to prevent Facebook from retrying
-    return NextResponse.json({ status: 'error', message: error.message }, { status: 200 });
+    return NextResponse.json({ status: 'error' }, { status: 200 });
   }
 }
 
@@ -157,7 +141,7 @@ export async function POST(request: NextRequest) {
  * 
  * ENHANCED VERSION - Detects owner vs customer messages and handles hybrid control mode
  */
-async function processMessagingEvent(
+export async function processMessagingEvent(
   supabase: any,
   entryId: string,
   event: MessagingEvent
@@ -812,31 +796,16 @@ async function processMessagingEvent(
     // LOG CUSTOMER MESSAGE
     // ========================================
     
-    console.log('💾 [DB] Saving customer message...');
-    const { error: insertError } = await supabase.from('messages').insert({
+    await supabase.from('messages').insert({
       conversation_id: conversation.id,
       sender: customerPsid,
-      sender_type: 'customer', // New field
+      sender_type: 'customer',
       message_text: modifiedMessageText,
       message_type: message.attachments ? 'attachment' : 'text',
       attachments: message.attachments || null,
       image_url: imageUrl || null,
       mid: messageId || null,
     });
-
-    if (insertError) {
-      console.error('❌ [DATABASE ERROR] Failed to save customer message:', insertError.message);
-      console.error('Full Error Detail:', JSON.stringify(insertError, null, 2));
-      // Log the object structure we tried to insert for debugging
-      console.log('Attempted Insert Data:', {
-        conversation_id: conversation.id,
-        sender_type: 'customer',
-        mid: messageId,
-        image_url: imageUrl
-      });
-    } else {
-      console.log('✅ [DB] Customer message saved successfully');
-    }
     
     // Update last_message_at for customer messages
     await supabase
@@ -1005,7 +974,7 @@ async function processMessagingEvent(
 /**
  * Process a Facebook comment event from the feed webhook
  */
-async function processCommentEvent(
+export async function processCommentEvent(
   supabase: any,
   pageId: string,
   commentData: {

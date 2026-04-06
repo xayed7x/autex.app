@@ -101,12 +101,10 @@ export async function POST(request: NextRequest) {
     // ========================================
     // STEP 3: FIRE-AND-FORGET BACKGROUND PROCESSING
     // ========================================
-    // Determine the base URL for the internal API call.
-    // On Netlify, the URL env var is set automatically.
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-      || process.env.URL
-      || process.env.DEPLOY_URL
-      || 'https://app.autexai.com';
+    // Determine the base URL for the internal API call dynamically using the incoming request's host
+    const host = request.headers.get('host') || 'app.autexai.com';
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    const baseUrl = `${protocol}://${host}`;
 
     // Shared secret to authenticate internal calls
     const internalSecret = process.env.SUPABASE_SERVICE_ROLE_KEY || '';

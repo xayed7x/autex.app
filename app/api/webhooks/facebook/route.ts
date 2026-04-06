@@ -142,10 +142,13 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ status: 'ok' }, { status: 200 });
-  } catch (error) {
-    console.error('❌ [WEBHOOK] Error processing webhook:', error);
+  } catch (error: any) {
+    console.error('❌ [WEBHOOK ERROR]:', error.message);
+    if (error.stack) {
+      console.error('Stack trace:', error.stack.split('\n').slice(0, 5).join('\n'));
+    }
     // Return 200 to prevent Facebook from retrying
-    return NextResponse.json({ status: 'error' }, { status: 200 });
+    return NextResponse.json({ status: 'error', message: error.message }, { status: 200 });
   }
 }
 
@@ -809,7 +812,8 @@ async function processMessagingEvent(
     // LOG CUSTOMER MESSAGE
     // ========================================
     
-    await supabase.from('messages').insert({
+    console.log('💾 [DB] Saving customer message...');
+    const { error: insertError } = await supabase.from('messages').insert({
       conversation_id: conversation.id,
       sender: customerPsid,
       sender_type: 'customer', // New field
@@ -819,6 +823,20 @@ async function processMessagingEvent(
       image_url: imageUrl || null,
       mid: messageId || null,
     });
+
+    if (insertError) {
+      console.error('❌ [DATABASE ERROR] Failed to save customer message:', insertError.message);
+      console.error('Full Error Detail:', JSON.stringify(insertError, null, 2));
+      // Log the object structure we tried to insert for debugging
+      console.log('Attempted Insert Data:', {
+        conversation_id: conversation.id,
+        sender_type: 'customer',
+        mid: messageId,
+        image_url: imageUrl
+      });
+    } else {
+      console.log('✅ [DB] Customer message saved successfully');
+    }
     
     // Update last_message_at for customer messages
     await supabase

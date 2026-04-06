@@ -8,6 +8,9 @@ import {
 import { processMessage } from '@/lib/conversation/orchestrator';
 import { processingLock } from '@/lib/conversation/processing-lock';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 /**
  * Protected states where bot should continue even if owner interrupts
  * These are critical order collection states - incomplete orders are bad UX
@@ -54,11 +57,6 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/webhooks/facebook
  * Handles incoming Facebook webhook events
- * 
- * PATTERN: Respond immediately, process in background.
- * Facebook requires a 200 OK within ~20 seconds. The AI orchestrator
- * takes longer, so we validate the request, return 200 immediately,
- * then fire-and-forget the heavy processing to an internal API route.
  */
 export async function POST(request: NextRequest) {
   console.log('🔥 [WEBHOOK] POST request received at:', new Date().toISOString());
@@ -99,33 +97,40 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // STEP 3: FIRE-AND-FORGET BACKGROUND PROCESSING
+    // STEP 3: PROCESS ENTRIES
     // ========================================
-    // Determine the base URL for the internal API call dynamically using the incoming request's host
-    const host = request.headers.get('host') || 'app.autexai.com';
-    const protocol = host.includes('localhost') ? 'http' : 'https';
-    const baseUrl = `${protocol}://${host}`;
+    
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
 
-    // Shared secret to authenticate internal calls
-    const internalSecret = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-    // Fire the background processing request — intentionally NOT awaited
-    fetch(`${baseUrl}/api/internal/process-event`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-internal-secret': internalSecret,
-      },
-      body: JSON.stringify(payload),
-    }).catch((err) => {
-      // Log but never throw — this is fire-and-forget
-      console.error('❌ [WEBHOOK] Failed to dispatch to internal processor:', err.message);
-    });
+    if (payload.entry) {
+      for (const entry of payload.entry) {
+        // Handle messaging events
+        if (entry.messaging) {
+          for (const event of entry.messaging) {
+            await processMessagingEvent(supabase, entry.id, event);
+          }
+        }
+        
+        // Handle changes (e.g., comments)
+        if (entry.changes) {
+          for (const change of entry.changes) {
+            if (change.field === 'feed') {
+              await processCommentEvent(supabase, entry.id, change.value);
+            }
+          }
+        }
+      }
+    }
 
     // ========================================
-    // STEP 4: RESPOND IMMEDIATELY
+    // STEP 4: RESPOND
     // ========================================
-    console.log('✅ [WEBHOOK] Returning 200 OK to Facebook immediately');
+    console.log('✅ [WEBHOOK] Processing complete, returning 200 OK');
     return NextResponse.json({ status: 'ok' }, { status: 200 });
   } catch (error) {
     console.error('❌ [WEBHOOK] Error processing webhook:', error);

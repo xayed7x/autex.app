@@ -45,6 +45,8 @@ export interface ToolSideEffects {
   orderCreated?: boolean;
   orderNumber?: string;
   shouldSendTransactionalMessages?: boolean;
+  shouldFlag?: boolean;
+  flagReason?: string;
 }
 
 /** Combined output from a tool execution. */
@@ -146,8 +148,8 @@ async function executeSearchProducts(
   const color = args.color ? String(args.color) : undefined;
   const searchResult = await searchProducts(query, ctx.workspaceId, size, color);
 
-  const sendCard = args.sendCard !== false;
-  // Default true if not specified
+  const sendCard = args.sendCard === true;
+  // Default false if not specified (to avoid spamming UI)
 
   return {
     result: {
@@ -389,7 +391,9 @@ async function executeUpdateCustomerInfo(
   const currentCheckout = ctx.conversationContext.checkout || {};
 
   // --- POST-ORDER PROTECTION ---
-  // If the customer updates info AFTER an order is already saved, flag for manual review
+  // If the customer updates info AFTER an order is already saved and paid for, flag for manual review.
+  // CRITICAL: We only trigger this if the cart is EMPTY. If there are items in the cart, 
+  // it means the customer is placing a NEW order, so info updates are allowed.
   try {
     const supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -399,25 +403,27 @@ async function executeUpdateCustomerInfo(
 
     const { data: recentOrders } = await supabase
       .from('orders')
-      .select('id, status, payment_last_two_digits')
+      .select('id, status, payment_last_two_digits, created_at')
       .eq('conversation_id', ctx.conversationId)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(1);
 
-    if (recentOrders && recentOrders.length > 0 && recentOrders[0].payment_last_two_digits) {
-      console.log(`🚩 [POST-ORDER UPDATE] Customer trying to update info after order ${recentOrders[0].id} is finalized. Flagging.`);
+    const isCartEmpty = !ctx.conversationContext.cart || ctx.conversationContext.cart.length === 0;
+
+    if (isCartEmpty && recentOrders && recentOrders.length > 0 && recentOrders[0].payment_last_two_digits) {
+      console.log(`🚩 [POST-ORDER UPDATE] Blocked: Customer trying to update info for finalized order ${recentOrders[0].id}.`);
       return {
         result: { 
           success: false, 
           data: { shouldFlag: true }, 
           message: "আপনার অর্ডারটি ইতিমধ্যই কনফার্ম করা হয়েছে। তথ্য পরিবর্তন করতে চাইলে আমাদের টিম আপনার সাথে কথা বলবে। 😊" 
         },
-        sideEffects: { shouldFlag: true },
+        sideEffects: { shouldFlag: true, flagReason: "Customer trying to update info for a finalized order." },
       };
     }
   } catch (err) {
-    console.error('Error checking recent orders:', err);
+    console.error('Error checking recent orders for post-order protection:', err);
   }
 
   // Calculate delivery charge if address is provided
@@ -768,6 +774,9 @@ async function executeCheckStock(
       };
     });
 
+    const sendCard = args.sendCard === true;
+    // Default false if not specified (to avoid spamming UI)
+
     return {
       result: {
         success: true,
@@ -778,7 +787,9 @@ async function executeCheckStock(
         updatedContext: {
           metadata: {
             ...ctx.conversationContext.metadata,
-            identifiedProducts: stockInfo,
+            identifiedProducts: sendCard
+              ? stockInfo
+              : ctx.conversationContext.metadata?.identifiedProducts,
           },
         },
       },

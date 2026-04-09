@@ -42,9 +42,9 @@ const searchProducts: ChatCompletionTool = {
           type: 'boolean',
           description: 
             'Whether to send a visual product card to the customer after search. ' +
-            'Set true ONLY when customer is discovering or browsing products for the first time (new search intent). ' +
-            'Set false when customer is asking follow-up questions about a product already shown (details, fabric, price, size questions, order flow). ' +
-            'Default: true for new searches, false for follow-ups.',
+            'Set true ONLY when the customer is asking to see the product for the first time. ' +
+            'Set false when customer is asking follow-up questions (details, fabric, size, price). ' +
+            'Default: false (to avoid spamming duplicate cards).',
         },
       },
       required: ['query'],
@@ -225,6 +225,13 @@ const checkStock: ChatCompletionTool = {
         color: {
           type: 'string',
           description: 'Specific color requested by customer (e.g., "Red", "Blue"). Optional.',
+        },
+        sendCard: {
+          type: 'boolean',
+          description: 
+            'Whether to send a visual product card to the customer. ' +
+            'Set false if the product card was already sent or the customer already saw the product. ' +
+            'Default: false.',
         },
       },
       required: ['query'],

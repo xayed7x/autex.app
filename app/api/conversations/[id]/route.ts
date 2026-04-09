@@ -186,16 +186,28 @@ export async function DELETE(
       .delete()
       .eq('conversation_id', id)
 
-    // Delete the conversation
-    const { error: deleteError } = await supabase
+    // Reset the conversation instead of deleting it
+    const { error: resetError } = await supabase
       .from('conversations')
-      .delete()
+      .update({
+        context: {
+          state: 'IDLE',
+          cart: [],
+          checkout: {},
+          metadata: { messageCount: 0 }
+        },
+        current_state: 'IDLE',
+        memory_summary: null,
+        memory_summarized_at: null,
+        control_mode: 'bot',
+        last_message_at: new Date().toISOString()
+      })
       .eq('id', id)
       .eq('workspace_id', workspace.id)
 
-    if (deleteError) {
-      console.error('Error deleting conversation:', deleteError)
-      return NextResponse.json({ error: deleteError.message }, { status: 500 })
+    if (resetError) {
+      console.error('Error resetting conversation:', resetError)
+      return NextResponse.json({ error: resetError.message }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

@@ -64,6 +64,8 @@ export const createProductSchema = z.object({
   variant_stock: z.array(variantStockItemSchema).optional(),
   pricing_policy: pricingPolicySchema.optional(),
   product_attributes: productAttributesSchema.optional(),
+  media_images: z.array(z.string()).optional(),
+  media_videos: z.array(z.string()).optional(),
 });
 
 /**
@@ -148,6 +150,12 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
     variant_stock: variantStock,
     pricing_policy: pricingPolicy,
     product_attributes: productAttributes,
+    media_images: formData.get('media_images')
+      ? (formData.get('media_images') as string).split(',').map(s => s.trim()).filter(Boolean)
+      : undefined,
+    media_videos: formData.get('media_videos')
+      ? (formData.get('media_videos') as string).split(',').map(s => s.trim()).filter(Boolean)
+      : undefined,
   };
 
   return createProductSchema.parse(data);
@@ -204,6 +212,12 @@ export function validateProductUpdateFormData(formData: FormData): UpdateProduct
     } catch (e) {
       console.error('Failed to parse product_attributes:', e);
     }
+  }
+  if (formData.has('media_images')) {
+    data.media_images = (formData.get('media_images') as string).split(',').map((s: string) => s.trim()).filter(Boolean);
+  }
+  if (formData.has('media_videos')) {
+    data.media_videos = (formData.get('media_videos') as string).split(',').map((s: string) => s.trim()).filter(Boolean);
   }
 
   return updateProductSchema.parse(data);

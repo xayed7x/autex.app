@@ -44,6 +44,8 @@ export interface ProductCard {
     colors?: string[];
     sizes?: string[];
   };
+  media_images?: string[];
+  media_videos?: string[];
 }
 
 export interface ProcessMessageResult {
@@ -260,6 +262,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           sizes: result.match?.product?.sizes,
           colors: result.match?.product?.colors,
           variantStock: result.match?.product?.variant_stock,
+          media_images: result.match?.product?.media_images,
+          media_videos: result.match?.product?.media_videos,
         },
       };
 
@@ -301,6 +305,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       memorySummary,
       context: currentContext, // Agent tools will directly mutate properties of this object
       settings,
+      customerPsid: input.customerPsid,
     };
 
     console.log(`🤖 Calling Agent... [Memory Summary: ${!!memorySummary}] [Messages Passed: ${recentMessages.length}]`);
@@ -431,7 +436,9 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
             product_attributes: p.product_attributes || null,
             description: p.description || null,
             variantStock: p.variantStock || null,
-            sizeStock: p.sizeStock || null
+            sizeStock: p.sizeStock || null,
+            media_images: p.media_images || [],
+            media_videos: p.media_videos || []
           };
         });
 
@@ -470,6 +477,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
             brand: mappedProducts[0].product_attributes?.brand || null,
             sizeChart: mappedProducts[0].product_attributes?.sizeChart || null,
           };
+          currentContext.metadata.activeProductMediaImages = mappedProducts[0].media_images;
+          currentContext.metadata.activeProductMediaVideos = mappedProducts[0].media_videos;
           currentContext.metadata.recentlyShownProducts = undefined;
         } else {
           // Carousel — customer must click a button to disambiguate

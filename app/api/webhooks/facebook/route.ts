@@ -7,6 +7,8 @@ import {
 } from '@/lib/facebook/utils';
 import { processMessage } from '@/lib/conversation/orchestrator';
 import { processingLock } from '@/lib/conversation/processing-lock';
+import { logApiUsage } from '@/lib/ai/usage-tracker';
+
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -989,20 +991,44 @@ export async function processCommentEvent(
   }
 ) {
   try {
-    console.log(`💬 [COMMENT] From: ${commentData.from.name} | Text: "${commentData.message}"`);
+    const commentId = commentData.comment_id;
+    const postId = commentData.post_id;
+    const fromId = commentData.from?.id;
+    const fromName = commentData.from?.name;
 
-    // Step 1: Skip if comment is too short or just emojis
-    const text = commentData.message.trim();
-    const hasRealText = /[a-zA-Z\u0980-\u09FF]/.test(text);
-    if (!hasRealText || text.length < 2) {
-      console.log('💬 [COMMENT] Skipping emoji/short comment');
+    console.log(`💬 [COMMENT_EVENT] Processing comment ${commentId} on post ${postId} from ${fromName}`);
+
+    // Step 1: Idempotency Check
+    const { data: existingEvent } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .eq('event_id', `comment_${commentId}`)
+      .single();
+
+    if (existingEvent || !commentId || commentId === 'undefined') {
+      console.log(`💬 [COMMENT_EVENT] Skipping duplicate or invalid comment: ${commentId}`);
       return;
     }
 
+    // Log the event immediately to prevent race conditions
+    await supabase.from('webhook_events').insert({
+      event_id: `comment_${commentId}`,
+      event_type: 'comment',
+      payload: commentData,
+    });
+
+    // Step 2: Basic Filters
+    const text = commentData.message.trim();
+    
     // Skip if comment is from the page itself (bot's own comments)
-    const pageId_check = commentData.from?.id;
-    if (pageId_check === pageId) {
-      console.log('💬 [COMMENT] Skipping own page comment to prevent loop');
+    if (fromId === pageId) {
+      console.log('💬 [COMMENT_EVENT] Skipping own page comment to prevent loop');
+      return;
+    }
+
+    const hasRealText = /[a-zA-Z\u0980-\u09FF]/.test(text);
+    if (!hasRealText || text.length < 2) {
+      console.log('💬 [COMMENT_EVENT] Skipping emoji-only or too short comment:', text);
       return;
     }
 
@@ -1018,20 +1044,18 @@ export async function processCommentEvent(
       return;
     }
 
-    const commentId = commentData.comment_id;
-
     // Use decrypted token from fbPage for API calls
     const { decryptToken } = await import('@/lib/facebook/crypto-utils');
     const decryptedToken = decryptToken(fbPage.encrypted_access_token);
 
     // Step 3: Classify comment using AI
-    const classification = await classifyComment(text);
+    const classification = await classifyComment(text, fbPage.workspace_id);
+
     console.log(`💬 [COMMENT] Classification: ${classification.type}`);
 
     // Step 4: Search for product from post caption (BEFORE public reply)
     let topProduct: any = null;
     let caption: string | null = null;
-    const postId = commentData.post_id;
     const accessToken = decryptedToken;
     const customerId = commentData.from.id;
 
@@ -1040,7 +1064,7 @@ export async function processCommentEvent(
       let postCaptionStr: string | null = null;
       try {
         const response = await fetch(
-          `https://graph.facebook.com/v21.0/${postId}?fields=message&access_token=${accessToken}`
+          `https://graph.facebook.com/v24.0/${postId}?fields=message&access_token=${accessToken}`
         );
         if (response.ok) {
           const data = await response.json();
@@ -1092,49 +1116,52 @@ export async function processCommentEvent(
       replyText = `ধন্যবাদ! যেকোনো প্রয়োজনে inbox এ message করুন 😊`;
     }
 
-    // Step 6: Reply to comment publicly (ALWAYS succeed first)
-    try {
-      console.log(`💬 [COMMENT] Attempting public reply to ${commentId}`);
-      const publicReplyResponse = await fetch(
-        `https://graph.facebook.com/v21.0/${commentId}/comments`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: replyText,
-            access_token: decryptedToken,
-          }),
-        }
-      );
+    // No mention tag needed - standard replies to comment_id trigger notifications in v24.0
+    // replyText = `@[${commentData.from.id}] ${replyText}`;
 
-      const publicResult = await publicReplyResponse.json();
-      if (!publicReplyResponse.ok) {
-        console.error(`💬 [COMMENT] Public reply failed:`, publicResult);
-      } else {
-        console.log(`💬 [COMMENT] Public reply successful: ${publicResult.id}`);
+    // Step 6: Reply to comment publicly
+    try {
+      const { replyToComment } = await import('@/lib/facebook/messenger');
+      console.log(`💬 [COMMENT_EVENT] Attempting public reply | ID: ${commentId} | Text: "${replyText}"`);
+      
+      const result = await replyToComment(commentId, replyText, decryptedToken);
+      
+      if (result?.id) {
+        console.log(`💬 [COMMENT_EVENT] Public reply successful: ${result.id}`);
+        
+        // Log bot's public reply to database
+        await supabase.from('messages').insert({
+          conversation_id: null,
+          sender: pageId,
+          sender_type: 'bot',
+          message_text: `[REPLY] ${replyText}`,
+          message_type: 'comment',
+        });
       }
     } catch (publicError) {
-      console.error(`💬 [COMMENT] Error sending public reply:`, publicError);
+      console.error(`💬 [COMMENT_EVENT] Error sending public reply:`, publicError);
     }
 
-    // Step 6: Save comment to DB for dashboard visibility
+    // Reverted to Link-to-Inbox strategy as standard Private Replies are currently restricted 
+    // by Meta permissions or App Review status.
+
+    // Step 8: Save comment to DB for dashboard visibility
     await supabase.from('messages').insert({
       conversation_id: null,
-      sender: commentData.from.id,
+      sender: fromId,
       sender_type: 'customer',
       message_text: `[COMMENT] ${text}`,
       message_type: 'comment',
     });
-
-  } catch (error) {
-    console.error('💬 [COMMENT] Error processing comment:', error);
+  } catch (err) {
+    console.error(`❌ [WEBHOOK] Critical error in processCommentEvent:`, err);
   }
 }
 
 /**
  * Classify a Facebook comment using GPT-4o-mini
  */
-async function classifyComment(text: string): Promise<{ type: string }> {
+async function classifyComment(text: string, workspaceId: string): Promise<{ type: string }> {
   try {
     const OpenAI = (await import('openai')).default;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -1156,12 +1183,28 @@ Reply with only one word:
       ],
     });
 
+    if (response.usage) {
+      logApiUsage({
+        workspaceId,
+        conversationId: undefined,
+        model: 'gpt-4o-mini',
+        featureName: 'comment_auto_reply',
+        usage: {
+          promptTokens: response.usage.prompt_tokens,
+          completionTokens: response.usage.completion_tokens,
+          totalTokens: response.usage.total_tokens,
+        }
+      });
+    }
+
     const result = response.choices[0]?.message?.content?.trim().toLowerCase() || 'other';
     return { type: result };
-  } catch {
+  } catch (error) {
+    console.error('Error in classifyComment:', error);
     return { type: 'other' };
   }
 }
+
 
 
 /**

@@ -7,7 +7,7 @@ import {
   RateLimitInfo,
 } from '@/types/facebook';
 
-const GRAPH_API_VERSION = 'v21.0';
+const GRAPH_API_VERSION = 'v24.0';
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 /**
@@ -506,7 +506,7 @@ export async function replyToComment(
 ): Promise<{ id: string }> {
   try {
     const response = await fetch(
-      `${GRAPH_API_BASE_URL}/${commentId}/comments`,
+      `${GRAPH_API_BASE_URL}/${commentId}/comments?access_token=${pageAccessToken}`,
       {
         method: 'POST',
         headers: {
@@ -514,7 +514,6 @@ export async function replyToComment(
         },
         body: JSON.stringify({
           message: message,
-          access_token: pageAccessToken,
         }),
       }
     );
@@ -535,3 +534,193 @@ export async function replyToComment(
   }
 }
 
+/**
+ * Sends an image attachment to a Facebook user via Messenger
+ * @param pageId - The Facebook Page ID
+ * @param psid - The recipient's Page-Scoped ID
+ * @param mediaUrl - The URL of the image or video to send
+ * @param accessToken - The Page Access Token
+ * @returns Promise that resolves when the message is sent
+ * @throws Error if sending fails
+ */
+export async function sendImage(
+  pageId: string,
+  psid: string,
+  mediaUrl: string,
+  accessToken: string
+): Promise<void> {
+  try {
+    // STRICT VALIDATION
+    if (!psid || psid === 'undefined') {
+      throw new Error('Recipient PSID is missing or "undefined". Blocked send to prevent API error.');
+    }
+
+    // Explicitly cast IDs to Strings to prevent rounding issues with large IDs
+    // We use String() constructor here for maximum safety before object construction
+    const idForRecipient = String(psid);
+    const idForPage = String(pageId);
+
+    // Basic detection for video vs image
+    const isVideo = mediaUrl.toLowerCase().match(/\.(mp4|mov|avi|wmv|flv|mkv|webm)$/) || mediaUrl.includes('video/upload');
+    const type = isVideo ? 'video' : 'image';
+
+    console.log("DEBUG_ID_TYPE:", typeof psid, psid);
+
+    // STEP 1: Pre-upload to Facebook to get attachment_id
+    const uploadUrl = `${GRAPH_API_BASE_URL}/${idForPage}/message_attachments?access_token=${accessToken}`;
+    
+    const uploadBody = JSON.stringify({
+      message: {
+        attachment: {
+          type: String(type).trim(),
+          payload: {
+            is_reusable: true,
+            url: String(mediaUrl).trim(),
+          },
+        },
+      },
+    });
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json; charset=utf-8' 
+      },
+      body: uploadBody,
+    });
+
+    if (!uploadResponse.ok) {
+      const errorData: FacebookError = await uploadResponse.json();
+      console.error('Facebook Upload API Error:', errorData.error);
+      throw new Error(
+        `Facebook could not fetch the media URL: ${errorData.error.message} (Code: ${errorData.error.code})`
+      );
+    }
+
+    const uploadResult = await uploadResponse.json();
+    const attachment_id = uploadResult.attachment_id;
+    
+    if (!attachment_id) {
+      throw new Error('Facebook did not return an attachment_id.');
+    }
+
+    console.log(`✅ [ATTACHMENT UPLOAD] Created ID ${attachment_id} for URL: ${mediaUrl}`);
+
+    // STEP 2: Send to user using attachment_id
+    const sendBody = JSON.stringify({
+      recipient: {
+        id: String(idForRecipient).trim(), 
+      },
+      message: {
+        attachment: {
+          type: String(type).trim(),
+          payload: {
+            attachment_id: String(attachment_id).trim(),
+          },
+        },
+      },
+    });
+
+    // LOGGING THE FINAL PAYLOAD FOR TRACEABILITY
+    console.log("FINAL_PAYLOAD (Image/Video)", sendBody);
+
+    // Using explicit /pageId/ instead of /me/ to be consistent with working text messages
+    const apiUrl = `${GRAPH_API_BASE_URL}/${idForPage}/messages?access_token=${accessToken}`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: sendBody,
+    });
+
+    // Check for rate limit headers
+    checkRateLimits(response.headers);
+
+    // Handle errors
+    if (!response.ok) {
+      const errorData: FacebookError = await response.json();
+      
+      console.error('Facebook Send API Error (Attachment ID):', {
+        status: response.status,
+        pageId: idForPage,
+        error: errorData.error,
+      });
+      
+      throw new Error(
+        `Facebook API error during send (${response.status}): ${errorData.error.message} (Code: ${errorData.error.code}, Subcode: ${errorData.error.error_subcode || 'N/A'})`
+      );
+    }
+
+    console.log(`Image/Video sent successfully to ${idForRecipient} using attachment_id ${attachment_id}`);
+  } catch (error) {
+    console.error('Error in two-step sendImage:', error);
+    throw error;
+  }
+}
+
+
+/**
+ * Sends a private reply to a Facebook comment
+ * @param commentId - The comment ID to reply to
+ * @param message - The message text or Generic Template object
+ * @param pageAccessToken - The page access token
+ * @returns Promise with the response
+ */
+export async function sendPrivateReply(
+  commentId: string,
+  message: string | any,
+  pageAccessToken: string
+): Promise<any> {
+  try {
+    const rawId = String(commentId).trim();
+    if (!rawId || rawId === 'undefined') {
+      throw new Error('Comment ID is missing or "undefined"');
+    }
+
+    // REVERT: Use the full composite ID (PostID_CommentID) as the Public Reply succeeded with it.
+    const idStr = rawId;
+
+    const payload: any = {};
+    if (typeof message === 'string') {
+      // FOR PRIVATE REPLIES: Meta expects a flat "message" string for text.
+      payload.message = message;
+    } else {
+      // FOR TEMPLATES (Product Cards): Use the standard message object.
+      payload.message = message;
+    }
+
+    // SYNC: Switching back to v24.0 to match the working /messages calls.
+    const apiUrl = `https://graph.facebook.com/v24.0/${idStr}/private_replies?access_token=${pageAccessToken}`;
+    console.log(`💬 [PRIVATE_REPLY] Attempting PM to full-ID: ${idStr}`);
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData: FacebookError = await response.json();
+      
+      // Handle the "already replied" error gracefully
+      if (errorData.error.code === 100 && errorData.error.error_subcode === 2018042) {
+        console.warn(`💬 [PRIVATE_REPLY] Skipping: Comment already has a private reply.`);
+        return { already_replied: true };
+      }
+      
+      console.error('Meta Private Reply Error Details:', errorData.error);
+      throw new Error(`Failed to send private reply: ${errorData.error.message}`);
+    }
+
+    const result = await response.json();
+    console.log(`💬 [PRIVATE_REPLY] Success: ${result.id || 'ok'}`);
+    return result;
+  } catch (error) {
+    console.error('Error in sendPrivateReply helper:', error);
+    throw error;
+  }
+}

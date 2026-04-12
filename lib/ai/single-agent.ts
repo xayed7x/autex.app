@@ -331,6 +331,7 @@ ${reasoning.split('\n').map((l: string) => `║ ${l}`).join('\n')}
           conversationId: input.conversationId,
           conversationContext: input.context,
           settings: input.settings,
+          customerPsid: input.customerPsid,
         });
 
         toolsCalledLog.push(
@@ -495,7 +496,9 @@ These are hard rules. Breaking any one of these is a critical failure.
 ## OUTPUT RULES (what you must never say or show)
 - NO MARKDOWN: Messenger does not render **bold**, *italic*, 
   # headers, or bullet points. Plain text only.
-- NO IMAGE LINKS: Never output image URLs or markdown images.
+- NO IMAGE LINKS: Never output image URLs or markdown images (e.g. ![...](...)). 
+  Calling the send_image tool handles the delivery. 
+  Your text response should ONLY acknowledge the delivery (e.g., "এই যে ছবিগুলো 😊").
 - NO PLACEHOLDERS: Never send [delivery], [total], or any 
   bracket placeholder. Replace with real numbers from tools.
 - NO INTERNAL EXPOSURE: Never say "আমি record করেছি", 
@@ -672,9 +675,12 @@ ${cartDesc}
         .join(', ');
     }
 
+    const mediaImages = (meta.activeProductMediaImages || []) as string[];
+    const mediaVideos = (meta.activeProductMediaVideos || []) as string[];
+
     block7Dynamic += `\n\n=== ACTIVE PRODUCT IN VIEW ===
 The customer is currently looking at this product.
-Answer ALL follow-up questions (fabric, size, price, material) from this data. 
+Answer ALL follow-up questions (fabric, size, price, material, photos/videos) from this data. 
 DO NOT call search_products again.
 DO NOT hallucinate any attribute not listed below.
 
@@ -682,6 +688,10 @@ Name: ${meta.activeProductName}
 Price: ৳${meta.activeProductPrice}
 Available Stock: ${stockMatrix || 'Out of stock or check_stock tool result required'}
 ${meta.activeProductDescription ? `Description: ${meta.activeProductDescription}\n` : ''}${attrLines || 'No additional attributes available.'}
+Extra Media:
+- Images: ${mediaImages.length > 0 ? mediaImages.join(', ') : 'None'}
+- Videos: ${mediaVideos.length > 0 ? mediaVideos.join(', ') : 'None'}
+(Use send_image tool with these exact URLs when asked for photos/videos)
 ==============================`;
   }
 
@@ -750,15 +760,20 @@ function buildOrderCollectionInstruction(settings: WorkspaceSettings): string {
 3. FIELD VALIDATION: Before order summary, verify presence: Name, Phone, Address, Size (if applicable), Color (if applicable).
    - If missing: Ask customer.
    - If present: Call check_stock THEN add_to_cart (if not already added) THEN update_customer_info THEN calculate_delivery.
-2. DYNAMIC ATTRIBUTES: Do NOT mention "সাইজ" or "কালার" if the product doesn't have them in the catalog.
-3. MEMORY CHECK: If CART STATE shows Customer Name, Phone, and Address already collected, send:
+4. MEDIA HANDLING (STRICT):
+   - যদি কাস্টমার কোনো পণ্যের image বা video দেখতে চায়, তবে product data থেকে media_images বা media_videos চেক করুন।
+   - যদি এই array গুলো খালি না থাকে, তবে প্রতিটি URL এর জন্য আলাদাভাবে send_image tool কল করুন।
+   - যদি array গুলো খালি থাকে, তবে বিনয়ের সাথে বলুন: "এই পণ্যের extra ছবি/ভিডিও এখনো নেই Sir/Ma'am।"
+   - কখোনোই সরাসরি text message এ URL পাঠাবেন না বা বানিয়ে কোনো URL দেবেন না। কাস্টমার ছবি চাইলে টুল ব্যবহার করতেই হবে।
+5. DYNAMIC ATTRIBUTES: Do NOT mention "সাইজ" or "কালার" if the product doesn't have them in the catalog.
+6. MEMORY CHECK: If CART STATE shows Customer Name, Phone, and Address already collected, send:
    "Sir, আগের তথ্য দিয়ে অর্ডার করি?
    👤 [Name]
    📱 [Phone]
    📍 [Address]
    confirm করতে 'হ্যাঁ' লিখুন, নতুন ঠিকানায় পাঠাতে চাইলে নতুন তথ্য দিন 😊"
-4. PRE-ORDER ADD_TO_CART: If cart is empty but customer wants to order the discussed item, call add_to_cart FIRST before asking details.
-5. MANDATORY SUMMARY BEFORE SAVE: 
+7. PRE-ORDER ADD_TO_CART: If cart is empty but customer wants to order the discussed item, call add_to_cart FIRST before asking details.
+8. MANDATORY SUMMARY BEFORE SAVE: 
    📋 অর্ডার সামারি:
    📦 [প্রোডাক্টের নাম]
    👤 নাম: [নাম]

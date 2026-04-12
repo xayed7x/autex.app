@@ -247,6 +247,54 @@ export async function POST(request: NextRequest) {
       console.log(`📸 Total: ${allImageUrls.length} URLs, ${allImageHashes.length} hashes`);
     }
     
+    // ========================================
+    // RAW MEDIA HANDLING (Lifestyle Images & Videos)
+    // ========================================
+    
+    // Process Media Images
+    const newMediaImageCount = parseInt(formData.get('new_media_image_count') as string || '0');
+    const existingMediaImagesStr = formData.get('existing_media_images') as string;
+    const finalMediaImages: string[] = existingMediaImagesStr ? JSON.parse(existingMediaImagesStr) : [];
+    
+    if (newMediaImageCount > 0) {
+      console.log(`🔄 Processing ${newMediaImageCount} new media images...`);
+      const mediaImagePromises = [];
+      for (let i = 0; i < newMediaImageCount; i++) {
+        const file = formData.get(`media_image_${i}`) as File;
+        if (file && file.size > 0) {
+          mediaImagePromises.push((async () => {
+            const buffer = Buffer.from(await file.arrayBuffer());
+            const uploadResult = await uploadToCloudinary(buffer, 'autex/media/images', 'image');
+            return uploadResult.secure_url;
+          })());
+        }
+      }
+      const newMediaUrls = await Promise.all(mediaImagePromises);
+      finalMediaImages.push(...newMediaUrls);
+    }
+
+    // Process Media Videos
+    const newMediaVideoCount = parseInt(formData.get('new_media_video_count') as string || '0');
+    const existingMediaVideosStr = formData.get('existing_media_videos') as string;
+    const finalMediaVideos: string[] = existingMediaVideosStr ? JSON.parse(existingMediaVideosStr) : [];
+    
+    if (newMediaVideoCount > 0) {
+      console.log(`🔄 Processing ${newMediaVideoCount} new media videos...`);
+      const mediaVideoPromises = [];
+      for (let i = 0; i < newMediaVideoCount; i++) {
+        const file = formData.get(`media_video_${i}`) as File;
+        if (file && file.size > 0) {
+          mediaVideoPromises.push((async () => {
+            const buffer = Buffer.from(await file.arrayBuffer());
+            const uploadResult = await uploadToCloudinary(buffer, 'autex/media/videos', 'video');
+            return uploadResult.secure_url;
+          })());
+        }
+      }
+      const newVideoUrls = await Promise.all(mediaVideoPromises);
+      finalMediaVideos.push(...newVideoUrls);
+    }
+    
     // If no new images, we need to keep existing hashes (handled in PATCH, not here)
     // For POST (new product), we always have new images
 
@@ -364,6 +412,8 @@ export async function POST(request: NextRequest) {
         variant_stock: productData.variant_stock || [], // NEW: variant stock tracking
         pricing_policy: productData.pricing_policy || { isNegotiable: false, bulkDiscounts: [] },
         product_attributes: productData.product_attributes || {},
+        media_images: finalMediaImages,
+        media_videos: finalMediaVideos,
       })
       .select()
       .single();

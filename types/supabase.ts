@@ -547,6 +547,8 @@ export type Database = {
           dominant_colors: string[] | null
           visual_features: Json | null
           image_hashes: string[] | null
+          media_images: string[] | null
+          media_videos: string[] | null
         }
         Insert: {
           colors?: string[] | null
@@ -571,6 +573,8 @@ export type Database = {
           dominant_colors?: string[] | null
           visual_features?: Json | null
           image_hashes?: string[] | null
+          media_images?: string[] | null
+          media_videos?: string[] | null
         }
         Update: {
           colors?: string[] | null
@@ -595,6 +599,8 @@ export type Database = {
           dominant_colors?: string[] | null
           visual_features?: Json | null
           image_hashes?: string[] | null
+          media_images?: string[] | null
+          media_videos?: string[] | null
         }
         Relationships: [
           {

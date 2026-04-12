@@ -116,6 +116,8 @@ interface Product {
   variant_stock?: VariantStockItem[] | null;
   pricing_policy?: PricingPolicy | null;
   product_attributes?: ProductAttributes | null;
+  media_images?: string[] | null;
+  media_videos?: string[] | null;
 }
 
 interface ProductFormProps {
@@ -152,6 +154,10 @@ export function ProductForm({
   const [variantStock, setVariantStock] = useState<VariantStockItem[]>([]);
   const [newSize, setNewSize] = useState('');
   const [newQuantity, setNewQuantity] = useState('10');
+  
+  // Raw Media states
+  const [mediaImageSlots, setMediaImageSlots] = useState<ImageSlot[]>([]);
+  const [mediaVideoSlots, setMediaVideoSlots] = useState<ImageSlot[]>([]);
   
   // Pricing policy state
   const [isNegotiable, setIsNegotiable] = useState(false);
@@ -191,6 +197,28 @@ export function ProductForm({
         })));
       } else {
         setImageSlots([]);
+      }
+
+      // Load media images
+      if (product.media_images && product.media_images.length > 0) {
+        setMediaImageSlots(product.media_images.map(url => ({
+          type: 'existing' as const,
+          preview: url,
+          existingUrl: url,
+        })));
+      } else {
+        setMediaImageSlots([]);
+      }
+
+      // Load media videos
+      if (product.media_videos && product.media_videos.length > 0) {
+        setMediaVideoSlots(product.media_videos.map(url => ({
+          type: 'existing' as const,
+          preview: '', // No preview for videos
+          existingUrl: url,
+        })));
+      } else {
+        setMediaVideoSlots([]);
       }
       
       // Load size_stock and variant_stock
@@ -246,8 +274,12 @@ export function ProductForm({
         price: '',
         description: '',
         colors: '',
+        media_images: '',
+        media_videos: '',
       });
       setImageSlots([]);
+      setMediaImageSlots([]);
+      setMediaVideoSlots([]);
       setSizeStock([]);
       setVariantStock([]);
       // Reset pricing policy
@@ -293,6 +325,48 @@ export function ProductForm({
   // Remove image at index
   const removeImage = (index: number) => {
     setImageSlots(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle adding new media images
+  const handleMediaImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setMediaImageSlots(prev => [...prev, {
+          type: 'new' as const,
+          file,
+          preview: reader.result as string,
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  const removeMediaImage = (index: number) => {
+    setMediaImageSlots(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle adding new media videos
+  const handleMediaVideoAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    Array.from(files).forEach(file => {
+      setMediaVideoSlots(prev => [...prev, {
+        type: 'new' as const,
+        file,
+        preview: '', // Videos use filename
+      }]);
+    });
+    e.target.value = '';
+  };
+
+  const removeMediaVideo = (index: number) => {
+    setMediaVideoSlots(prev => prev.filter((_, i) => i !== index));
   };
 
   // Add a new size-stock entry
@@ -395,6 +469,26 @@ export function ProductForm({
 
       // Send product attributes
       formData.append('product_attributes', JSON.stringify(productAttributes));
+
+      // Handle raw media images
+      const newMediaImages = mediaImageSlots.filter(s => s.type === 'new' && s.file);
+      const existingMediaImages = mediaImageSlots.filter(s => s.type === 'existing').map(s => s.existingUrl!);
+      
+      newMediaImages.forEach((slot, index) => {
+        if (slot.file) formData.append(`media_image_${index}`, slot.file);
+      });
+      formData.append('new_media_image_count', newMediaImages.length.toString());
+      formData.append('existing_media_images', JSON.stringify(existingMediaImages));
+
+      // Handle raw media videos
+      const newMediaVideos = mediaVideoSlots.filter(s => s.type === 'new' && s.file);
+      const existingMediaVideos = mediaVideoSlots.filter(s => s.type === 'existing').map(s => s.existingUrl!);
+      
+      newMediaVideos.forEach((slot, index) => {
+        if (slot.file) formData.append(`media_video_${index}`, slot.file);
+      });
+      formData.append('new_media_video_count', newMediaVideos.length.toString());
+      formData.append('existing_media_videos', JSON.stringify(existingMediaVideos));
 
       // Handle multiple images
       const newImageFiles = imageSlots.filter(slot => slot.type === 'new' && slot.file);
@@ -516,6 +610,106 @@ export function ProductForm({
               <p className="text-xs text-zinc-500">
                 Upload multiple angles for better image recognition (up to {MAX_IMAGES} images)
               </p>
+            </div>
+                                        
+            {/* Raw Media Section */}
+            <div className="space-y-6 pt-4 border-t border-white/5">
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold text-white">📸 Raw Media (Optional)</h4>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-[0.1em] font-medium italic">For customer delivery only • No image recognition</p>
+              </div>
+
+              {/* Media Images */}
+              <div className="space-y-3">
+                <FormLabel className="text-zinc-400 uppercase text-[10px] font-bold tracking-wider">
+                  Extra Lifestyle Images
+                </FormLabel>
+                
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+                  {mediaImageSlots.map((slot, index) => (
+                    <div key={index} className="relative aspect-square rounded-xl overflow-hidden border border-white/10 shadow-sm group">
+                      <Image
+                        src={slot.preview}
+                        alt={`Media Image ${index + 1}`}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100 rounded-full"
+                        onClick={() => removeMediaImage(index)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                  
+                  <label className="flex flex-col items-center justify-center aspect-square rounded-xl border border-dashed border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/40 cursor-pointer transition-all group">
+                    <div className="p-2 rounded-full bg-white/5 group-hover:scale-110 transition-transform duration-300">
+                       <ImagePlus className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    </div>
+                    <span className="text-[10px] text-zinc-500 group-hover:text-zinc-300 mt-2 font-medium">Add Image</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      multiple
+                      onChange={handleMediaImageAdd}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Product Videos */}
+              <div className="space-y-3">
+                <FormLabel className="text-zinc-400 uppercase text-[10px] font-bold tracking-wider">
+                  Product Videos
+                </FormLabel>
+                
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+                  {mediaVideoSlots.map((slot, index) => (
+                    <div key={index} className="relative aspect-square rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-sm group">
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center">
+                        <div className="p-2 rounded-full bg-white/5 transition-transform duration-500 group-hover:scale-110">
+                          <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <span className="mt-1 text-[8px] text-zinc-500 truncate w-full px-1">
+                          {slot.type === 'existing' ? 'Video' : slot.file?.name}
+                        </span>
+                      </div>
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100 rounded-full"
+                        onClick={() => removeMediaVideo(index)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  <label className="flex flex-col items-center justify-center aspect-square rounded-xl border border-dashed border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/40 cursor-pointer transition-all group">
+                    <div className="p-2 rounded-full bg-white/5 group-hover:scale-110 transition-transform duration-300">
+                       <Plus className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    </div>
+                    <span className="text-[10px] text-zinc-500 group-hover:text-zinc-300 mt-2 font-medium">Add Video</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="video/*"
+                      multiple
+                      onChange={handleMediaVideoAdd}
+                    />
+                  </label>
+                </div>
+              </div>
             </div>
 
             <FormField
@@ -958,6 +1152,7 @@ export function ProductForm({
                       </div>
                     </div>
                   </div>
+
                 </div>
               )}
             </div>

@@ -151,6 +151,39 @@ export async function GET(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .gte('created_at', monthStart);
 
+    // -----------------------------------------------------------------
+    // CALCULATE TWO SPECIFIC PRICING METRICS
+    // -----------------------------------------------------------------
+    const messengerCostsByConv: Record<string, number> = {};
+    let commentCostsTotal = 0;
+    let commentCallCount = 0;
+
+    (usageData || []).forEach((record: any) => {
+      // Use consistent BDT rate for all metrics
+      const cost = Number(record.cost) * USD_TO_BDT_RATE;
+      const feature = record.feature_name;
+
+      // Group Messenger costs by conversation
+      if (feature === 'agent_response' && record.conversation_id) {
+        messengerCostsByConv[record.conversation_id] = (messengerCostsByConv[record.conversation_id] || 0) + cost;
+      }
+
+      // Track Comment Classification as single-inference events
+      if (feature === 'comment_auto_reply') {
+        commentCostsTotal += cost;
+        commentCallCount += 1;
+      }
+    });
+
+    const messengerConvIds = Object.keys(messengerCostsByConv);
+    const avgCostMessenger = messengerConvIds.length > 0
+      ? Object.values(messengerCostsByConv).reduce((a, b) => a + b, 0) / messengerConvIds.length
+      : 0;
+    
+    const avgCostComment = commentCallCount > 0
+      ? commentCostsTotal / commentCallCount
+      : 0;
+
     return NextResponse.json({
       summary: {
         totalCost,
@@ -163,8 +196,11 @@ export async function GET(request: NextRequest) {
           : '0.00',
         conversationsThisMonth: convCount || 0,
         exchangeRate: USD_TO_BDT_RATE,
+        avgCostMessenger,
+        avgCostComment,
       },
       breakdown: formattedBreakdown,
+
       history: history.reverse(), // Reverse to show oldest to newest left-to-right on chart
       perWorkspace,
       recentCalls,

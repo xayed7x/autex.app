@@ -159,6 +159,58 @@ export async function PATCH(
     }
     
     console.log(`📸 Final: ${finalImageUrls.length} URLs, ${finalImageHashes.length} hashes`);
+    
+    // ========================================
+    // RAW MEDIA HANDLING FOR EDITS
+    // ========================================
+    
+    // Process Media Images
+    const newMediaImageCount = parseInt(formData.get('new_media_image_count') as string || '0');
+    const existingMediaImagesStr = formData.get('existing_media_images') as string;
+    const finalMediaImages: string[] = existingMediaImagesStr ? JSON.parse(existingMediaImagesStr) : [];
+    
+    if (newMediaImageCount > 0) {
+      console.log(`🔄 PATCH: Processing ${newMediaImageCount} new media images...`);
+      const { uploadToCloudinary } = await import('@/lib/cloudinary/upload');
+      const mediaImagePromises = [];
+      
+      for (let i = 0; i < newMediaImageCount; i++) {
+        const file = formData.get(`media_image_${i}`) as File;
+        if (file && file.size > 0) {
+          mediaImagePromises.push((async () => {
+            const buffer = Buffer.from(await file.arrayBuffer());
+            const uploadResult = await uploadToCloudinary(buffer, 'autex/media/images', 'image');
+            return uploadResult.secure_url;
+          })());
+        }
+      }
+      const newMediaUrls = await Promise.all(mediaImagePromises);
+      finalMediaImages.push(...newMediaUrls);
+    }
+
+    // Process Media Videos
+    const newMediaVideoCount = parseInt(formData.get('new_media_video_count') as string || '0');
+    const existingMediaVideosStr = formData.get('existing_media_videos') as string;
+    const finalMediaVideos: string[] = existingMediaVideosStr ? JSON.parse(existingMediaVideosStr) : [];
+    
+    if (newMediaVideoCount > 0) {
+      console.log(`🔄 PATCH: Processing ${newMediaVideoCount} new media videos...`);
+      const { uploadToCloudinary } = await import('@/lib/cloudinary/upload');
+      const mediaVideoPromises = [];
+      
+      for (let i = 0; i < newMediaVideoCount; i++) {
+        const file = formData.get(`media_video_${i}`) as File;
+        if (file && file.size > 0) {
+          mediaVideoPromises.push((async () => {
+            const buffer = Buffer.from(await file.arrayBuffer());
+            const uploadResult = await uploadToCloudinary(buffer, 'autex/media/videos', 'video');
+            return uploadResult.secure_url;
+          })());
+        }
+      }
+      const newVideoUrls = await Promise.all(mediaVideoPromises);
+      finalMediaVideos.push(...newVideoUrls);
+    }
 
     // Update product in database
     const { data: product, error: updateError } = await supabase
@@ -173,6 +225,8 @@ export async function PATCH(
         ...(updateData.variant_stock && { variant_stock: updateData.variant_stock }),
         ...(updateData.pricing_policy && { pricing_policy: updateData.pricing_policy }),
         ...(updateData.product_attributes && { product_attributes: updateData.product_attributes }),
+        media_images: finalMediaImages,
+        media_videos: finalMediaVideos,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)

@@ -23,18 +23,19 @@ export interface UploadResult {
  */
 export async function uploadToCloudinary(
   buffer: Buffer,
-  folder: string = 'autex/products'
+  folder: string = 'autex/products',
+  resourceType: 'image' | 'video' | 'auto' = 'image'
 ): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: folder,
-        resource_type: 'image',
-        transformation: [
+        resource_type: resourceType,
+        transformation: resourceType === 'image' ? [
           { width: 1200, height: 1200, crop: 'limit' }, // Max dimensions
           { quality: 'auto' }, // Auto quality optimization
           { fetch_format: 'auto' }, // Auto format (WebP when supported)
-        ],
+        ] : undefined,
       },
       (error, result) => {
         if (error) {

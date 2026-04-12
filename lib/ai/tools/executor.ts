@@ -37,6 +37,7 @@ export interface ToolExecutionContext {
   conversationContext: ConversationContext;
   settings: WorkspaceSettings;
   fbPageId: number;
+  customerPsid: string;
 }
 
 /** Tracks what changed after a tool runs, so the orchestrator can persist it. */
@@ -120,6 +121,9 @@ export async function executeTool(
 
     case 'record_negotiation_attempt':
       return executeRecordNegotiationAttempt(args, ctx);
+
+    case 'send_image':
+      return executeSendImage(args, ctx);
 
     default: {
       const exhaustiveCheck: never = toolName;
@@ -249,11 +253,30 @@ async function executeAddToCart(
       const keys = Object.keys(productAny.variant_stock).filter(k => k.toLowerCase().includes(color.toLowerCase()));
       return keys.some(k => Number((productAny.variant_stock as any)[k]) > 0);
     });
-  } else if (productAny.size_stock && Array.isArray(productAny.size_stock) && productAny.size_stock.length > 0) {
-    availableSizes = availableSizes.filter(size => {
-      const sv = productAny.size_stock.find((s: any) => s.size?.toUpperCase() === size.toUpperCase());
-      return sv ? (sv.quantity || 0) > 0 : false;
-    });
+  }
+  
+  // === STRICT VARIATION VALIDATION ===
+  // If the product has multiple sizes/colors in stock, we MUST have a selection.
+  if (availableSizes.length > 0 && !selectedSize) {
+    return {
+      result: { 
+        success: false, 
+        data: { productName: productAny.name, required: 'size', availableSizes }, 
+        message: `Size is required for "${productAny.name}". Available sizes: ${availableSizes.join(', ')}. Please ask the customer for their size choice first.` 
+      },
+      sideEffects: {},
+    };
+  }
+
+  if (availableColors.length > 0 && !selectedColor) {
+    return {
+      result: { 
+        success: false, 
+        data: { productName: productAny.name, required: 'color', availableColors }, 
+        message: `Color is required for "${productAny.name}". Available colors: ${availableColors.join(', ')}. Please ask the customer for their color choice first.` 
+      },
+      sideEffects: {},
+    };
   }
 
   // Use negotiated price if provided and valid, otherwise use listed price
@@ -778,7 +801,7 @@ async function executeCheckStock(
 
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, name, price, stock_quantity, sizes, colors, variant_stock, size_stock, image_urls')
+      .select('id, name, price, stock_quantity, sizes, colors, variant_stock, size_stock, image_urls, media_images, media_videos')
       .eq('workspace_id', ctx.workspaceId)
       .ilike('name', `%${query}%`)
       .limit(3);
@@ -861,11 +884,84 @@ async function executeCheckStock(
         },
       },
     };
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  } catch (err) {
+    console.error('[check_stock] Failed:', err);
+    return {
+      result: { success: false, data: {}, message: 'Stock check failed due to an error.' },
+      sideEffects: {},
+    };
+  }
+}
+
+async function executeSendImage(
+  args: Record<string, unknown>,
+  ctx: ToolExecutionContext
+): Promise<ToolExecutionOutput> {
+  const url = String(args.url || '');
+  const recipientId = ctx.customerPsid;
+
+  // STRICT VALIDATION: Ensure the PSID is present and not the literal string "undefined"
+  if (!recipientId || recipientId === 'undefined') {
+    console.error('❌ [send_image] BLOCKED: Recipient PSID is missing or "undefined"');
+    return {
+      result: { 
+        success: false, 
+        data: {}, 
+        message: 'Internal Error: Recipient information is missing. Please notify support.' 
+      },
+      sideEffects: { shouldFlag: true, flagReason: 'send_image tool triggered with undefined PSID' },
+    };
+  }
+
+  if (!url) {
+    return {
+      result: { success: false, data: {}, message: 'Missing image/video URL.' },
+      sideEffects: {},
+    };
+  }
+
+  try {
+    const supabase = createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+
+    // Get page access token
+    const { data: fbPage, error: pageError } = await supabase
+      .from('facebook_pages')
+      .select('encrypted_access_token')
+      .eq('id', ctx.fbPageId.toString())
+      .single();
+
+    if (pageError || !fbPage) {
+      throw new Error(`Facebook page not found: ${ctx.fbPageId}`);
+    }
+
+    const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+    const accessToken = decryptToken(fbPage.encrypted_access_token);
+
+    const { sendImage } = await import('@/lib/facebook/messenger');
+    await sendImage(String(ctx.fbPageId), String(ctx.customerPsid), url, accessToken);
+
+    console.log(`🖼️ [AI TOOL] Sent media to ${ctx.customerPsid}: ${url}`);
 
     return {
-      result: { success: false, data: {}, message: `Error checking stock: ${errorMessage}.` },
+      result: {
+        success: true,
+        data: { url },
+        message: 'Image/video sent successfully.',
+      },
+      sideEffects: {},
+    };
+  } catch (error: any) {
+    console.error('[send_image] Failed:', error);
+    return {
+      result: {
+        success: false,
+        data: {},
+        message: `Failed to send image: ${error.message || 'Unknown error'}`,
+      },
       sideEffects: {},
     };
   }

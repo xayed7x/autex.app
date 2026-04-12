@@ -34,6 +34,8 @@ export interface ProductSearchResult {
     bulkDiscount: string | null;
   };
   product_attributes: Record<string, any> | null;
+  media_images: string[];
+  media_videos: string[];
 }
 
 export interface SearchProductsOutput {
@@ -185,6 +187,8 @@ function toCompactProduct(row: Record<string, any>, requestedSize?: string, requ
       bulkDiscount: pricingPolicy?.bulkDiscount ?? null,
     },
     product_attributes: row.product_attributes || null,
+    media_images: row.media_images || [],
+    media_videos: row.media_videos || [],
   };
 }
 

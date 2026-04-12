@@ -12,7 +12,8 @@ import { Database } from '@/types/supabase';
 // CONFIGURATION
 // ============================================
 
-export const USD_TO_BDT_RATE = 110;
+export const USD_TO_BDT_RATE = 122.67;
+
 
 const PRICING = {
   'gpt-4o-mini': {

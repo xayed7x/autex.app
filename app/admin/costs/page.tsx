@@ -40,6 +40,8 @@ interface CostsData {
     avgCostPerConversation: string
     conversationsThisMonth: number
     exchangeRate: number
+    avgCostMessenger: number
+    avgCostComment: number
   }
   breakdown: Array<{
     type: string
@@ -170,10 +172,37 @@ export default function AdminCostsPage() {
           isCurrency
         />
       </div>
+      
+      {/* Specific Pricing Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <SmartCard className="bg-primary/[0.03] border-primary/20">
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center justify-center space-y-2 text-center">
+              <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Avg cost per Messenger conversation</p>
+              <h3 className="text-4xl font-black text-primary">
+                ৳{(data?.summary.avgCostMessenger || 0).toFixed(2)}
+              </h3>
+              <p className="text-[10px] text-muted-foreground italic">Based on all agent_response events grouped by conversation</p>
+            </div>
+          </CardContent>
+        </SmartCard>
+        <SmartCard className="bg-primary/[0.03] border-primary/20">
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center justify-center space-y-2 text-center">
+              <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Avg cost per Comment reply</p>
+              <h3 className="text-4xl font-black text-primary">
+                ৳{(data?.summary.avgCostComment || 0).toFixed(4)}
+              </h3>
+              <p className="text-[10px] text-muted-foreground italic">Based on individual comment classification events</p>
+            </div>
+          </CardContent>
+        </SmartCard>
+      </div>
 
       <div className="flex justify-end text-xs text-muted-foreground mr-2 -mt-4">
-        * Exchange Rate: ৳{data?.summary.exchangeRate || '110'} = $1 USD.
+        * Exchange Rate: ৳{data?.summary.exchangeRate || '122.67'} = $1 USD.
       </div>
+
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

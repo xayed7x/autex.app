@@ -128,6 +128,10 @@ export interface ConversationMetadata {
 
   /** The order ID waiting for payment digits */
   awaitingPaymentOrderId?: string;
+
+  /** Active product media (lifestyle images/videos) */
+  activeProductMediaImages?: string[];
+  activeProductMediaVideos?: string[];
 }
 
 // ============================================
@@ -157,6 +161,8 @@ export interface PendingImage {
     sizes?: string[];
     colors?: string[];
     variantStock?: Array<{ size?: string; color?: string; quantity?: number }>;
+    media_images?: string[];
+    media_videos?: string[];
   };
 }
 

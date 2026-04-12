@@ -498,6 +498,15 @@ async function verifyStock(
 
     // PATH 3: Product has no size, no color — simple quantity check
     } else {
+      // FINAL GATEKEEPER: If it reached here but the product actually HAS sizes or colors in its catalog,
+      // it means the AI tried to save a variation-less item for a variation-rich product. BLOCK IT.
+      if (productHasSizes && !reqSize) {
+        return `"${product.name}" এর জন্য সাইজ (Size) সিলেক্ট করা বাধ্যতামূলক।`;
+      }
+      if (productHasColors && !reqColor) {
+        return `"${product.name}" এর জন্য কালার (Color) সিলেক্ট করা বাধ্যতামূলক।`;
+      }
+
       const available = product.stock_quantity ?? 0;
       
       console.log(`\n🔍 [STOCK CHECK - PATH 3: Quantity only]\nProduct: ${product.name}\nRequested Qty: ${item.quantity}\nAvailable: ${available}\nResult: ${available < item.quantity ? 'BLOCKED ❌' : 'PASSED ✅'}\n`);

@@ -331,7 +331,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
 
       const messages = renderOrderConfirmationMessages(settings, orderData);
       
-      // Mute the AI's output because LLMs invariably hallucinate their own confirmations
+      // STRICT OVERRIDE: Mute the AI's output because LLMs invariably hallucinate their own confirmations.
       // We only want the exact, strict transactional templates from the business owner.
       finalResponse = messages.orderConfirmed + 
                       (messages.paymentInstructions ? '\n\n' + messages.paymentInstructions : '');
@@ -427,7 +427,11 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
             variations: {
               colors: availableColors,
               sizes: p.sizes || []
-            }
+            },
+            product_attributes: p.product_attributes || null,
+            description: p.description || null,
+            variantStock: p.variantStock || null,
+            sizeStock: p.sizeStock || null
           };
         });
 
@@ -448,6 +452,40 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           message_text: `[Sent Generic Template: ${mappedProducts.length} products]`,
           message_type: 'template',
         });
+
+        // Track which product(s) were shown so subsequent tools can resolve identity
+        // without relying on identifiedProducts (which we are about to clear).
+        if (mappedProducts.length === 1) {
+          // Single card — product context is unambiguous
+          currentContext.metadata.activeProductId = mappedProducts[0].id;
+          currentContext.metadata.activeProductName = mappedProducts[0].name;
+          currentContext.metadata.activeProductPrice = mappedProducts[0].price;
+          currentContext.metadata.activeProductDescription = mappedProducts[0].description;
+          currentContext.metadata.activeProductVariantStock = mappedProducts[0].variantStock;
+          currentContext.metadata.activeProductSizeStock = mappedProducts[0].sizeStock;
+          currentContext.metadata.activeProductAttributes = {
+            fabric: mappedProducts[0].product_attributes?.fabric || null,
+            fitType: mappedProducts[0].product_attributes?.fitType || null,
+            occasion: mappedProducts[0].product_attributes?.occasion || null,
+            brand: mappedProducts[0].product_attributes?.brand || null,
+            sizeChart: mappedProducts[0].product_attributes?.sizeChart || null,
+          };
+          currentContext.metadata.recentlyShownProducts = undefined;
+        } else {
+          // Carousel — customer must click a button to disambiguate
+          currentContext.metadata.activeProductId = undefined;
+          currentContext.metadata.activeProductName = undefined;
+          currentContext.metadata.activeProductPrice = undefined;
+          currentContext.metadata.activeProductDescription = undefined;
+          currentContext.metadata.activeProductVariantStock = undefined;
+          currentContext.metadata.activeProductSizeStock = undefined;
+          currentContext.metadata.activeProductAttributes = undefined;
+          
+          currentContext.metadata.recentlyShownProducts = mappedProducts.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+          }));
+        }
 
         // Clear the identified products so we don't resend them on next turn
         currentContext.metadata.identifiedProducts = undefined;

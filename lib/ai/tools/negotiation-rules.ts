@@ -68,55 +68,82 @@ export function buildNegotiationRules(
     const itemAny = item as any;
     const productId = item.productId || item.id;
     
-    // We increment by 1 because the round stored is the COMPLETE rounds
-    // and the next interaction starts the NEXT round.
-    const currentRound = (negotiation?.rounds?.[productId] || 0) + 1;
+    // The round stored is already incremented by the tool before this rules prompt is generated.
+    // So if the tool was called once, we are currently generating the response for Round 1.
+    const currentRound = negotiation?.rounds?.[productId] || 1;
     
     const isNegotiable = policy?.isNegotiable && (policy?.minPrice !== undefined && policy?.minPrice !== null);
     
     if (isNegotiable) {
       const minPrice = policy!.minPrice!;
       const listedPrice = item.productPrice || item.price || 0;
+      const bulkOffered = negotiation?.bulkOffered || false;
+
+      // Calculate step-down prices dynamically
+      let round2Price = Math.round((listedPrice * 0.93) / 5) * 5; // 7% off, rounded to nearest 5
+      if (round2Price < minPrice) round2Price = minPrice;
+      
+      let round3Price = Math.round(((round2Price + minPrice) / 2) / 5) * 5; // Midpoint, rounded to nearest 5
+      if (round3Price < minPrice) round3Price = minPrice;
+
+      // Build round-specific instruction
+      let instructionForRound = "";
+      if (currentRound === 1) {
+        if (policy.bulkDiscounts && policy.bulkDiscounts.length > 0 && !bulkOffered) {
+          instructionForRound = "ROUND 1 — BULK OFFER: Do NOT cut price. Offer the bulk deals listed below as the primary counter. Defend quality alongside. Set the tone: single piece stays at listed price, bulk is where the savings are.";
+        } else {
+          instructionForRound = "ROUND 1 — QUALITY DEFENSE: Do NOT offer any price discount. Defend quality using the product attributes listed below (mention ONLY non-null attributes). Hold firm at listed price.";
+        }
+      } else if (currentRound === 2) {
+        instructionForRound = `ROUND 2 — SMALL CUT: Offer ৳${round2Price} (5-8% off listed). Frame as a personal exception, not a standard discount. Sound like you're making a special effort just for them.`;
+      } else if (currentRound === 3) {
+        instructionForRound = `ROUND 3 — CLOSER TO FLOOR: Offer ৳${round3Price}. Sound genuinely reluctant. This is a real sacrifice for you. Make it clear this is almost the lowest.`;
+      } else {
+        instructionForRound = `ROUND 4+ — HOLD FIRM: Hold at ৳${round3Price} (your last offer). Warm but absolutely final. NEVER go lower. If customer still refuses, pivot to: "নিতে চাইলে বলুন, আমি অর্ডার করে দিচ্ছি 😊"`;
+      }
 
       let ruleBlock = `=== NEGOTIATION STATUS ===
 Product: ${item.productName || item.name}
 Current Round: ${currentRound}
-Min Price: ৳${minPrice}
 Listed Price: ৳${listedPrice}
 
-YOUR INSTRUCTIONS FOR ROUND ${currentRound}:
-Round 1: Do NOT offer any discount. Defend quality using fabric, fit, occasion. Offer bulk as alternative if available.
-Say something like: 'ভাইয়া এই দামেই সবচেয়ে ভালো quality পাচ্ছেন...'
-
-Round 2: Offer 5-8% off listed price only. Frame as special exception.
-Say: 'শুধু আপনার জন্য একটু কমিয়ে ৳${Math.round(listedPrice * 0.93)} দিতে পারি...'
-
-Round 3: Offer closer to minPrice. Sound genuinely reluctant.
-Say: 'Boss জানলে বকবে, তবু ৳${minPrice + 50} দিচ্ছি, এর নিচে সম্ভব না 😅'
-
-Round 4+: Hold firm at last offered price. Warm but absolutely final.
-Never go lower than minPrice.
+YOUR STRICT INSTRUCTION FOR THIS RESPONSE:
+${instructionForRound}
 ===========================`;
 
-      // Inject details for defense in Round 1
-      if (currentRound === 1) {
-        let defense = "\nValue Defense Data:";
-        const description = item.description || itemAny.description;
-        const fabric = itemAny.product_attributes?.fabric || itemAny.fabric;
-        const fit = itemAny.product_attributes?.fitType || itemAny.fitType;
+      // Inject product attributes for quality defense (all rounds can reference these)
+      const attrs = itemAny.product_attributes || {};
+      const description = item.description || itemAny.description;
+      const fabric = attrs.fabric || itemAny.fabric;
+      const fit = attrs.fitType || itemAny.fitType;
+      const occasion = attrs.occasion || itemAny.occasion;
+      const gsm = attrs.gsm;
+      const careInstructions = attrs.careInstructions;
 
-        if (description) defense += `\n- Description: ${description}`;
-        if (fabric) defense += `\n- Fabric: ${fabric}`;
-        if (fit) defense += `\n- Fit: ${fit}`;
-        ruleBlock += defense;
-        
-        if (policy.bulkDiscounts && policy.bulkDiscounts.length > 0 && !negotiation?.bulkRejected) {
-           ruleBlock += "\n\nBulk Discounts Available (Offer these first!):";
-           for (const d of policy.bulkDiscounts) {
-              const dPrice = Math.round(listedPrice * (1 - d.discountPercent / 100));
-              ruleBlock += `\n- ${d.minQty}+ pieces: ৳${dPrice}/piece`;
-           }
+      const attrLines: string[] = [];
+      if (description) attrLines.push(`Description: ${description}`);
+      if (fabric) attrLines.push(`Fabric: ${fabric}`);
+      if (gsm) attrLines.push(`GSM: ${gsm}`);
+      if (fit) attrLines.push(`Fit: ${fit}`);
+      if (occasion) attrLines.push(`Occasion: ${occasion}`);
+      if (careInstructions) attrLines.push(`Care: ${careInstructions}`);
+
+      if (attrLines.length > 0) {
+        ruleBlock += `\n\nProduct Attributes (use for quality defense — mention ONLY non-null values):`;
+        for (const line of attrLines) {
+          ruleBlock += `\n- ${line}`;
         }
+      }
+      
+      // Inject bulk discount data (only if not yet offered)
+      if (policy.bulkDiscounts && policy.bulkDiscounts.length > 0 && !bulkOffered) {
+        ruleBlock += "\n\nBulk Discounts Available (Offer in Round 1 — ONE TIME ONLY):";
+        for (const d of policy.bulkDiscounts) {
+          const dPrice = Math.round(listedPrice * (1 - d.discountPercent / 100));
+          ruleBlock += `\n- ${d.minQty}+ pieces: ৳${dPrice}/piece (${d.discountPercent}% off)`;
+        }
+      } else if (bulkOffered) {
+        ruleBlock += "\n\n[Bulk discount already offered in this conversation — do NOT mention again.]";
       }
 
       sections.push(ruleBlock);
@@ -126,7 +153,7 @@ Product: ${item.productName || item.name}
 This product has a FIXED PRICE of ৳${item.productPrice || item.price || 0}.
 Negotiation is NOT available for this product.
 If customer asks for discount, respond warmly but firmly:
-'ভাইয়া এই প্রোডাক্টটার দাম fixed, কমানোর সুযোগ নেই। তবে quality তে আপোষ নেই, নিশ্চিত থাকুন 😊'
+"Sir, এই প্রোডাক্টের দাম fixed, কমানোর সুযোগ নেই। তবে quality তে আপোষ নেই 😊"
 ========================`);
     }
   }

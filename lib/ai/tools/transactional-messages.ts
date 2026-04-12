@@ -58,8 +58,8 @@ export function renderOrderConfirmationMessages(
   // ========================================
 
   const orderConfirmed = templates.orderConfirmed
-    || 'আলহামদুলিল্লাহ! অর্ডারটা confirm হয়ে গেছে ✅\n\n'
-     + 'আমরা ২৪ ঘণ্টার মধ্যে call দেব, তারপর ৩-৫ দিনে delivery হবে ইনশাআল্লাহ 🚚\n\n'
+    || 'আলহামদুলিল্লাহ! আপনার অর্ডারটি গ্রহণ করা হয়েছে। ✅\n\n'
+     + 'আমরা ২৪ ঘণ্টার মধ্যে call দিয়ে সব কনফার্ম করব ইনশাআল্লাহ। 📞\n\n'
      + 'আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🙏';
 
   // ========================================
@@ -72,9 +72,9 @@ export function renderOrderConfirmationMessages(
 
   if (paymentDetails) {
     const rawTemplate = templates.paymentInstructions
-      || '💰 ডেলিভারি চার্জ ৳{deliveryCharge} টাকা advance পাঠান:\n'
+      || '💰 পেমেন্ট ডিটেইলস:\n'
        + '{paymentNumber}\n\n'
-       + '✅ Payment করার পর transaction ID এর শেষ ২ ডিজিট পাঠান।';
+       + 'ডেলিভারি চার্জ ৳{deliveryCharge} টাকা advance পাঠিয়ে শেষের ২ ডিজিট পাঠান। 🔢';
 
     paymentInstructions = rawTemplate
       .replace(/\{deliveryCharge\}/g, String(orderData.deliveryCharge))

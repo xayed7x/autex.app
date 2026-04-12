@@ -290,12 +290,16 @@ export function addToCart(
   cart: CartItem[],
   item: CartItem
 ): CartItem[] {
+  // Check for exact match of Product ID AND Variants (Size/Color)
   const existingIndex = cart.findIndex(
-    (i) => i.productId === item.productId
+    (i) => 
+      i.productId === item.productId &&
+      i.selectedSize === item.selectedSize &&
+      i.selectedColor === item.selectedColor
   );
 
   if (existingIndex >= 0) {
-    // Update quantity
+    // Update quantity for the exact same variant
     const newCart = [...cart];
     newCart[existingIndex] = {
       ...newCart[existingIndex],
@@ -303,7 +307,7 @@ export function addToCart(
     };
     return newCart;
   } else {
-    // Add new item
+    // Treat different size/color as a new line item (or add new product)
     return [...cart, item];
   }
 }

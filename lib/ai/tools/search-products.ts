@@ -33,6 +33,7 @@ export interface ProductSearchResult {
     minPrice: number | null;
     bulkDiscount: string | null;
   };
+  product_attributes: Record<string, any> | null;
 }
 
 export interface SearchProductsOutput {
@@ -183,6 +184,7 @@ function toCompactProduct(row: Record<string, any>, requestedSize?: string, requ
       minPrice: pricingPolicy?.minPrice ?? null,
       bulkDiscount: pricingPolicy?.bulkDiscount ?? null,
     },
+    product_attributes: row.product_attributes || null,
   };
 }
 

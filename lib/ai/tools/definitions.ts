@@ -21,8 +21,11 @@ const searchProducts: ChatCompletionTool = {
   function: {
     name: 'search_products',
     description:
-      'Search for products in the catalog by name, description, color, or category. ' +
-      'Use when a customer asks about a product, wants to see options, or describes what they want.',
+      'Search the product catalog. ' +
+      'CALL WHEN: Customer asks about a product, describes what they want, or sends a product image that was already recognized. ' +
+      'DO NOT CALL for follow-up questions (fabric, size chart, price) about a product already shown — use sendCard: false in that case. ' +
+      'DO NOT CALL if productId is already known from cart or context — use check_stock instead. ' +
+      'ALWAYS set sendCard: false unless this is the very first time the customer is seeing this product.',
     parameters: {
       type: 'object',
       properties: {
@@ -57,8 +60,11 @@ const addToCart: ChatCompletionTool = {
   function: {
     name: 'add_to_cart',
     description:
-      'Add a product to the customer\'s shopping cart. ' +
-      'Use after the customer confirms they want a product.',
+      'Add a product to the cart. ' +
+      'CALL WHEN: Customer explicitly confirms they want to order (clicked Order Now button, or said \'নেবো\', \'অর্ডার করি\', \'দিন\'). ' +
+      'DO NOT CALL until size AND color are confirmed (if the product has variants). ' +
+      'DO NOT CALL without a productId UUID — never pass a product name. ' +
+      'CRITICAL: If any negotiation happened this conversation, you MUST include negotiatedPrice set to the last price you stated to the customer. Omitting this will charge the wrong amount.',
     parameters: {
       type: 'object',
       properties: {
@@ -93,8 +99,9 @@ const removeFromCart: ChatCompletionTool = {
   function: {
     name: 'remove_from_cart',
     description:
-      'Remove a product from the customer\'s cart. ' +
-      'Use when the customer says they don\'t want a product anymore.',
+      'Remove a product from the cart. ' +
+      'CALL WHEN: Customer says they no longer want a specific item (\'বাদ দিন\', \'cancel করুন\', \'এটা লাগবে না\'). ' +
+      'DO NOT CALL based on general hesitation — only on explicit removal intent.',
     parameters: {
       type: 'object',
       properties: {
@@ -113,9 +120,11 @@ const updateCustomerInfo: ChatCompletionTool = {
   function: {
     name: 'update_customer_info',
     description:
-      'Save or update the customer\'s checkout details (name, phone, address). ' +
-      'MUST be called if memory has info that is missing from the Cart State. ' +
-      'You can update one or more fields at a time.',
+      'Save customer\'s name, phone, and address. ' +
+      'CALL WHEN: Customer provides their delivery details (any of: name, phone, address). ' +
+      'CALL ONCE with all fields you have — do not call multiple times per turn. ' +
+      'Phone validation is handled server-side — pass whatever the customer gave, the system will fix the format. ' +
+      'If this returns success: false, ask the customer for a corrected phone number. DO NOT flag_for_review for phone errors.',
     parameters: {
       type: 'object',
       properties: {
@@ -154,10 +163,10 @@ const saveOrder: ChatCompletionTool = {
   function: {
     name: 'save_order',
     description:
-      'Finalize and save the customer\'s order to the database. ' +
-      'Call this ONLY when all required information is collected: ' +
-      'cart has items, customer name, valid phone number, and delivery address. ' +
-      'Do NOT generate order confirmation or payment messages after calling this — the system handles those automatically.',
+      'Finalize and save the order to the database. ' +
+      'CALL ONLY WHEN ALL of these are confirmed: (1) cart has at least one item with size+color if applicable, (2) customer name is collected, (3) valid phone number is saved, (4) delivery address is saved, (5) customer has replied \'yes\' or \'হ্যাঁ\' to the order summary. ' +
+      'DO NOT call before customer confirms the summary. ' +
+      'DO NOT send any payment or confirmation message after calling — the system sends those automatically.',
     parameters: {
       type: 'object',
       properties: {
@@ -188,9 +197,10 @@ const flagForReview: ChatCompletionTool = {
   function: {
     name: 'flag_for_review',
     description:
-      'Flag this conversation for manual review by the business owner. ' +
-      'Use when you cannot answer the customer\'s question, when something feels wrong, ' +
-      'or when the customer requests to speak with a human.',
+      'Escalate this conversation to the business owner for manual handling. ' +
+      'CALL ONLY FOR: (1) complaint about a received order, (2) customer explicitly asks to speak with a human, (3) a tool other than update_customer_info returns success: false. ' +
+      'DO NOT CALL FOR: empty product fields, delivery charge questions, payment method questions (COD/bKash/Nagad), pricing questions, negotiation, or any question you can answer from your context. ' +
+      'Overuse of this tool is a critical failure.',
     parameters: {
       type: 'object',
       properties: {
@@ -209,8 +219,10 @@ const checkStock: ChatCompletionTool = {
   function: {
     name: 'check_stock',
     description:
-      'Check the current stock availability for a product. ' +
-      'Use when a customer asks if something is available or in stock.',
+      'Check live stock availability for a specific product+variant combination. ' +
+      'CALL WHEN: You need to verify a specific size+color is available BEFORE adding to cart. Also call when customer asks \'আছে?\' about a specific variant. ' +
+      'USE INSTEAD OF search_products when the productId is already known. ' +
+      'DO NOT confuse with search_products — this is for stock verification, not product discovery.',
     parameters: {
       type: 'object',
       properties: {
@@ -244,8 +256,9 @@ const trackOrder: ChatCompletionTool = {
   function: {
     name: 'track_order',
     description:
-      'Look up a customer\'s recent order by their phone number. ' +
-      'Use when a customer asks about their order status.',
+      'Look up an existing order by the customer\'s phone number. ' +
+      'CALL WHEN: Customer asks about a previous order status, delivery update, or says \'আমার অর্ডার কোথায়?\'. ' +
+      'AFTER calling: Always flag_for_review — order tracking requires human confirmation. Do not make up status.',
     parameters: {
       type: 'object',
       properties: {
@@ -264,8 +277,10 @@ const calculateDelivery: ChatCompletionTool = {
   function: {
     name: 'calculate_delivery',
     description:
-      'Calculate the delivery charge for a given address. ' +
-      'Use when the customer provides their address or asks about delivery costs.',
+      'Calculate delivery charge for an address. ' +
+      'CALL WHEN: Customer provides their delivery address during order flow. ' +
+      'CALL BEFORE showing the order summary — the delivery charge MUST come from this tool result, never from memory or assumption. ' +
+      'DO NOT estimate or guess delivery charge under any circumstance.',
     parameters: {
       type: 'object',
       properties: {
@@ -284,8 +299,9 @@ const collectPaymentDigits: ChatCompletionTool = {
   function: {
     name: 'collect_payment_digits',
     description:
-      'Save the last 2 digits of the customer\'s bKash/Nagad transaction ID. ' +
-      'Use when the customer sends exactly 2 digits after making a payment.',
+      'Save the last 2 digits of the customer\'s bKash/Nagad transaction. ' +
+      'CALL WHEN: awaitingPaymentDigits is true in metadata AND customer sends a message containing exactly 2 digits (even inside a sentence like \'আমার last digit 54\'). ' +
+      'DO NOT call for any other purpose. After calling successfully, STOP — do not restart order flow.',
     parameters: {
       type: 'object',
       properties: {
@@ -304,8 +320,11 @@ const recordNegotiationAttempt: ChatCompletionTool = {
   function: {
     name: 'record_negotiation_attempt',
     description:
-      'Call this EVERY TIME a customer asks for a price discount or negotiation. ' +
-      'This tracks which negotiation round we are on.',
+      'MUST be called BEFORE writing any counter-price in your response. ' +
+      'CALL WHEN: Customer asks for a discount, offers a lower price, or says anything like \'কমবে?\', \'একটু কম হবে?\', \'৳X দেবো\'. ' +
+      'CRITICAL SEQUENCE: Call this tool FIRST → read the result (currentRound, minPrice, negotiable, bulkDiscount) → THEN write your response using those numbers. ' +
+      'NEVER write a price in your response before calling this tool when negotiation is happening. ' +
+      'If negotiable: false in result, decline warmly and do not call again.',
     parameters: {
       type: 'object',
       properties: {

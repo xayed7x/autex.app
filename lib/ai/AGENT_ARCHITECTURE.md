@@ -30,14 +30,18 @@ The system prompt generation function (`generateSystemPrompt`) is strictly engin
      - For all other tools, `success: false` triggers an immediate `flag_for_review` for manual owner intervention.
 
 5. **[BLOCK 5 - ORDER FLOW]**
-   - **Dynamic Workflows:** Handles either "Conversational" flow (step-by-step) or "Quick Form" based on workspace settings.
-   - **Pre-requisite Validation:** Agent must explicitly check Cartesian state, fetch missing attributes, and run `check_stock` BEFORE saving the order.
+   - **Dynamic Workflows:** Handles either "Conversational" flow (step-by-step) or "Quick Form".
+   - **Premium Alignment:** Order forms must mirror the structured aesthetic of button-click cards (including Stock Matrices).
+   - **Cart-First Persistence:** AI is strictly required to call `add_to_cart` as soon as a selection is made, rather than waiting for checkout.
+   - **No Ghost Summaries:** Summaries are forbidden unless the AI can verify the product exists in the real-time `🛒 CART` context.
+   - **Smart Pre-filling:** Auto-fill form fields with `(Selected ✅)` for attributes already discussed.
 
 6. **[BLOCK 6 - STATIC SETTINGS]**
    - Injects available payment methods (Cod, bKash, Nagad) and delivery times statically so no tools need to be called for static FAQs.
 
 7. **[BLOCK 7 - DYNAMIC STATE]**
-   - **Caching Optimization:** All highly dynamic elements (Cart State, Context Metadata, Conversation Memory Summary, Customer address) are injected securely into the very last block. This prevents token thrashing at the top of the prompt and preserves OpenAI caching over long sessions.
+   - **Caching Optimization:** All highly dynamic elements (Cart State, Context Metadata, Conversation Memory Summary, Customer address) are injected securely into the very last block. 
+   - **Active Product Anchoring:** Block 7 now includes a dedicated "Active Product" memory (Name, Price, Attributes, Stock Matrix) which anchors the conversation even if the user switches from buttons to text.
 
 ---
 
@@ -51,6 +55,13 @@ The system prompt generation function (`generateSystemPrompt`) is strictly engin
   - De-duplicated the "Out of stock" and "Voice message" instructions to run exactly once for token efficiency.
   - Overhauled tool error handling to prevent aggressive, unnecessary tool flagging when users input invalid phone numbers.
   - Separated `<Block 5>` logic directly from real-time customer/cart context, ensuring that conversational logic vs. quick form logic acts dynamically via `settings` only, rather than `context`. 
+
+### Update (April 12, 2026) - Hardening & Aesthetic Suite
+- **Budget Increase:** Increased `MAX_TOOL_LOOPS` from 5 to 10 to prevent reasoning failures in complex checkout flows.
+- **Negotiation Blindness:** Removed `minPrice` from tool results. The AI no longer knows floor prices, preventing premature price leakage.
+- **Step-Down Concealment:** Modified instructions to hide future discount steps from the AI, ensuring strict adherence to the multi-round strategy.
+- **Tool Stability:** Updated `add_to_cart` to self-heal and resolve hallucinated product names using active metadata.
+- **Memory Cross-Contamination Fix:** Instructions added to prioritize the current product's negotiation state over generic memory summaries.
 
 ---
 

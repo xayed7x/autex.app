@@ -163,11 +163,12 @@ async function executeSearchProducts(
           ...ctx.conversationContext.metadata,
           identifiedProducts: sendCard 
             ? searchResult.products 
-            : ctx.conversationContext.metadata
-              ?.identifiedProducts,
-          // If sendCard false: keep existing
-          // identifiedProducts, don't overwrite
-          // So orchestrator won't send new card
+            : ctx.conversationContext.metadata?.identifiedProducts,
+          // If sendCard true: a new product search replaces prior active product
+          ...(sendCard && {
+            activeProductId: undefined,
+            recentlyShownProducts: undefined,
+          }),
         },
       },
     },
@@ -178,7 +179,24 @@ async function executeAddToCart(
   args: Record<string, unknown>,
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
-  const productId = String(args.productId || '');
+  // Resolution order: explicit arg → activeProductId in metadata → identifiedProducts last item
+  let productId = String(args.productId || '').trim();
+  
+  // UUID Validation Regex
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // Resolution order: valid UUID arg → activeProductId in metadata → identifiedProducts last item
+  if (!productId || !uuidRegex.test(productId)) {
+    const meta = ctx.conversationContext.metadata as any;
+    if (meta?.activeProductId) {
+      console.log(`🔧 Resolving invalid/missing ID "${productId}" to activeProductId "${meta.activeProductId}"`);
+      productId = meta.activeProductId;
+    } else if (meta?.identifiedProducts?.length > 0) {
+      const last = meta.identifiedProducts[meta.identifiedProducts.length - 1];
+      productId = last.id || last.productId || '';
+    }
+  }
+
   const quantity = Number(args.quantity) || 1;
   const selectedSize = args.selectedSize ? String(args.selectedSize) : undefined;
   const selectedColor = args.selectedColor ? String(args.selectedColor) : undefined;
@@ -560,7 +578,7 @@ async function executeSaveOrder(
     { customerName, customerPhone, customerAddress }
   );
 
-  // If order was successful, reset negotiation rounds
+  // If order was successful, reset negotiation state and product tracking
   if (result.result.success) {
     if (!result.sideEffects.updatedContext) result.sideEffects.updatedContext = {};
     if (!result.sideEffects.updatedContext.metadata) {
@@ -571,6 +589,9 @@ async function executeSaveOrder(
     if (meta.negotiation) {
       meta.negotiation.rounds = {};
     }
+    // Clear product identity tracking after a completed order
+    meta.activeProductId = undefined;
+    meta.recentlyShownProducts = undefined;
   }
 
   return result;
@@ -580,17 +601,23 @@ async function executeRecordNegotiationAttempt(
   args: Record<string, unknown>,
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
-  // Do not trust the productId passed by the AI. Resolve from context.
+  // Resolution order (deterministic — no history scanning):
+  //   1. cart[0].productId  — already added to cart
+  //   2. metadata.activeProductId  — set by orchestrator after single-card send
+  //   3. metadata.identifiedProducts last item — set by search/check_stock with sendCard:false
   let productId = '';
+  const meta = ctx.conversationContext.metadata as any;
   const cart = ctx.conversationContext.cart || [];
-  const identified = (ctx.conversationContext.metadata as any)?.identifiedProducts || [];
 
   if (cart.length > 0) {
     productId = cart[0].productId;
-  } else if (identified.length > 0) {
-    // TAKE THE LAST identified product (the most recent one)
-    const lastItem = identified[identified.length - 1];
-    productId = lastItem.id || lastItem.productId;
+  } else if (meta?.activeProductId) {
+    productId = meta.activeProductId;
+    console.log(`🎯 [NEGOTIATION] Resolved via activeProductId: ${productId}`);
+  } else if (meta?.identifiedProducts?.length > 0) {
+    const lastItem = meta.identifiedProducts[meta.identifiedProducts.length - 1];
+    productId = lastItem.id || lastItem.productId || '';
+    console.log(`🎯 [NEGOTIATION] Resolved via identifiedProducts last item: ${productId}`);
   }
 
   if (!productId) {
@@ -606,7 +633,7 @@ async function executeRecordNegotiationAttempt(
 
   // Get current rounds from metadata
   const metadata = ctx.conversationContext.metadata || {};
-  const negotiation = (metadata as any).negotiation || { rounds: {} };
+  const negotiation = (metadata as any).negotiation || { rounds: {}, bulkOffered: false };
   const rounds = negotiation.rounds || {};
 
   // Increment round for this product
@@ -626,13 +653,45 @@ async function executeRecordNegotiationAttempt(
   const pricing = pAny.pricing_policy || { isNegotiable: false };
   const minPrice = pricing.minPrice || Math.round(pAny.price * 0.8) || 0;
 
+  // Extract bulk discount data from pricing_policy (as stored in DB)
+  const bulkDiscounts = Array.isArray(pricing.bulkDiscounts) && pricing.bulkDiscounts.length > 0
+    ? pricing.bulkDiscounts
+    : null;
+  const bulkOffered = negotiation.bulkOffered || false;
+
+  // Extract product attributes for quality defense (only real DB fields)
+  const attrs = pAny.product_attributes || {};
+  const productAttributes = {
+    fabric: attrs.fabric || null,
+    fitType: attrs.fitType || null,
+    occasion: attrs.occasion || null,
+    gsm: attrs.gsm || null,
+    careInstructions: attrs.careInstructions || null,
+  };
+
+  // Mark bulk as offered in sideEffects if this is Round 1 and bulk data exists
+  const shouldMarkBulkOffered = currentRound === 1 && bulkDiscounts && !bulkOffered;
+
   const updatedMetadata = {
     ...metadata,
     negotiation: {
       ...negotiation,
-      rounds: { ...rounds }
-    }
+      rounds: { ...rounds },
+      ...(shouldMarkBulkOffered && { bulkOffered: true }),
+    },
   };
+
+  // Pre-calculate bulk pricing for the AI (piece price after discount)
+  let bulkPricing: Array<{ minQty: number; discountPercent: number; pricePerPiece: number }> | null = null;
+  if (bulkDiscounts) {
+    bulkPricing = bulkDiscounts.map((d: any) => ({
+      minQty: d.minQty,
+      discountPercent: d.discountPercent,
+      pricePerPiece: Math.round(pAny.price * (1 - d.discountPercent / 100)),
+    }));
+  }
+
+  console.log(`💰 [NEGOTIATION] Round ${currentRound} | Product: "${pAny.name}" | Listed: ৳${pAny.price} | Min: ৳${minPrice} | Bulk: ${bulkDiscounts ? 'YES' : 'NO'} | BulkOffered: ${bulkOffered}`);
 
   return {
     result: {
@@ -642,15 +701,17 @@ async function executeRecordNegotiationAttempt(
         productName: pAny.name,
         listedPrice: pAny.price,
         negotiable: pricing.isNegotiable,
-        minPrice: pricing.isNegotiable ? minPrice : null,
         currentRound,
+        bulkDiscount: bulkPricing,
+        bulkOffered,
+        productAttributes,
       },
       message: `Round ${currentRound} negotiation recorded for "${pAny.name}".`,
     },
     sideEffects: {
       updatedContext: {
-        metadata: updatedMetadata
-      }
+        metadata: updatedMetadata,
+      },
     },
   };
 }
@@ -777,6 +838,10 @@ async function executeCheckStock(
     const sendCard = args.sendCard === true;
     // Default false if not specified (to avoid spamming UI)
 
+    // Resolution: if a specific product was found and it overrides the active product,
+    // update activeProductId when sendCard is true (orchestrator will handle single-card case).
+    const singleResult = stockInfo.length === 1 ? stockInfo[0] : null;
+
     return {
       result: {
         success: true,
@@ -790,6 +855,8 @@ async function executeCheckStock(
             identifiedProducts: sendCard
               ? stockInfo
               : ctx.conversationContext.metadata?.identifiedProducts,
+            // Keep activeProductId in sync when a single result is found
+            ...(sendCard && singleResult && { activeProductId: singleResult.id }),
           },
         },
       },

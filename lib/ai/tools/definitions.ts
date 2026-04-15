@@ -348,19 +348,19 @@ const sendImage: ChatCompletionTool = {
     description: 
       'Send a standalone image or video attachment to the customer. ' +
       'CALL WHEN: Customer asks for "real photos", "photos", or "videos" of a product. ' +
-      'Use the media_images and media_videos arrays from the product data. ' +
-      'Call this once per URL you want to send. ' +
+      'Use the media identifiers provided in the Extra Media section. ' +
+      'Call this once per mediaId you want to send. ' +
       'CRITICAL: Calling this tool DELIVERS the media directly. ' +
-      'DO NOT include the image/video URL or markdown image syntax in your text response.',
+      'DO NOT include any image identifiers in your text response.',
     parameters: {
       type: 'object',
       properties: {
-        url: {
+        mediaId: {
           type: 'string',
-          description: 'The direct URL of the image or video to send.',
+          description: 'The identifier of the image or video to send (e.g., "image_1", "video_1").',
         },
       },
-      required: ['url'],
+      required: ['mediaId'],
     },
   },
 };

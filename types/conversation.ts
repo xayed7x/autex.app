@@ -163,6 +163,8 @@ export interface PendingImage {
     variantStock?: Array<{ size?: string; color?: string; quantity?: number }>;
     media_images?: string[];
     media_videos?: string[];
+    description?: string;
+    product_attributes?: Record<string, any>;
   };
 }
 

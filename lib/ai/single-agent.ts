@@ -131,14 +131,31 @@ export async function runAgent(input: AgentInput): Promise<AgentOutput> {
       }
     }
     
+    if (match.description) {
+      const truncatedDesc = match.description.length > 150 ? match.description.substring(0, 150) + '...' : match.description;
+      userContent += `Description: ${truncatedDesc}\n`;
+    }
+    
+    if (match.product_attributes) {
+      const attrs = match.product_attributes;
+      const attrLines = [
+        attrs.fabric ? `Fabric: ${attrs.fabric}` : null,
+        attrs.fitType ? `Fit: ${attrs.fitType}` : null,
+        attrs.occasion ? `Occasion: ${attrs.occasion}` : null,
+        attrs.brand ? `Brand: ${attrs.brand}` : null,
+      ].filter(Boolean).join(', ');
+      if (attrLines) userContent += `Details: ${attrLines}\n`;
+    }
+    
     userContent += `\n[SYSTEM NOTE]: Customer sent a product image. The recognized product is above.
 
 Your response MUST:
 1. Briefly introduce the product (name + price) in a natural, warm way
 2. Mention the product card with order button is being sent
-3. Do NOT ask for size or color yet
-4. Do NOT show order form yet
-5. Wait for customer to click the order button or express intent to order
+3. Use the above description/details to answer any questions in the same message (e.g., fabric type)
+4. Do NOT ask for size or color yet
+5. Do NOT show order form yet
+6. Wait for customer to click the order button or express intent to order
 
 Example response style:
 "এটা আমাদের [product name]! দাম ৳[price]। 
@@ -496,7 +513,7 @@ These are hard rules. Breaking any one of these is a critical failure.
 ## OUTPUT RULES (what you must never say or show)
 - NO MARKDOWN: Messenger does not render **bold**, *italic*, 
   # headers, or bullet points. Plain text only.
-- NO IMAGE LINKS: Never output image URLs or markdown images (e.g. ![...](...)). 
+- NO IMAGE LINKS: Never output image references, URLs, IDs, or markdown images (e.g. ![...](...)). 
   Calling the send_image tool handles the delivery. 
   Your text response should ONLY acknowledge the delivery (e.g., "এই যে ছবিগুলো 😊").
 - NO PLACEHOLDERS: Never send [delivery], [total], or any 
@@ -689,9 +706,9 @@ Price: ৳${meta.activeProductPrice}
 Available Stock: ${stockMatrix || 'Out of stock or check_stock tool result required'}
 ${meta.activeProductDescription ? `Description: ${meta.activeProductDescription}\n` : ''}${attrLines || 'No additional attributes available.'}
 Extra Media:
-- Images: ${mediaImages.length > 0 ? mediaImages.join(', ') : 'None'}
-- Videos: ${mediaVideos.length > 0 ? mediaVideos.join(', ') : 'None'}
-(Use send_image tool with these exact URLs when asked for photos/videos)
+- Images: ${mediaImages.length > 0 ? mediaImages.map((_, i) => `image_\${i+1}`).join(', ') : 'None'}
+- Videos: ${mediaVideos.length > 0 ? mediaVideos.map((_, i) => `video_\${i+1}`).join(', ') : 'None'}
+(Use send_image tool with these exact IDs when asked for photos/videos)
 ==============================`;
   }
 
@@ -761,10 +778,10 @@ function buildOrderCollectionInstruction(settings: WorkspaceSettings): string {
    - If missing: Ask customer.
    - If present: Call check_stock THEN add_to_cart (if not already added) THEN update_customer_info THEN calculate_delivery.
 4. MEDIA HANDLING (STRICT):
-   - যদি কাস্টমার কোনো পণ্যের image বা video দেখতে চায়, তবে product data থেকে media_images বা media_videos চেক করুন।
-   - যদি এই array গুলো খালি না থাকে, তবে প্রতিটি URL এর জন্য আলাদাভাবে send_image tool কল করুন।
-   - যদি array গুলো খালি থাকে, তবে বিনয়ের সাথে বলুন: "এই পণ্যের extra ছবি/ভিডিও এখনো নেই Sir/Ma'am।"
-   - কখোনোই সরাসরি text message এ URL পাঠাবেন না বা বানিয়ে কোনো URL দেবেন না। কাস্টমার ছবি চাইলে টুল ব্যবহার করতেই হবে।
+   - যদি কাস্টমার কোনো পণ্যের image বা video দেখতে চায়, তবে product data থেকে Extra Media চেক করুন।
+   - যদি সেখানে image বা video থাকে, তবে প্রতিটি ID এর জন্য আলাদাভাবে send_image tool কল করুন।
+   - যদি খালি থাকে, তবে বিনয়ের সাথে বলুন: "এই পণ্যের extra ছবি/ভিডিও এখনো নেই Sir/Ma'am।"
+   - কখোনোই সরাসরি text message এ ID বা URL পাঠাবেন না। কাস্টমার ছবি চাইলে টুল ব্যবহার করতেই হবে।
 5. DYNAMIC ATTRIBUTES: Do NOT mention "সাইজ" or "কালার" if the product doesn't have them in the catalog.
 6. MEMORY CHECK: If CART STATE shows Customer Name, Phone, and Address already collected, send:
    "Sir, আগের তথ্য দিয়ে অর্ডার করি?

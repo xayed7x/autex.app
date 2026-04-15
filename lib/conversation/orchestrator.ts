@@ -264,6 +264,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           variantStock: result.match?.product?.variant_stock,
           media_images: result.match?.product?.media_images,
           media_videos: result.match?.product?.media_videos,
+          description: result.match?.product?.description,
+          product_attributes: result.match?.product?.product_attributes,
         },
       };
 

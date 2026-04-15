@@ -158,7 +158,7 @@ async function executeSearchProducts(
   return {
     result: {
       success: searchResult.success,
-      data: { products: searchResult.products },
+      data: { products: searchResult.products.map(({ imageUrl, media_images, media_videos, ...rest }) => rest) },
       message: searchResult.message,
     },
     sideEffects: {
@@ -868,7 +868,7 @@ async function executeCheckStock(
     return {
       result: {
         success: true,
-        data: { found: true, products: stockInfo },
+        data: { found: true, products: stockInfo.map(({ imageUrl, ...rest }) => rest) },
         message: `Found ${stockInfo.length} product(s): ${stockInfo.map((p) => `${p.name} (stock: ${p.stock}${!p.inStock ? ' - OUT OF STOCK' : ''})`).join(', ')}.`,
       },
       sideEffects: {
@@ -897,7 +897,7 @@ async function executeSendImage(
   args: Record<string, unknown>,
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
-  const url = String(args.url || '');
+  const mediaId = String(args.mediaId || '');
   const recipientId = ctx.customerPsid;
 
   // STRICT VALIDATION: Ensure the PSID is present and not the literal string "undefined"
@@ -913,9 +913,32 @@ async function executeSendImage(
     };
   }
 
+  if (!mediaId) {
+    return {
+      result: { success: false, data: {}, message: 'Missing mediaId.' },
+      sideEffects: {},
+    };
+  }
+
+  // RESOLVE URL FROM METADATA
+  let url = '';
+  const meta = ctx.conversationContext.metadata as any;
+  
+  if (mediaId.startsWith('image_')) {
+    const idx = parseInt(mediaId.replace('image_', ''), 10) - 1;
+    if (meta?.activeProductMediaImages && meta.activeProductMediaImages[idx]) {
+      url = meta.activeProductMediaImages[idx];
+    }
+  } else if (mediaId.startsWith('video_')) {
+    const idx = parseInt(mediaId.replace('video_', ''), 10) - 1;
+    if (meta?.activeProductMediaVideos && meta.activeProductMediaVideos[idx]) {
+      url = meta.activeProductMediaVideos[idx];
+    }
+  }
+
   if (!url) {
     return {
-      result: { success: false, data: {}, message: 'Missing image/video URL.' },
+      result: { success: false, data: { failedId: mediaId }, message: `Invalid mediaId or no media found for "${mediaId}".` },
       sideEffects: {},
     };
   }

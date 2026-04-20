@@ -217,24 +217,42 @@ export async function POST(request: NextRequest) {
       // Non-fatal — page connection still succeeds without Instagram
     }
     
-    // Step 4: Subscribe page to webhook
-    console.log('🔔 Subscribing to webhook...');
-    const webhookUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
-    webhookUrl.searchParams.set('access_token', longLivedToken);
-    webhookUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,messaging_optins,feed');
-    
-    const webhookResponse = await fetch(webhookUrl.toString(), {
-      method: 'POST',
-    });
-    
-    if (!webhookResponse.ok) {
-      const errorData = await webhookResponse.json();
-      console.error('⚠️ Webhook subscription failed:', errorData);
-      // Don't fail the entire operation, just log the warning
-      // The page is still connected, but webhooks might not work
-    } else {
-      console.log('✅ Webhook subscribed successfully');
+    // Step 4: Subscribe page to webhook (Split into Messenger and Feed)
+    console.log('🔔 Subscribing to Messenger webhooks...');
+    try {
+      const messengerUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
+      messengerUrl.searchParams.set('access_token', longLivedToken);
+      messengerUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,messaging_optins');
+      
+      const messengerResponse = await fetch(messengerUrl.toString(), { method: 'POST' });
+      if (messengerResponse.ok) {
+        console.log('✅ Messenger webhooks subscribed successfully');
+      } else {
+        const errorData = await messengerResponse.json();
+        console.error('⚠️ Messenger subscription failed:', errorData);
+      }
+
+      // Optional: Subscribe to Feed (requires pages_manage_metadata)
+      console.log('🔔 Attempting to subscribe to Feed webhooks...');
+      const feedUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
+      feedUrl.searchParams.set('access_token', longLivedToken);
+      feedUrl.searchParams.set('subscribed_fields', 'feed');
+      
+      const feedResponse = await fetch(feedUrl.toString(), { method: 'POST' });
+      if (feedResponse.ok) {
+        console.log('✅ Feed webhooks subscribed successfully');
+      } else {
+        const errorData = await feedResponse.json();
+        if (errorData.error?.code === 200) {
+          console.warn('ℹ️ Feed subscription skipped: Missing "pages_manage_metadata" permission. Comment automation will be disabled.');
+        } else {
+          console.error('⚠️ Feed subscription failed:', errorData);
+        }
+      }
+    } catch (subError) {
+      console.error('❌ Webhook subscription error:', subError);
     }
+
     
     // Step 5: Clear temporary pages cookie
     const cookieStore = await cookies();

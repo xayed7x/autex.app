@@ -103,23 +103,25 @@ export async function PATCH(
         if (status === 'completed') {
           messageTemplate = settings.fastLaneMessages.orderConfirmed;
           
-          // Deduct stock when the order is confirmed
-          const { data: orderItemsData, error: itemsError } = await supabase
-            .from('order_items')
-            .select('product_id, quantity, selected_size, selected_color')
-            .eq('order_id', existingOrder.id);
-            
-          if (!itemsError && orderItemsData && orderItemsData.length > 0) {
-             // Map selected_size/color to size/color for the stock utility
-             const orderItems = orderItemsData.map(item => ({
-               product_id: item.product_id,
-               quantity: item.quantity,
-               size: item.selected_size,
-               color: item.selected_color
-             }));
-             await deductStockFromOrderItems(supabase, orderItems);
-          } else {
-             console.error('[Order API] Could not fetch order_items for stock deduction:', itemsError);
+          // Deduct stock when the order is confirmed (Unless food business)
+          if (settings.businessCategory !== 'food') {
+            const { data: orderItemsData, error: itemsError } = await supabase
+              .from('order_items')
+              .select('product_id, quantity, selected_size, selected_color')
+              .eq('order_id', existingOrder.id);
+              
+            if (!itemsError && orderItemsData && orderItemsData.length > 0) {
+              // Map selected_size/color to size/color for the stock utility
+              const orderItems = orderItemsData.map(item => ({
+                product_id: item.product_id,
+                quantity: item.quantity,
+                size: item.selected_size,
+                color: item.selected_color
+              }));
+              await deductStockFromOrderItems(supabase, orderItems);
+            } else if (itemsError) {
+              console.error('[Order API] Could not fetch order_items for stock deduction:', itemsError);
+            }
           }
         } else if (status === 'cancelled') {
           messageTemplate = settings.fastLaneMessages.orderCancelled;

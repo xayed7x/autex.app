@@ -1,0 +1,180 @@
+Critical fix: ORDER_NOW button is currently a dead end.
+Need to implement the complete order collection flow 
+for food businesses in one go.
+
+CONTEXT:
+- Food business order needs: pounds, custom message, 
+  name, phone, address, delivery_date
+- cake_category and product are already known when 
+  ORDER_NOW is clicked
+- order_collection_style is 'conversational'
+- businessCategory === 'food'
+
+---
+
+FIX 1 — Webhook: Handle ORDER_NOW postback
+File: app/api/webhooks/facebook/route.ts
+
+Replace the empty ORDER_NOW block with:
+
+1. Extract productId from payload
+2. Fetch product from DB using productId
+3. Update conversation context:
+   - Set metadata.activeProductId = productId
+   - Set metadata.activeProductName = product.name
+   - Set metadata.pricePerPound = product.price_per_pound
+   - Set metadata.cakeCategory = product.cake_category
+   - Set metadata.allowsCustomMessage = product.allows_custom_message
+   - Set metadata.orderStage = 'COLLECTING_POUNDS'
+4. Save updated context to DB
+5. Call processMessage() with a system-injected message:
+   "[SYSTEM: Customer clicked Order Now for product: 
+   ${product.name} (${product.cake_category}). 
+   Price: ৳${product.price_per_pound} per pound.
+   Start order collection. First ask: কত pound এর 
+   cake চান Sir?]"
+
+---
+
+FIX 2 — Orchestrator: Fast-path for pound collection
+File: lib/conversation/orchestrator.ts
+
+After the existing payment digits fast-path, add a new 
+fast-path for pound collection:
+
+If metadata.orderStage === 'COLLECTING_POUNDS':
+  Try to extract a number from customer message
+  Valid formats: "2", "2 pound", "দুই পাউন্ড", 
+                 "2.5", "half kg", "১ পাউন্ড"
+  
+  If number found:
+    - Save to metadata.selectedPounds
+    - Calculate price: price_per_pound × pounds 
+      (round to nearest 10)
+    - Save to metadata.calculatedPrice
+    - Set metadata.orderStage = 'COLLECTING_CUSTOM_MESSAGE'
+    - Pass to AI with context so AI asks custom message
+
+  If number NOT found:
+    - Pass to AI normally with current stage context
+
+---
+
+FIX 3 — AI System Prompt: Complete food order flow
+File: lib/ai/single-agent.ts
+
+In food business section, replace existing order 
+collection rules with this complete state machine:
+
+"""
+FOOD ORDER COLLECTION STATE MACHINE:
+
+STATE: COLLECTING_POUNDS
+- Context has: activeProductName, pricePerPound, cakeCategory
+- Your job: Confirm product and ask pounds
+- Message: "চমৎকার! [product name] নেবেন।
+  কত pound এর cake চান? 
+  (৳[pricePerPound] per pound)"
+- Wait for number. Do not proceed without valid pound number.
+
+STATE: COLLECTING_CUSTOM_MESSAGE  
+- Context has: selectedPounds, calculatedPrice
+- Your job: Ask for custom message
+- Message: "৳[calculatedPrice] হবে Sir 😊
+  কেকের উপর কী লেখা দেবো?
+  (যেমন: Happy Birthday Rahim)
+  না চাইলে 'না' লিখুন।"
+- Accept any text as custom message, no length limit
+- 'না'/'no'/'nah'/'na' = no custom message
+
+STATE: COLLECTING_INFO
+- Context has: customMessage (or null)
+- Your job: Collect name, phone, address, delivery_date
+- Use quick form:
+  "তাহলে অর্ডারটা নিয়ে নিই 😊
+  
+  নাম:
+  ফোন:
+  ঠিকানা:
+  Delivery তারিখ (DD/MM/YYYY):"
+
+STATE: CONFIRMING_ORDER
+- Context has: all fields collected
+- Your job: Show summary and ask confirmation
+- Format:
+  "অর্ডার সামারি Sir:
+  
+  🎂 [product name]
+  ⚖️ [pounds] pound
+  ✍️ [custom message or 'নেই']
+  📅 Delivery: [date]
+  💰 মোট: ৳[calculatedPrice]
+  👤 [name]
+  📱 [phone]
+  📍 [address]
+  
+  সব ঠিক আছে? 'হ্যাঁ' লিখলে অর্ডার confirm হবে।"
+
+STATE: ORDER_CONFIRMED
+- Customer said 'হ্যাঁ'
+- Call save_order with ALL fields:
+  product_id, product_name, pounds_ordered,
+  price_per_pound, total_price, custom_message,
+  delivery_date, customer_name, customer_phone,
+  customer_address, cake_category
+- After save: 
+  "আলহামদুলিল্লাহ! অর্ডার confirm হয়েছে Sir 🎉
+  আমরা [delivery_date] তারিখে deliver করবো।
+  Payment এর জন্য অপেক্ষা করুন।"
+
+RULES:
+- Never skip a state
+- Never call save_order before STATE: ORDER_CONFIRMED
+- Never ask for flavor again — cake_category is the flavor
+- delivery_date is mandatory — block save_order if missing
+- If customer wants to change something mid-flow, 
+  update that field and re-show summary
+"""
+
+---
+
+FIX 4 — save_order executor: save all food fields
+File: lib/ai/tools/executor.ts
+
+In save_order handler, ensure these fields are saved 
+to orders table:
+- product_id
+- pounds_ordered  
+- price_per_pound (from metadata)
+- total_price (calculatedPrice)
+- custom_message
+- delivery_date
+- cake_category
+- customer_name, customer_phone, customer_address
+
+After successful save, also save to order_items table:
+- product_name: metadata.activeProductName
+- selected_flavor: metadata.cakeCategory
+- pounds: metadata.selectedPounds
+- unit_price: metadata.pricePerPound
+- total_price: metadata.calculatedPrice
+
+---
+
+FIX 5 — Orders dashboard: show complete food order
+File: app/dashboard/orders/page.tsx and order details modal
+
+In order details modal for food orders, show:
+
+"Cake Order Details" section:
+🎂 Product: [product name]
+🍫 Category: [cake_category]  
+⚖️ Weight: [pounds_ordered] pound
+✍️ Custom Message: [custom_message or '—']
+📅 Delivery Date: [delivery_date]
+💰 Price: ৳[price_per_pound]/pound × [pounds] = ৳[total]
+
+Show product image (image_urls[0]) at top of modal
+Custom message must show full text — no truncation
+
+Show changed code blocks only. No unchanged code.

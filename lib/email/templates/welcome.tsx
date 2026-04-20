@@ -15,7 +15,7 @@ interface WelcomeEmailProps {
 }
 
 export const WelcomeEmail = ({ businessName, trialEndDate }: WelcomeEmailProps) => (
-  <BaseTemplate preview="Welcome to Autex AI! Your 3-day free trial has started.">
+  <BaseTemplate preview="Welcome to Autex AI! Your 14-day free trial has started.">
     {/* Header Badge */}
     <Section style={badgeContainer}>
       <Text style={badge}>🎉 Welcome</Text>
@@ -28,7 +28,7 @@ export const WelcomeEmail = ({ businessName, trialEndDate }: WelcomeEmailProps) 
     </Text>
     
     <Text style={paragraph}>
-      Welcome to Autex AI! Your <strong>3-day free trial</strong> has started. 
+      Welcome to Autex AI! Your <strong>14-day free trial</strong> has started. 
       We're excited to help you automate your F-commerce business.
     </Text>
     

@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Switch } from "@/components/ui/switch"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,9 +64,12 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [data, setData] = useState<SettingsData | null>(null)
   const [formData, setFormData] = useState({
-    business_name: ""
+    business_name: "",
+    business_category: "clothing"
   })
+  const [initialCategory, setInitialCategory] = useState("clothing")
   const { toast } = useToast()
+  const [showCategoryConfirm, setShowCategoryConfirm] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
 
   // Read tab from URL params on mount
@@ -92,8 +96,10 @@ export default function SettingsPage() {
       const isDefaultName = businessName.trim().toLowerCase() === 'code and cortex'
       
       setFormData({
-        business_name: isDefaultName ? "" : businessName
+        business_name: isDefaultName ? "" : businessName,
+        business_category: settingsData.workspace?.business_category || 'clothing'
       })
+      setInitialCategory(settingsData.workspace?.business_category || 'clothing')
       
       fetchNotifications(settingsData.workspace?.id)
     } catch (error) {
@@ -151,6 +157,7 @@ export default function SettingsPage() {
   }
 
   const handleSave = async () => {
+    setShowCategoryConfirm(false)
     try {
       setSaving(true)
       const response = await fetch("/api/settings", {
@@ -166,6 +173,7 @@ export default function SettingsPage() {
         description: "Settings saved successfully"
       })
       
+      setInitialCategory(formData.business_category)
       fetchSettings()
     } catch (error) {
       console.error("Error saving settings:", error)
@@ -176,6 +184,15 @@ export default function SettingsPage() {
       })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const confirmSave = () => {
+    // Check if category is changing
+    if (formData.business_category !== initialCategory) {
+      setShowCategoryConfirm(true)
+    } else {
+      handleSave()
     }
   }
 
@@ -253,10 +270,55 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </div>
+
+                <div className="space-y-4 max-w-2xl pt-2">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">Business Category</Label>
+                    <p className="text-[11px] text-zinc-400">
+                      এটা আপনার পুরো dashboard এবং AI এর behavior পরিবর্তন করে।
+                    </p>
+                  </div>
+                  
+                  <RadioGroup 
+                    value={formData.business_category} 
+                    onValueChange={(val) => setFormData({ ...formData, business_category: val })}
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+                  >
+                    <div>
+                      <RadioGroupItem
+                        value="clothing"
+                        id="clothing"
+                        className="peer sr-only"
+                      />
+                      <Label
+                        htmlFor="clothing"
+                        className="flex flex-col items-start p-4 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 peer-data-[state=checked]:border-black peer-data-[state=checked]:ring-1 peer-data-[state=checked]:ring-black dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 dark:peer-data-[state=checked]:border-white dark:peer-data-[state=checked]:ring-white cursor-pointer transition-all"
+                      >
+                        <span className="font-semibold text-sm">Clothing & Fashion</span>
+                        <span className="text-xs text-zinc-500 mt-1">Size, color, stock management</span>
+                      </Label>
+                    </div>
+                    
+                    <div>
+                      <RadioGroupItem
+                        value="food"
+                        id="food"
+                        className="peer sr-only"
+                      />
+                      <Label
+                        htmlFor="food"
+                        className="flex flex-col items-start p-4 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 peer-data-[state=checked]:border-black peer-data-[state=checked]:ring-1 peer-data-[state=checked]:ring-black dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 dark:peer-data-[state=checked]:border-white dark:peer-data-[state=checked]:ring-white cursor-pointer transition-all"
+                      >
+                        <span className="font-semibold text-sm">Food & Cake</span>
+                        <span className="text-xs text-zinc-500 mt-1">Flavor, weight, delivery date</span>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
                 
                 <div className="pt-6 border-t border-dashed border-zinc-200 dark:border-white/10 max-w-2xl">
                   <PremiumButton 
-                    onClick={handleSave} 
+                    onClick={confirmSave} 
                     disabled={saving || !formData.business_name}
                     className="w-full sm:w-auto min-w-[140px]"
                   >
@@ -348,12 +410,44 @@ export default function SettingsPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <AlertDialog open={showCategoryConfirm} onOpenChange={setShowCategoryConfirm}>
+        <AlertDialogContent className="sm:max-w-[420px] p-6 border-zinc-200 dark:border-white/10 dark:bg-zinc-900/80 dark:backdrop-blur-xl shadow-2xl rounded-[24px]">
+          <AlertDialogHeader>
+            <div className="h-12 w-12 rounded-2xl bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center mb-2 animate-in zoom-in-50 duration-500">
+              <AlertCircle className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+            </div>
+            <AlertDialogTitle className="text-xl font-bold tracking-tight">Change Business Category?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4 pt-2">
+              <p className="font-semibold text-zinc-900 dark:text-zinc-100 text-base leading-snug">
+                Business category পরিবর্তন করলে AI behavior এবং product fields পরিবর্তন হবে। আপনি কি নিশ্চিত?
+              </p>
+              <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5">
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed italic">
+                  "Changing the category will update your dashboard experience, product management fields, and how the AI interacts with your customers."
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-8 flex-col sm:flex-row gap-3">
+            <AlertDialogCancel className="rounded-xl border-zinc-200 dark:border-white/10 h-12 flex-1 sm:flex-none hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors">
+              Wait, Go Back
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleSave}
+              className="rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black h-12 border-none px-6 flex-1 sm:flex-none shadow-lg dark:shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] transition-all font-bold"
+            >
+              Yes, Update Category
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
 
 function BillingTab() {
-  const { subscription, isLoading: loading, workspaceName } = useSubscription()
+  const { subscription, isLoading: loading, workspaceName, plans } = useSubscription()
   const [showPaymentModal, setShowPaymentModal] = useState(false)
 
   if (loading) {
@@ -406,16 +500,26 @@ function BillingTab() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-emerald-500" />
-                  {isTrial ? '3-Day Free Trial' : subscription?.plan === 'starter' ? 'Starter Features' : subscription?.plan === 'pro' ? 'Pro Features' : 'Business Features'}
+                  {isTrial ? '14-Day Free Trial' : subscription?.plan ? `${plans[subscription.plan].name} Features` : 'Active Plan'}
                 </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-emerald-500" />
-                  Unlimited Products
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-emerald-500" />
-                  Unlimited Conversations
-                </li>
+                {subscription?.plan && plans[subscription.plan].features.map((feature: string, idx: number) => (
+                  <li key={idx} className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-emerald-500" />
+                    {feature}
+                  </li>
+                ))}
+                {!subscription?.plan && (
+                  <>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      Unlimited Products
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      Unlimited Conversations
+                    </li>
+                  </>
+                )}
               </ul>
            </div>
            
@@ -454,10 +558,11 @@ function BillingTab() {
 
 // Facebook Pages Section Component
 function FacebookPagesSection() {
-  const [pages, setPages] = useState<Array<{ id: string; page_name: string; created_at: string; bot_enabled: boolean }>>([])
+  const [pages, setPages] = useState<Array<{ id: string; page_name: string; created_at: string; bot_enabled: boolean; instagram_account_id: string | null; ig_bot_enabled: boolean }>>([])
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
   const [toggling, setToggling] = useState<string | null>(null)
+  const [togglingIg, setTogglingIg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [disconnectDialog, setDisconnectDialog] = useState<{ open: boolean; pageId: string; pageName: string }>({
@@ -633,6 +738,40 @@ function FacebookPagesSection() {
     }
   }
 
+  const toggleIgBot = async (pageId: string, newState: boolean) => {
+    setTogglingIg(pageId)
+    try {
+      const response = await fetch(`/api/facebook/pages/${pageId}/toggle-ig-bot`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ig_bot_enabled: newState }),
+      })
+
+      if (!response.ok) throw new Error('Failed to toggle Instagram bot state')
+
+      // Update local state
+      setPages(pages.map(p => 
+        p.id === pageId ? { ...p, ig_bot_enabled: newState } : p
+      ))
+
+      toast({
+        title: newState ? 'Instagram Bot Enabled' : 'Instagram Bot Disabled',
+        description: newState 
+          ? 'Bot will now respond to Instagram messages and comments' 
+          : 'Bot will no longer respond to Instagram interactions',
+      })
+    } catch (err) {
+      console.error('Error toggling Instagram bot:', err)
+      toast({
+        title: 'Error',
+        description: 'Failed to update Instagram bot settings',
+        variant: 'destructive',
+      })
+    } finally {
+      setTogglingIg(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 w-full relative h-[200px]">
@@ -769,6 +908,54 @@ function FacebookPagesSection() {
                       disabled={toggling === page.id}
                     />
                   </div>
+                </div>
+
+                {/* Instagram Status Row */}
+                <div className="flex items-center justify-between p-3 rounded-md bg-background border border-border">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                      page.instagram_account_id
+                        ? 'bg-pink-100 dark:bg-pink-900/30' 
+                        : 'bg-zinc-100 dark:bg-zinc-800'
+                    }`}>
+                      <span className="text-sm">
+                        {page.instagram_account_id ? '📸' : '📷'}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">Instagram</span>
+                        <Badge 
+                          variant={page.instagram_account_id ? "default" : "secondary"}
+                          className={page.instagram_account_id 
+                            ? "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400 border-none" 
+                            : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 border-none"
+                          }
+                        >
+                          {page.instagram_account_id ? 'Connected ✅' : 'Not Connected'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {page.instagram_account_id 
+                          ? (page.ig_bot_enabled ? 'Bot automatically responds to Instagram messages' : 'Bot will not respond to Instagram interactions')
+                          : 'Link an Instagram Business Account to your Facebook Page to enable DM automation'}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* IG Toggle Switch */}
+                  {page.instagram_account_id && (
+                    <div className="flex items-center gap-2">
+                      {togglingIg === page.id && (
+                        <div className="h-4 w-4 rounded-full border-2 border-zinc-500/20 border-t-zinc-500 animate-spin" />
+                      )}
+                      <Switch
+                        checked={page.ig_bot_enabled}
+                        onCheckedChange={(checked) => toggleIgBot(page.id, checked)}
+                        disabled={togglingIg === page.id}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

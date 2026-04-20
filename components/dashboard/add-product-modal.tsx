@@ -18,9 +18,10 @@ interface AddProductModalProps {
   onClose: () => void
   product?: Product | null
   onSuccess?: () => void
+  businessCategory?: string
 }
 
-export function AddProductModal({ open, onClose, product, onSuccess }: AddProductModalProps) {
+export function AddProductModal({ open, onClose, product, onSuccess, businessCategory }: AddProductModalProps) {
   return (
     <ProductForm
       open={open}
@@ -30,6 +31,7 @@ export function AddProductModal({ open, onClose, product, onSuccess }: AddProduc
         onClose()
         onSuccess?.()
       }}
+      businessCategory={businessCategory}
     />
   )
 }

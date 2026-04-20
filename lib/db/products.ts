@@ -139,7 +139,8 @@ export async function searchProductsByKeywords(
 export async function searchProductsByKeywordsWithScoring(
   query: string,
   workspaceId: string,
-  limit: number = 5
+  limit: number = 5,
+  flavor?: string
 ): Promise<Product[]> {
   const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -149,17 +150,17 @@ export async function searchProductsByKeywordsWithScoring(
   try {
     const normalizedQuery = query.trim();
     
-    if (!normalizedQuery) {
-      return [];
-    }
-
-    const keywords = normalizedQuery.toLowerCase().split(/\s+/);
-
-    // Fetch all products for the workspace
-    const { data: allProducts, error } = await supabase
+    // Fetch products for the workspace, optionally filtering by cake_category
+    let queryBuilder = supabase
       .from('products')
       .select('*')
       .eq('workspace_id', workspaceId);
+    
+    if (flavor) {
+      queryBuilder = queryBuilder.ilike('flavor', `%${flavor}%`);
+    }
+
+    const { data: allProducts, error } = await queryBuilder;
 
     if (error) {
       console.error('Error fetching products:', error);
@@ -170,8 +171,15 @@ export async function searchProductsByKeywordsWithScoring(
       return [];
     }
 
+    if (!normalizedQuery) {
+      // If no query but category provided, return top products in category
+      return (allProducts as Product[]).slice(0, limit);
+    }
+
+    const keywords = normalizedQuery.toLowerCase().split(/\s+/);
+
     // Score each product based on keyword matches
-    const scoredProducts = allProducts.map((product) => {
+    const scoredProducts = (allProducts as Product[]).map((product) => {
       let score = 0;
 
       keywords.forEach((keyword) => {
@@ -203,7 +211,7 @@ export async function searchProductsByKeywordsWithScoring(
       .slice(0, limit)
       .map(({ product }) => product);
 
-    console.log(`✓ Found ${matchedProducts.length} product(s) with scoring for query: "${query}"`);
+    console.log(`✓ Found ${matchedProducts.length} product(s) with scoring for query: "${query}"${flavor ? ` with flavor: "${flavor}"` : ''}`);
     
     return matchedProducts;
   } catch (error) {

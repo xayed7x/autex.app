@@ -66,7 +66,7 @@ export async function POST(
     // Validate required fields
     if (!body.plan || !SUBSCRIPTION_PLANS[body.plan]) {
       return NextResponse.json(
-        { error: 'Invalid plan', message: 'Plan must be one of: starter, pro, business, enterprise' },
+        { error: 'Invalid plan', message: 'Plan must be one of: starter, growth, pro' },
         { status: 400 }
       )
     }

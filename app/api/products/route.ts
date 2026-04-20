@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase
       .from('products')
-      .select('id, name, price, stock_quantity, description, image_urls, colors, sizes, size_stock, variant_stock, pricing_policy, product_attributes, created_at, updated_at', { count: 'exact' })
+      .select('id, name, price, stock_quantity, description, image_urls, colors, sizes, size_stock, variant_stock, pricing_policy, product_attributes, flavors, weights, price_per_pound, flavor, allows_custom_message, min_pounds, max_pounds, created_at, updated_at', { count: 'exact' })
       .eq('workspace_id', workspace.id);
 
     // Apply filters
@@ -166,6 +166,11 @@ export async function POST(request: NextRequest) {
     }
     console.log('Workspace found:', workspace.id);
 
+    // Fetch workspace settings to check business category
+    const { getCachedSettings } = await import('@/lib/workspace/settings-cache');
+    const settings = await getCachedSettings(workspace.id);
+    const isFood = settings.businessCategory === 'food';
+
     // ========================================
     // MULTI-IMAGE PROCESSING
     // ========================================
@@ -220,8 +225,12 @@ export async function POST(request: NextRequest) {
         // Upload to Cloudinary
         const uploadResult = await uploadToCloudinary(buffer);
         
-        // Generate 3 hashes (full, center, square)
-        const hashes = await generateMultiHashes(buffer);
+        // Skip hash generation for food businesses
+        let hashes: string[] = [];
+        if (!isFood) {
+          const { generateMultiHashes } = await import('@/lib/image-recognition/hash');
+          hashes = await generateMultiHashes(buffer);
+        }
         
         return {
           url: uploadResult.secure_url,
@@ -235,8 +244,12 @@ export async function POST(request: NextRequest) {
       // Collect URLs and hashes
       results.forEach((result, index) => {
         allImageUrls.push(result.url);
-        allImageHashes.push(...result.hashes);
-        console.log(`  ✅ Image ${index + 1} processed: ${result.hashes.length} hashes`);
+        if (result.hashes.length > 0) {
+          allImageHashes.push(...result.hashes);
+          console.log(`  ✅ Image ${index + 1} processed: ${result.hashes.length} hashes`);
+        } else {
+          console.log(`  ✅ Image ${index + 1} uploaded (Skipped hashing for food)`);
+        }
       });
       
       // Store first buffer for visual features (explicit access for TypeScript)
@@ -299,9 +312,9 @@ export async function POST(request: NextRequest) {
     // For POST (new product), we always have new images
 
     // Extract visual features for Tier 2 matching (from first image only)
-    console.log('Extracting visual features...');
-    let visualFeatures;
-    if (firstImageBuffer) {
+    let visualFeatures = null;
+    if (firstImageBuffer && !isFood) {
+      console.log('Extracting visual features...');
       try {
         visualFeatures = await extractVisualFeatures(firstImageBuffer);
         console.log('Visual features extracted:', {
@@ -311,83 +324,82 @@ export async function POST(request: NextRequest) {
       } catch (featuresError: any) {
         console.error('Visual features extraction error:', featuresError);
         console.warn('Continuing without visual features');
-        visualFeatures = null;
       }
     }
 
     // MAGIC UPLOAD: Auto-generate search keywords using OpenAI
-    console.log('🪄 Generating search keywords with OpenAI...');
     let searchKeywords: string[] | null = null;
     let autoTaggingCost = 0;
     
-    try {
-      const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-      });
+    if (firstImageBuffer && !isFood) {
+      console.log('🪄 Generating search keywords with OpenAI...');
+      try {
+        const OpenAI = (await import('openai')).default;
+        const openai = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY,
+        });
 
-      // Convert first image to Base64 for auto-tagging
-      if (!firstImageBuffer) throw new Error('No image buffer available');
-      const base64Image = `data:image/jpeg;base64,${firstImageBuffer.toString('base64')}`;
+        // Convert first image to Base64 for auto-tagging
+        const base64Image = `data:image/jpeg;base64,${firstImageBuffer.toString('base64')}`;
 
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'Analyze this product image. Return a JSON object with a "keywords" array containing 10-15 descriptive single words (lowercase) about color, pattern, material, style, clothing type, and visible brand. Example: {"keywords": ["navy", "blue", "striped", "polo", "collar", "cotton", "half-sleeve", "summer", "men"]}',
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: {
-                  url: base64Image,
-                  detail: 'low',
+        const response = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'Analyze this product image. Return a JSON object with a "keywords" array containing 10-15 descriptive single words (lowercase) about color, pattern, material, style, clothing type, and visible brand. Example: {"keywords": ["navy", "blue", "striped", "polo", "collar", "cotton", "half-sleeve", "summer", "men"]}',
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: base64Image,
+                    detail: 'low',
+                  },
                 },
-              },
-            ],
-          },
-        ],
-        max_tokens: 150,
-        temperature: 0.3,
-      });
+              ],
+            },
+          ],
+          max_tokens: 150,
+          temperature: 0.3,
+        });
 
-      const content = response.choices[0]?.message?.content || '{}';
-      const usage = response.usage;
+        const content = response.choices[0]?.message?.content || '{}';
+        const usage = response.usage;
 
-      // Calculate cost
-      if (usage) {
-        const inputCost = (usage.prompt_tokens / 1_000_000) * 0.15;
-        const outputCost = (usage.completion_tokens / 1_000_000) * 0.60;
-        autoTaggingCost = inputCost + outputCost;
+        // Calculate cost
+        if (usage) {
+          const inputCost = (usage.prompt_tokens / 1_000_000) * 0.15;
+          const outputCost = (usage.completion_tokens / 1_000_000) * 0.60;
+          autoTaggingCost = inputCost + outputCost;
+        }
+
+        // Parse keywords
+        let cleanedContent = content.trim();
+        if (cleanedContent.startsWith('```json')) {
+          cleanedContent = cleanedContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        } else if (cleanedContent.startsWith('```')) {
+          cleanedContent = cleanedContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+        }
+
+        const parsed = JSON.parse(cleanedContent);
+        searchKeywords = parsed.keywords || [];
+
+        console.log(`✓ Generated ${searchKeywords?.length || 0} keywords:`, searchKeywords?.slice(0, 5));
+        console.log(`  Cost: $${autoTaggingCost.toFixed(6)}`);
+
+        // Track API usage
+        await supabase.from('api_usage').insert({
+          workspace_id: workspace.id,
+          api_type: 'auto_tagging',
+          cost: autoTaggingCost,
+        });
+      } catch (autoTagError: any) {
+        console.error('Auto-tagging error:', autoTagError);
+        console.warn('Continuing without auto-generated keywords');
       }
-
-      // Parse keywords
-      let cleanedContent = content.trim();
-      if (cleanedContent.startsWith('```json')) {
-        cleanedContent = cleanedContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanedContent.startsWith('```')) {
-        cleanedContent = cleanedContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      }
-
-      const parsed = JSON.parse(cleanedContent);
-      searchKeywords = parsed.keywords || [];
-
-      console.log(`✓ Generated ${searchKeywords?.length || 0} keywords:`, searchKeywords?.slice(0, 5));
-      console.log(`  Cost: $${autoTaggingCost.toFixed(6)}`);
-
-      // Track API usage
-      await supabase.from('api_usage').insert({
-        workspace_id: workspace.id,
-        api_type: 'auto_tagging',
-        cost: autoTaggingCost,
-      });
-    } catch (autoTagError: any) {
-      console.error('Auto-tagging error:', autoTagError);
-      console.warn('Continuing without auto-generated keywords');
-      // Don't fail the request - product can be saved without keywords
     }
 
     // Insert product into database
@@ -397,23 +409,29 @@ export async function POST(request: NextRequest) {
       .insert({
         workspace_id: workspace.id,
         name: productData.name,
-        price: productData.price,
+        price: isFood ? 0 : (productData.price || 0), // Use 0 for food to satisfy NOT NULL constraint
         description: productData.description || null,
-        // category: productData.category || null,
-        stock_quantity: productData.stock_quantity || 0,
+        stock_quantity: isFood ? 99999 : (productData.stock_quantity || 0),
         variations: productData.variations || null,
-        image_urls: allImageUrls, // All uploaded images
-        image_hashes: allImageHashes, // 3 hashes per image for Tier 1
-        visual_features: visualFeatures as any, // For Tier 2
-        search_keywords: searchKeywords, // Magic Upload keywords for Tier 3
+        image_urls: allImageUrls,
+        image_hashes: allImageHashes,
+        visual_features: visualFeatures as any,
+        search_keywords: searchKeywords,
         colors: productData.colors || [],
         sizes: productData.sizes || [],
-        size_stock: productData.size_stock || [], // NEW: per-size stock tracking
-        variant_stock: productData.variant_stock || [], // NEW: variant stock tracking
+        size_stock: productData.size_stock || [],
+        variant_stock: productData.variant_stock || [],
         pricing_policy: productData.pricing_policy || { isNegotiable: false, bulkDiscounts: [] },
         product_attributes: productData.product_attributes || {},
         media_images: finalMediaImages,
         media_videos: finalMediaVideos,
+        flavors: productData.flavors || [],
+        weights: productData.weights || [],
+        price_per_pound: productData.price_per_pound || null,
+        flavor: productData.flavor || null,
+        allows_custom_message: productData.allows_custom_message ?? true,
+        min_pounds: productData.min_pounds || 0.5,
+        max_pounds: productData.max_pounds || 5.0,
       })
       .select()
       .single();

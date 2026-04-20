@@ -165,7 +165,8 @@ export async function POST(request: NextRequest) {
         page_name: pageName,
         page_username: pageUsername,
         encrypted_access_token: encryptedToken,
-        bot_enabled: false, // Disable bot by default - user must complete setup first
+        bot_enabled: false, // Disable Facebook bot by default
+        ig_bot_enabled: false, // Disable Instagram bot by default
         status: 'connected',
       }, {
         onConflict: 'id',
@@ -183,11 +184,44 @@ export async function POST(request: NextRequest) {
     
     console.log('✅ Page saved to database');
     
+    // Step 4.5: Check for linked Instagram Business Account
+    let instagramAccountId: string | null = null;
+    try {
+      console.log('📸 Checking for linked Instagram Business Account...');
+      const igResponse = await fetch(
+        `https://graph.facebook.com/v21.0/${pageId}?fields=instagram_business_account&access_token=${longLivedToken}`
+      );
+      
+      if (igResponse.ok) {
+        const igData = await igResponse.json();
+        if (igData.instagram_business_account?.id) {
+          instagramAccountId = igData.instagram_business_account.id;
+          console.log(`✅ Instagram Business Account found: ${instagramAccountId}`);
+          
+          // Save Instagram account ID to the facebook_pages row
+          await supabaseAdmin
+            .from('facebook_pages')
+            .update({ instagram_account_id: instagramAccountId } as any)
+            .eq('id', BigInt(pageId) as unknown as number);
+          
+          console.log('✅ Instagram account ID saved to database');
+        } else {
+          console.log('ℹ️ No Instagram Business Account linked to this page');
+        }
+      } else {
+        const igError = await igResponse.json();
+        console.warn('⚠️ Could not check Instagram Business Account:', igError);
+      }
+    } catch (igError) {
+      console.error('❌ Error checking Instagram Business Account:', igError);
+      // Non-fatal — page connection still succeeds without Instagram
+    }
+    
     // Step 4: Subscribe page to webhook
     console.log('🔔 Subscribing to webhook...');
     const webhookUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
     webhookUrl.searchParams.set('access_token', longLivedToken);
-    webhookUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,feed');
+    webhookUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,messaging_optins,feed');
     
     const webhookResponse = await fetch(webhookUrl.toString(), {
       method: 'POST',

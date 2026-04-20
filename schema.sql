@@ -53,6 +53,8 @@ CREATE TABLE public.facebook_pages (
   status text NOT NULL DEFAULT 'connected'::text CHECK (status = ANY (ARRAY['connected'::text, 'disconnected'::text])),
   bot_enabled boolean NOT NULL DEFAULT true,
   page_username text,
+  instagram_account_id text,
+  ig_bot_enabled boolean DEFAULT true,
   CONSTRAINT facebook_pages_pkey PRIMARY KEY (id),
   CONSTRAINT facebook_pages_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -76,6 +78,8 @@ CREATE TABLE public.messages (
   attachments jsonb,
   created_at timestamp with time zone DEFAULT now(),
   sender_type text DEFAULT 'customer'::text CHECK (sender_type = ANY (ARRAY['customer'::text, 'bot'::text, 'owner'::text])),
+  mid text,
+  image_url text,
   CONSTRAINT messages_pkey PRIMARY KEY (id),
   CONSTRAINT messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
 );
@@ -121,6 +125,9 @@ CREATE TABLE public.orders (
   selected_size text,
   selected_color text,
   size_stock_id text,
+  delivery_date text,
+  flavor text,
+  weight text,
   CONSTRAINT orders_pkey PRIMARY KEY (id),
   CONSTRAINT orders_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT orders_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
@@ -174,6 +181,11 @@ CREATE TABLE public.products (
   variant_stock jsonb DEFAULT '[]'::jsonb,
   pricing_policy jsonb DEFAULT '{}'::jsonb,
   product_attributes jsonb DEFAULT '{}'::jsonb,
+  category text,
+  flavors text[] DEFAULT '{}'::text[],
+  weights text[] DEFAULT '{}'::text[],
+  media_images text[],
+  media_videos text[],
   CONSTRAINT products_pkey PRIMARY KEY (id),
   CONSTRAINT products_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -264,6 +276,7 @@ Screenshot পাঠালে আমরা verify করব।'::text,
   exchange_policy text,
   custom_faqs jsonb DEFAULT '[]'::jsonb,
   conversation_examples jsonb DEFAULT '[]'::jsonb,
+  custom_ai_instructions text,
   CONSTRAINT workspace_settings_pkey PRIMARY KEY (id),
   CONSTRAINT workspace_settings_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );

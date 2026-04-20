@@ -70,9 +70,9 @@ export function SubscriptionModal({
   const [activeTab, setActiveTab] = useState('activate')
 
   // Form states
-  const [plan, setPlan] = useState('pro')
+  const [plan, setPlan] = useState('growth')
   const [duration, setDuration] = useState('30')
-  const [amount, setAmount] = useState('599')
+  const [amount, setAmount] = useState('2999')
   const [paymentMethod, setPaymentMethod] = useState('bkash')
   const [transactionId, setTransactionId] = useState('')
   const [notes, setNotes] = useState('')
@@ -339,9 +339,9 @@ export function SubscriptionModal({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="starter">Starter (৳499)</SelectItem>
-                      <SelectItem value="pro">Pro — Founder (৳599)</SelectItem>
-                      <SelectItem value="business">Business (৳1,799)</SelectItem>
+                      <SelectItem value="starter">Starter (৳1,499)</SelectItem>
+                      <SelectItem value="growth">Growth (৳2,999)</SelectItem>
+                      <SelectItem value="pro">Pro (৳5,999)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

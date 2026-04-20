@@ -38,6 +38,9 @@ interface Product {
   colors?: string[];
   sizes?: string[];
   size_stock?: { size: string; quantity: number }[];
+  flavors?: string[];
+  weights?: string[];
+  price_per_pound?: number;
 }
 
 interface PaginationData {
@@ -58,6 +61,7 @@ export default function ProductsPage() {
     total: 0,
     totalPages: 0,
   });
+  const [businessCategory, setBusinessCategory] = useState<string>('clothing');
   const [initialLoading, setInitialLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
@@ -89,6 +93,24 @@ export default function ProductsPage() {
       setIsAddModalOpen(true);
     }
   }, [searchParams]);
+
+  // Fetch business settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await fetch('/api/settings/ai');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.settings?.business_category) {
+            setBusinessCategory(data.settings.business_category);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching settings:', error);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   const fetchProducts = useCallback(async (page: number = 1, search: string = '', category: string = 'all', stock: string = 'all', sort: string = 'recent') => {
     try {
@@ -286,7 +308,7 @@ export default function ProductsPage() {
                     <img
                       src={product.image_urls?.[0] || "/placeholder.svg"}
                       alt={product.name}
-                      className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${product.stock_quantity === 0 ? "opacity-50 grayscale" : "opacity-100"}`}
+                      className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${businessCategory !== 'food' && product.stock_quantity === 0 ? "opacity-50 grayscale" : "opacity-100"}`}
                     />
                     
                     {/* Hover Overlay */}
@@ -295,7 +317,7 @@ export default function ProductsPage() {
                     </div>
 
                     {/* Stock Badge */}
-                    {product.stock_quantity === 0 && (
+                    {businessCategory !== 'food' && product.stock_quantity === 0 && (
                       <Badge variant="destructive" className="absolute top-2 right-2 text-xs px-2 py-0.5 shadow-sm">
                         Out of Stock
                       </Badge>
@@ -309,13 +331,39 @@ export default function ProductsPage() {
                       <h3 className="font-medium text-xs sm:text-sm leading-tight text-foreground line-clamp-1" title={product.name}>
                         {product.name}
                       </h3>
+
+                      {/* Food Badges (Flavors/Weights) */}
+                      {businessCategory === 'food' && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {product.flavors && product.flavors.length > 0 && (
+                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-400/10 border border-orange-400/20 text-[9px] font-medium text-orange-400">
+                              <span className="w-1 h-1 rounded-full bg-orange-400" />
+                              {product.flavors[0]}
+                              {product.flavors.length > 1 && ` +${product.flavors.length - 1}`}
+                            </div>
+                          )}
+                          {product.weights && product.weights.length > 0 && (
+                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-400/10 border border-blue-400/20 text-[9px] font-medium text-blue-400">
+                              {product.weights[0]}
+                              {product.weights.length > 1 && ` +${product.weights.length - 1}`}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       
                       {/* Price */}
                       <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-0">
-                         <p className="font-serif text-sm sm:text-lg font-semibold tracking-tight">৳{product.price.toLocaleString()}</p>
-                         <p className="text-[10px] sm:text-xs text-muted-foreground font-mono bg-muted/50 px-1.5 py-0.5 rounded w-fit">
-                            {product.stock_quantity} <span className="hidden sm:inline">in stock</span><span className="sm:hidden">left</span>
+                         <p className="font-serif text-sm sm:text-lg font-semibold tracking-tight">
+                           {businessCategory === 'food' 
+                             ? `৳${(product.price_per_pound || 0).toLocaleString()}/pound`
+                             : `৳${product.price.toLocaleString()}`
+                           }
                          </p>
+                         {businessCategory !== 'food' && (
+                           <p className="text-[10px] sm:text-xs text-muted-foreground font-mono bg-muted/50 px-1.5 py-0.5 rounded w-fit">
+                              {product.stock_quantity} <span className="hidden sm:inline">in stock</span><span className="sm:hidden">left</span>
+                           </p>
+                         )}
                       </div>
                     </div>
                     
@@ -402,6 +450,7 @@ export default function ProductsPage() {
         }}
         product={editingProduct}
         onSuccess={handleFormSuccess}
+        businessCategory={businessCategory}
       />
 
       {/* Delete Confirmation Dialog */}

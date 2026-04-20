@@ -53,6 +53,13 @@ interface Order {
   // NEW: Direct size/color fields
   selected_size?: string
   selected_color?: string
+  delivery_date?: string
+  flavor?: string
+  weight?: string
+  custom_message?: string
+  pounds_ordered?: number
+  custom_message?: string
+  pounds_ordered?: number
   // Legacy fields for backward compatibility
   customer?: {
     name: string
@@ -260,9 +267,60 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                                 </div>
                             </div>
                              <div className="text-right">
-                                <p className="font-mono text-sm font-semibold">৳{order.product_price?.toLocaleString()}</p>
+                                 <p className="font-mono text-sm font-semibold">৳{order.product_price?.toLocaleString()}</p>
                                 <p className="text-xs text-muted-foreground">Qty: {order.quantity || 1}</p>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Food Business Specific Fields: Cake Order Details Aesthetic */}
+                    {(order.delivery_date || order.flavor || order.weight || order.custom_message || order.pounds_ordered) && (
+                        <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">🎂 Cake Order Details</span>
+                            </div>
+                            
+                            <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                                <div className="grid grid-cols-1 divide-y divide-white/5">
+                                    <div className="px-4 py-2.5 flex justify-between items-center bg-white/[0.02]">
+                                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Product / Flavor</span>
+                                        <span className="text-sm font-semibold text-primary">{order.flavor || productName}</span>
+                                    </div>
+                                    
+                                    {order.pounds_ordered && (
+                                        <div className="px-4 py-2.5 flex justify-between items-center">
+                                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Weight / Pounds</span>
+                                            <span className="text-sm font-mono font-medium">{order.pounds_ordered} lbs</span>
+                                        </div>
+                                    )}
+
+                                    {/* Only show calculation if price_per_pound somehow exists (reserved for future) */}
+                                    {order.pounds_ordered && (order as any).price_per_pound && (
+                                        <div className="px-4 py-2.5 flex justify-between items-center text-xs">
+                                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Calculation</span>
+                                            <span className="text-muted-foreground font-mono">
+                                                ৳{(order as any).price_per_pound} × {order.pounds_ordered} = ৳{Math.round(((order as any).price_per_pound * order.pounds_ordered) / 10) * 10}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {order.delivery_date && (
+                                        <div className="px-4 py-2.5 flex justify-between items-center bg-primary/5">
+                                            <span className="text-[10px] text-primary/70 font-bold uppercase tracking-wider">Delivery Date</span>
+                                            <span className="text-sm font-bold text-primary font-mono">{order.delivery_date}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {order.custom_message && (
+                                <div className="space-y-1.5">
+                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">✍️ Custom Message on Cake</p>
+                                    <div className="p-4 rounded-xl bg-gradient-to-br from-white/[0.08] to-transparent border border-white/10 text-sm font-medium italic text-zinc-200 leading-relaxed">
+                                        {order.custom_message}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

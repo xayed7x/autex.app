@@ -140,6 +140,7 @@ export async function sendMessage(
  * @param pageId - The Facebook Page ID
  * @param recipientPsid - The recipient's Page-Scoped ID
  * @param product - Product details including image, price, and variations
+ * @param businessCategory - The category of the business (food/clothing)
  * @returns Promise with the send message response
  * @throws Error if sending fails
  */
@@ -158,7 +159,12 @@ export async function sendProductCard(
       colors?: string[];
       sizes?: string[];
     };
-  }
+    flavor?: string;
+    price_per_pound?: number;
+    min_pounds?: number;
+    max_pounds?: number;
+  },
+  businessCategory?: string
 ): Promise<SendMessageResponse> {
   try {
     // Fetch access token from database
@@ -188,21 +194,50 @@ export async function sendProductCard(
 
     // Prepare Generic Template payload
     
-    // Formatting sizes/colors manually
     let subtitleText = '';
-    const sizes = product.variations?.sizes;
-    const colors = product.variations?.colors;
-    if (sizes && sizes.length > 0) {
-      subtitleText += `সাইজ: ${sizes.join(', ')}`;
-    }
-    if (colors && colors.length > 0) {
-      if (subtitleText.length > 0) subtitleText += ' | ';
-      subtitleText += `কালার: ${colors.join(', ')}`;
-    }
-    
-    // Fallback if empty
-    if (!subtitleText) {
-      subtitleText = 'Available for Order';
+    let buttons = [];
+
+    if (businessCategory === 'food') {
+      // Food format: "৳[price_per_pound] per pound" only
+      const pricePerPound = product.price_per_pound || product.price;
+      
+      subtitleText = `৳${pricePerPound.toLocaleString()} per pound`;
+      
+      buttons = [
+        {
+          type: 'postback',
+          title: 'Order Now 🛒',
+          payload: `ORDER_NOW_${product.id}`,
+        },
+      ];
+    } else {
+      // Clothing format
+      const sizes = product.variations?.sizes;
+      const colors = product.variations?.colors;
+      if (sizes && sizes.length > 0) {
+        subtitleText += `সাইজ: ${sizes.join(', ')}`;
+      }
+      if (colors && colors.length > 0) {
+        if (subtitleText.length > 0) subtitleText += ' | ';
+        subtitleText += `কালার: ${colors.join(', ')}`;
+      }
+      
+      if (!subtitleText) {
+        subtitleText = 'Available for Order';
+      }
+
+      buttons = [
+        {
+          type: 'postback',
+          title: 'Order now 🛒',
+          payload: `ORDER_NOW_${product.id}`,
+        },
+        {
+          type: 'postback',
+          title: 'Description 📋',
+          payload: `VIEW_DETAILS_${product.id}`,
+        },
+      ];
     }
 
     const requestBody = {
@@ -214,23 +249,13 @@ export async function sendProductCard(
           type: 'template',
           payload: {
             template_type: 'generic',
+            image_aspect_ratio: businessCategory === 'food' ? 'square' : 'horizontal',
             elements: [
               {
-                title: `${product.name} — ৳${product.price.toLocaleString()}`,
+                title: `${product.name} ${businessCategory !== 'food' ? `— ৳${product.price.toLocaleString()}` : ''}`,
                 image_url: product.imageUrl || undefined,
                 subtitle: subtitleText,
-                buttons: [
-                  {
-                    type: 'postback',
-                    title: 'Order now 🛒',
-                    payload: `ORDER_NOW_${product.id}`,
-                  },
-                  {
-                    type: 'postback',
-                    title: 'Description 📋',
-                    payload: `VIEW_DETAILS_${product.id}`,
-                  },
-                ],
+                buttons: buttons,
               },
             ],
           },
@@ -281,6 +306,7 @@ export async function sendProductCard(
  * @param pageId - The Facebook Page ID
  * @param recipientPsid - The recipient's Page-Scoped ID
  * @param products - Array of products to display (max 10)
+ * @param businessCategory - The category of the business
  * @returns Promise with the send message response
  * @throws Error if sending fails
  */
@@ -297,7 +323,12 @@ export async function sendProductCarousel(
       colors?: string[];
       sizes?: string[];
     };
-  }>
+    flavor?: string;
+    price_per_pound?: number;
+    min_pounds?: number;
+    max_pounds?: number;
+  }>,
+  businessCategory?: string
 ): Promise<SendMessageResponse> {
   try {
     // Facebook limits Generic Template to 10 elements
@@ -334,28 +365,45 @@ export async function sendProductCarousel(
 
     // Build carousel elements
     const elements = limitedProducts.map(product => {
-      // Formatting sizes/colors manually
       let subtitleText = '';
-      const sizes = product.variations?.sizes;
-      const colors = product.variations?.colors;
-      if (sizes && sizes.length > 0) {
-        subtitleText += `সাইজ: ${sizes.join(', ')}`;
-      }
-      if (colors && colors.length > 0) {
-        if (subtitleText.length > 0) subtitleText += ' | ';
-        subtitleText += `কালার: ${colors.join(', ')}`;
-      }
-      
-      // Fallback if empty
-      if (!subtitleText) {
-        subtitleText = 'Available for Order';
-      }
+      let buttons = [];
 
-      return {
-        title: `${product.name} — ৳${product.price.toLocaleString()}`,
-        image_url: product.imageUrl || undefined,
-        subtitle: subtitleText,
-        buttons: [
+      if (businessCategory === 'food') {
+        const flavor = product.flavor || 'Cake';
+        const pricePerPound = product.price_per_pound || product.price;
+        const minP = product.min_pounds || 0.5;
+        const maxP = product.max_pounds || 5.0;
+        
+        subtitleText = `🎂 ${flavor} | ৳${pricePerPound.toLocaleString()}/pound | ${minP}–${maxP} pound`;
+        
+        buttons = [
+          {
+            type: 'postback',
+            title: 'Order Now 🛒',
+            payload: `ORDER_NOW_${product.id}`,
+          },
+          {
+            type: 'postback',
+            title: 'More Photos 📸',
+            payload: `MORE_PHOTOS_${product.id}`,
+          },
+        ];
+      } else {
+        const sizes = product.variations?.sizes;
+        const colors = product.variations?.colors;
+        if (sizes && sizes.length > 0) {
+          subtitleText += `সাইজ: ${sizes.join(', ')}`;
+        }
+        if (colors && colors.length > 0) {
+          if (subtitleText.length > 0) subtitleText += ' | ';
+          subtitleText += `কালার: ${colors.join(', ')}`;
+        }
+        
+        if (!subtitleText) {
+          subtitleText = 'Available for Order';
+        }
+
+        buttons = [
           {
             type: 'postback',
             title: 'Order now 🛒',
@@ -366,7 +414,14 @@ export async function sendProductCarousel(
             title: 'Description 📋',
             payload: `VIEW_DETAILS_${product.id}`,
           },
-        ],
+        ];
+      }
+
+      return {
+        title: `${product.name} ${businessCategory !== 'food' ? `— ৳${product.price.toLocaleString()}` : ''}`,
+        image_url: product.imageUrl || undefined,
+        subtitle: subtitleText,
+        buttons: buttons,
       };
     });
 
@@ -416,6 +471,34 @@ export async function sendProductCarousel(
   } catch (error) {
     console.error('Error sending product carousel:', error);
     throw error;
+  }
+}
+
+/**
+ * Sends multiple products as individual cards one after another (Vertical Feel)
+ * Specifically for food businesses to give more prominence to each cake.
+ * @param pageId - Facebook Page ID
+ * @param recipientPsid - Customer PSID
+ * @param products - Array of products (Max 4)
+ * @param businessCategory - Category
+ */
+export async function sendProductsVertical(
+  pageId: string,
+  recipientPsid: string,
+  products: any[],
+  businessCategory?: string
+): Promise<void> {
+  // Limit to max 4 products to avoid spamming
+  const limitedProducts = products.slice(0, 4);
+  
+  for (const product of limitedProducts) {
+    try {
+      await sendProductCard(pageId, recipientPsid, product, businessCategory);
+      // Wait 300ms between sends for vertical arrival feel
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (err) {
+      console.error(`Failed to send vertical product card for ${product.id}:`, err);
+    }
   }
 }
 
@@ -721,6 +804,106 @@ export async function sendPrivateReply(
     return result;
   } catch (error) {
     console.error('Error in sendPrivateReply helper:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sends a public reply to an Instagram comment
+ * @param commentId - The Instagram comment ID to reply to
+ * @param text - The message text
+ * @param pageAccessToken - The page access token
+ * @returns Promise with the response
+ */
+export async function replyToInstagramComment(
+  commentId: string,
+  text: string,
+  pageAccessToken: string
+): Promise<any> {
+  try {
+    const rawId = String(commentId).trim();
+    if (!rawId || rawId === 'undefined') {
+      throw new Error('Comment ID is missing or "undefined"');
+    }
+
+    const payload = { message: text };
+    const apiUrl = `https://graph.facebook.com/v24.0/${rawId}/replies?access_token=${pageAccessToken}`;
+    console.log(`📸💬 [IG_PUBLIC_REPLY] Attempting reply to ID: ${rawId}`);
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('📸💬 Meta IG Public Reply Error Details:', errorData.error);
+      throw new Error(`Failed to send public reply to IG comment: ${errorData.error?.message}`);
+    }
+
+    const result = await response.json();
+    console.log(`📸💬 [IG_PUBLIC_REPLY] Success: ${result.id || 'ok'}`);
+    return result;
+  } catch (error) {
+    console.error('📸💬 Error in replyToInstagramComment helper:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sends a private DM to the author of an Instagram comment
+ * Uses the standard /{page_id}/messages endpoint with recipient: { comment_id: ... }
+ * @param pageId - The Facebook Page ID
+ * @param commentId - The Instagram comment ID to reply to
+ * @param text - The message text
+ * @param pageAccessToken - The page access token
+ * @returns Promise with the response
+ */
+export async function sendPrivateReplyToInstagramComment(
+  pageId: string,
+  commentId: string,
+  text: string,
+  pageAccessToken: string
+): Promise<any> {
+  try {
+    const rawCommentId = String(commentId).trim();
+    if (!rawCommentId || rawCommentId === 'undefined') {
+      throw new Error('Comment ID is missing or "undefined"');
+    }
+
+    const payload = {
+      recipient: { comment_id: rawCommentId },
+      message: { text: text }
+    };
+    
+    const apiUrl = `https://graph.facebook.com/v24.0/${pageId}/messages?access_token=${pageAccessToken}`;
+    console.log(`📸💬 [IG_PRIVATE_REPLY] Attempting PM via comment ID: ${rawCommentId}`);
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      
+      // Handle the "already replied" error gracefully
+      if (errorData.error?.code === 100 && errorData.error?.error_subcode === 2018042) {
+        console.warn(`📸💬 [IG_PRIVATE_REPLY] Skipping: Comment already has a private reply.`);
+        return { already_replied: true };
+      }
+      
+      console.error('📸💬 Meta IG Private Reply Error Details:', errorData.error);
+      throw new Error(`Failed to send private reply to IG comment: ${errorData.error?.message}`);
+    }
+
+    const result = await response.json();
+    console.log(`📸💬 [IG_PRIVATE_REPLY] Success: ${result.message_id || 'ok'}`);
+    return result;
+  } catch (error) {
+    console.error('📸💬 Error in sendPrivateReplyToInstagramComment helper:', error);
     throw error;
   }
 }

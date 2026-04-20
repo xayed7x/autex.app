@@ -27,6 +27,8 @@ interface Product {
   colors?: string[] | null;
   sizes?: string[] | null;
   size_stock?: SizeStockItem[] | null;
+  flavors?: string[] | null;
+  weights?: string[] | null;
 }
 
 interface ProductDetailsModalProps {
@@ -47,6 +49,8 @@ export function ProductDetailsModal({ product, open, onClose }: ProductDetailsMo
   const totalStock = sizeStock.reduce((sum, item) => sum + item.quantity, 0);
   const images = product.image_urls || [];
   const selectedImage = images[selectedImageIndex] || images[0];
+
+  const isFood = product.category === 'food' || (product.flavors && product.flavors.length > 0) || (product.weights && product.weights.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -101,14 +105,16 @@ export function ProductDetailsModal({ product, open, onClose }: ProductDetailsMo
               <h3 className="text-2xl font-bold text-white leading-tight">{product.name}</h3>
               <div className="flex items-baseline gap-3">
                 <span className="text-3xl font-serif text-white tracking-tight">৳{product.price.toLocaleString()}</span>
-                {totalStock > 0 ? (
-                  <span className="text-xs font-mono text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
-                    {totalStock} in stock
-                  </span>
-                ) : (
-                  <span className="text-xs font-mono text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full border border-red-400/20">
-                    Out of Stock
-                  </span>
+                {!isFood && (
+                  totalStock > 0 ? (
+                    <span className="text-xs font-mono text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
+                      {totalStock} in stock
+                    </span>
+                  ) : (
+                    <span className="text-xs font-mono text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full border border-red-400/20">
+                      Out of Stock
+                    </span>
+                  )
                 )}
               </div>
               
@@ -119,8 +125,37 @@ export function ProductDetailsModal({ product, open, onClose }: ProductDetailsMo
               )}
             </div>
 
-            {/* Colors */}
-            {product.colors && product.colors.length > 0 && (
+            {/* Flavors (Food Only) */}
+            {product.flavors && product.flavors.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Available Flavors</h4>
+                <div className="flex flex-wrap gap-2">
+                  {product.flavors.map((flavor) => (
+                    <div key={flavor} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-zinc-300">
+                      <span className="w-2 h-2 rounded-full bg-orange-400" />
+                      {flavor}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Weights / Sizes (Food Only) */}
+            {product.weights && product.weights.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Available Weights (Pound)</h4>
+                <div className="flex flex-wrap gap-2">
+                  {product.weights.map((weight) => (
+                    <div key={weight} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-zinc-300 font-mono">
+                      {weight}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Colors (Clothing Only) */}
+            {!isFood && product.colors && product.colors.length > 0 && (
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Available Colors</h4>
                 <div className="flex flex-wrap gap-2">
@@ -134,40 +169,42 @@ export function ProductDetailsModal({ product, open, onClose }: ProductDetailsMo
               </div>
             )}
 
-            {/* Sizes & Stock Grid */}
-            <div className="space-y-3 pt-4 border-t border-white/10">
-              <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center justify-between">
-                <span>Stock Breakdown</span>
-                <span className="text-[10px] font-normal normal-case opacity-70">
-                   {sizeStock.length} variants
-                </span>
-              </h4>
-              
-              {sizeStock.length > 0 ? (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                  {sizeStock.map((item, index) => (
-                    <div 
-                      key={index} 
-                      className={cn(
-                        "flex flex-col items-center justify-center p-2 rounded-lg border transition-all",
-                        item.quantity > 0 
-                          ? "bg-white/5 border-white/10 text-zinc-200" 
-                          : "bg-red-500/5 border-red-500/20 text-red-400 opacity-60"
-                      )}
-                    >
-                      <span className="text-sm font-bold">{item.size}</span>
-                      <span className="text-[10px] opacity-70 mt-1 font-mono">
-                        {item.quantity} pcs
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-zinc-500 italic py-2">
-                  No specific size variants defined.
-                </div>
-              )}
-            </div>
+            {/* Sizes & Stock Grid (Clothing Only) */}
+            {!isFood && (
+              <div className="space-y-3 pt-4 border-t border-white/10">
+                <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center justify-between">
+                  <span>Stock Breakdown</span>
+                  <span className="text-[10px] font-normal normal-case opacity-70">
+                    {sizeStock.length} variants
+                  </span>
+                </h4>
+                
+                {sizeStock.length > 0 ? (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {sizeStock.map((item, index) => (
+                      <div 
+                        key={index} 
+                        className={cn(
+                          "flex flex-col items-center justify-center p-2 rounded-lg border transition-all",
+                          item.quantity > 0 
+                            ? "bg-white/5 border-white/10 text-zinc-200" 
+                            : "bg-red-500/5 border-red-500/20 text-red-400 opacity-60"
+                        )}
+                      >
+                        <span className="text-sm font-bold">{item.size}</span>
+                        <span className="text-[10px] opacity-70 mt-1 font-mono">
+                          {item.quantity} pcs
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500 italic py-2">
+                    No specific size variants defined.
+                  </div>
+                )}
+              </div>
+            )}
             
             {/* Footer Action (Optional, e.g. Close or Edit) */} 
             <div className="pt-4 mt-auto">

@@ -104,7 +104,12 @@ export async function PATCH(
     const existingUrlsStr = formData.get('existing_image_urls') as string;
     const keptUrls: string[] = existingUrlsStr ? JSON.parse(existingUrlsStr) : [];
     
-    console.log(`📸 PATCH: ${newImageFiles.length} new images, ${keptUrls.length} kept`);
+    // Fetch workspace settings to check business category
+    const { getCachedSettings } = await import('@/lib/workspace/settings-cache');
+    const settings = await getCachedSettings(existingProduct.workspace_id);
+    const isFood = settings.businessCategory === 'food';
+
+    console.log(`📸 PATCH: ${newImageFiles.length} new images, ${keptUrls.length} kept, isFood: ${isFood}`);
     
     // Build final image arrays
     let finalImageUrls: string[] = [...keptUrls];
@@ -116,7 +121,6 @@ export async function PATCH(
     
     // Process new images if any
     if (newImageFiles.length > 0) {
-      const { generateMultiHashes } = await import('@/lib/image-recognition/hash');
       const { uploadToCloudinary } = await import('@/lib/cloudinary/upload');
       
       const processPromises = newImageFiles.map(async (file) => {
@@ -124,7 +128,13 @@ export async function PATCH(
         const buffer = Buffer.from(arrayBuffer);
         
         const uploadResult = await uploadToCloudinary(buffer);
-        const hashes = await generateMultiHashes(buffer);
+        
+        // Skip hash generation for food businesses
+        let hashes: string[] = [];
+        if (!isFood) {
+          const { generateMultiHashes } = await import('@/lib/image-recognition/hash');
+          hashes = await generateMultiHashes(buffer);
+        }
         
         return { url: uploadResult.secure_url, hashes };
       });
@@ -133,8 +143,12 @@ export async function PATCH(
       
       results.forEach((result, index) => {
         finalImageUrls.push(result.url);
-        finalImageHashes.push(...result.hashes);
-        console.log(`  ✅ New image ${index + 1} processed: ${result.hashes.length} hashes`);
+        if (result.hashes.length > 0) {
+          finalImageHashes.push(...result.hashes);
+          console.log(`  ✅ New image ${index + 1} processed: ${result.hashes.length} hashes`);
+        } else {
+          console.log(`  ✅ New image ${index + 1} uploaded (Skipped hashing for food)`);
+        }
       });
     }
     
@@ -225,6 +239,13 @@ export async function PATCH(
         ...(updateData.variant_stock && { variant_stock: updateData.variant_stock }),
         ...(updateData.pricing_policy && { pricing_policy: updateData.pricing_policy }),
         ...(updateData.product_attributes && { product_attributes: updateData.product_attributes }),
+        ...(updateData.flavors && { flavors: updateData.flavors }),
+        ...(updateData.weights && { weights: updateData.weights }),
+        ...(updateData.price_per_pound !== undefined && { price_per_pound: updateData.price_per_pound }),
+        ...(updateData.flavor !== undefined && { flavor: updateData.flavor }),
+        ...(updateData.allows_custom_message !== undefined && { allows_custom_message: updateData.allows_custom_message }),
+        ...(updateData.min_pounds !== undefined && { min_pounds: updateData.min_pounds }),
+        ...(updateData.max_pounds !== undefined && { max_pounds: updateData.max_pounds }),
         media_images: finalMediaImages,
         media_videos: finalMediaVideos,
         updated_at: new Date().toISOString(),

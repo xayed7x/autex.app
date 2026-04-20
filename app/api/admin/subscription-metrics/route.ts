@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString();
-    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    const fourteenDaysFromNow = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
     // Parallel queries
     const [
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
         .from('workspaces')
         .select('id, name, trial_ends_at')
         .eq('subscription_status', 'trial')
-        .lte('trial_ends_at', threeDaysFromNow)
+        .lte('trial_ends_at', fourteenDaysFromNow)
         .gte('trial_ends_at', now.toISOString()),
       
       // Subscriptions expiring soon
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
         .from('workspaces')
         .select('id, name, subscription_expires_at')
         .eq('subscription_status', 'active')
-        .lte('subscription_expires_at', threeDaysFromNow)
+        .lte('subscription_expires_at', fourteenDaysFromNow)
         .gte('subscription_expires_at', now.toISOString()),
     ]);
 

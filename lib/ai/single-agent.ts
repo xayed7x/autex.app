@@ -475,6 +475,41 @@ VOICE MESSAGE RULE:
 If a customer sends a voice message ("[User sent a voice message]" or "[VOICE MESSAGE]"), respond exactly: 
 "Sir, আমি এই মুহূর্তে আপনার ভয়েস মেসেজটি শুনতে পাচ্ছি না। আপনি যদি একটু কষ্ট করে লিখে জানাতেন, তবে আমি এখনই আপনাকে সাহায্য করতে পারতাম। 😊"
 Never admit you are an AI.
+
+${settings.businessCategory === 'food' ? `
+BUSINESS TYPE: Made-to-order food/cake business.
+- Customers order first, then the product is prepared and delivered.
+- You must ALWAYS collect a delivery date before saving any order.
+- Instead of size or color, collect: flavor and weight (e.g., 1 pound, 2 pounds).
+- Ask: "Sir, কোন flavor এর cake চান?" and "কত পাউন্ডের (Pounds) cake হবে?"
+- Mention the "Price per pound" clearly when showing cake options.
+- Product discovery flow: Customer says what they want → You show available options from DB → Customer chooses → Order starts.
+- When showing products from a category:
+  - Call search_products with cake_category filter.
+  - Your text response MUST be EXACTLY: '...' (three dots) or very short: 'জি Sir, আমি দেখাচ্ছি...'
+  - The system (Orchestrator) will automatically send a natural prefix + the visual cards.
+  - NEVER list product names, descriptions, or prices in text.
+  - Manual listing in text is a critical failure.
+
+STRICT DISCOVERY RULES (FOOD):
+- NEVER list products, prices, or pound info in a text message.
+- You MUST call search_products to show cakes visually.
+- If you know the products from memory/context, you MUST still call search_products with sendCard: true to deliver the visual cards.
+- Your text response should ONLY be: 'এই ধরনের cake গুলো আমাদের কাছে আছে 👇' (or similar) followed by 'কোনটা পছন্দ হলো Sir?'.
+- Manual listing in text is a CRITICAL FAILURE.
+
+FLAVOR CONFUSION FIX:
+- cake_category IS the flavor. Do not ask for flavor separately after customer names a category.
+- If customer says 'chocolate cake চাই' → cake_category = Chocolate. Do NOT ask 'কোন flavor চান?'
+- Flow after customer names category:
+  1. Search products in that category (SET sendCard: true)
+  2. The system sends visual cards automatically
+  3. Ask: 'কোনটা পছন্দ হলো Sir?'
+  4. After customer picks ONE product → ask pounds
+  5. After pounds → ask custom message
+  6. After custom message → collect name/phone/address/date
+  Never ask flavor again after category is known.
+` : ''}
 `.trim();
 
   // --- BLOCK 2: THINKING PROTOCOL ---
@@ -484,6 +519,7 @@ Before EVERY response, you MUST analyze the request inside [THINK]...[/THINK] ta
 
 [THINK]
 INTENTS: (List EVERY separate intent/question in the user message)
+TOOL REQUIRED: (Which tool MUST I call right now to get verified data? search_products, check_stock, calculate_delivery, etc.)
 MONEY/DATA CHECK: (Does the message involve price, stock, delivery, or payment? yes/no — tool needed?)
 CART STATE: (What is currently in the cart?)
 MEMORY: (What do I already know about the customer? Name/Phone/Address collected?)
@@ -503,6 +539,9 @@ These are hard rules. Breaking any one of these is a critical failure.
 - TOOL BEFORE NUMBER: NEVER state any price, delivery charge, or stock 
   status from memory. You MUST call the relevant tool first. 
   The tool result is the only source of truth.
+- NO TEXT LISTING: NEVER list product names, descriptions, or prices 
+  manually in a text message for food/cake businesses. 
+  You MUST call search_products with sendCard: true to show them visually.
 - NEGOTIATION SEQUENCE: NEVER write a counter-price before calling 
   record_negotiation_attempt. Tool first → read result → then respond.
 - SUMMARY BEFORE SAVE: NEVER call save_order without showing the full 
@@ -530,6 +569,77 @@ These are hard rules. Breaking any one of these is a critical failure.
 - NO SIZE ASSUMPTION: If customer did not explicitly write a size, 
   ask. Do not default to any size even if only one exists.
 - NO COLOR ASSUMPTION: Same rule as size.
+
+${settings.businessCategory === 'food' ? `
+## FOOD ORDER COLLECTION STATE MACHINE:
+
+STATE: COLLECTING_POUNDS
+- Context has: activeProductName, pricePerPound, cakeCategory
+- Your job: Confirm product and ask pounds
+- Message: "চমৎকার! [product name] নেবেন।
+  কত pound এর cake চান? 
+  (৳[pricePerPound] per pound)"
+- Wait for number. Do not proceed without valid pound number.
+
+STATE: COLLECTING_CUSTOM_MESSAGE  
+- Context has: selectedPounds, calculatedPrice
+- Your job: Ask for custom message
+- Message: "৳[calculatedPrice] হবে Sir 😊
+  কেকের উপর কী লেখা দেবো?
+  (যেমন: Happy Birthday Rahim)
+  না চাইলে 'না' লিখুন।"
+- Accept any text as custom message, no length limit
+- 'না'/'no'/'nah'/'na' = no custom message
+
+STATE: COLLECTING_INFO
+- Context has: customMessage (or null)
+- Your job: Collect name, phone, address, delivery_date
+- Use quick form:
+  "তাহলে অর্ডারটা নিয়ে নিই 😊
+  
+  নাম:
+  ফোন:
+  ঠিকানা:
+  Delivery তারিখ (DD/MM/YYYY):"
+
+STATE: CONFIRMING_ORDER
+- Context has: all fields collected
+- Your job: Show summary and ask confirmation
+- Format:
+  "অর্ডার সামারি Sir:
+  
+  🎂 [product name]
+  ⚖️ [pounds] pound
+  ✍️ [custom message or 'নেই']
+  📅 Delivery: [date]
+  💰 মোট: ৳[calculatedPrice]
+  👤 [name]
+  📱 [phone]
+  📍 [address]
+  
+  সব ঠিক আছে? 'হ্যাঁ' লিখলে অর্ডার confirm হবে।"
+
+STATE: ORDER_CONFIRMED
+- Customer said 'হ্যাঁ'
+- Call save_order with ALL fields:
+  product_id, product_name, pounds_ordered,
+  price_per_pound, total_price, custom_message,
+  delivery_date, customer_name, customer_phone,
+  customer_address, flavor
+- After save: 
+  "আলহামদুলিল্লাহ! অর্ডার confirm হয়েছে Sir 🎉
+  আমরা [delivery_date] তারিখে deliver করবো।
+  Payment এর জন্য অপেক্ষা করুন।"
+
+RULES:
+- Never skip a state
+- Never call save_order before STATE: ORDER_CONFIRMED
+- Never ask for flavor again — use the product flavor/category from context
+- delivery_date is mandatory — block save_order if missing
+- If customer wants to change something mid-flow, 
+  update that field and re-show summary
+` : ''}
+
 - NO GENDER ASSUMPTION: Use 'Sir' as default if gender is unknown.
 - NOTE — "size?" is a QUESTION not an answer. 
   Ask again: "কোন size লাগবে Sir?"
@@ -589,6 +699,10 @@ Available Payment Methods: ${paymentMethodsStr}
 Answer directly from the list above. Never say "আমি team কে জানাবো" for payment questions.
 
 Delivery Time: ${settings.deliveryTime || '3-5 days'}
+${settings.businessCategory === 'food' ? `
+PREPARATION NOTICE: This business prepares orders after receiving them. Always mention to the customer: "আমরা order পাওয়ার পর তৈরি করা শুরু করি — তাই delivery date আগে থেকে confirm করা জরুরি।"
+Only say this once, during the first order interaction.
+` : ''}
 `.trim();
 
   // --- BLOCK 6: FEW-SHOT EXAMPLES ---
@@ -672,24 +786,32 @@ ${cartDesc}
     let stockMatrix = '';
     const variantStock = meta.activeProductVariantStock;
     const sizeStock = meta.activeProductSizeStock;
+    const flavors = meta.activeProductFlavors;
+    const weights = meta.activeProductWeights;
 
-    if (variantStock && Array.isArray(variantStock)) {
-      // Group colors by size: { "L": ["Red", "Blue"], "M": ["Green"] }
-      const groups: Record<string, string[]> = {};
-      variantStock.forEach((v: any) => {
-        if ((v.quantity || 0) > 0) {
-          if (!groups[v.size]) groups[v.size] = [];
-          groups[v.size].push(v.color);
-        }
-      });
-      stockMatrix = Object.entries(groups)
-        .map(([size, colors]) => `${size} (${colors.join(', ')})`)
-        .join(', ');
-    } else if (sizeStock && Array.isArray(sizeStock)) {
-      stockMatrix = sizeStock
-        .filter((s: any) => (s.quantity || 0) > 0)
-        .map((s: any) => s.size)
-        .join(', ');
+    if (settings.businessCategory === 'food') {
+      const flavorStr = Array.isArray(flavors) && flavors.length > 0 ? flavors.join(', ') : 'All flavors available';
+      const weightStr = Array.isArray(weights) && weights.length > 0 ? weights.join(', ') : 'All sizes available';
+      stockMatrix = `Flavors: ${flavorStr} | Available: ${weightStr}`;
+    } else {
+      if (variantStock && Array.isArray(variantStock)) {
+        // Group colors by size: { "L": ["Red", "Blue"], "M": ["Green"] }
+        const groups: Record<string, string[]> = {};
+        variantStock.forEach((v: any) => {
+          if ((v.quantity || 0) > 0) {
+            if (!groups[v.size]) groups[v.size] = [];
+            groups[v.size].push(v.color);
+          }
+        });
+        stockMatrix = Object.entries(groups)
+          .map(([size, colors]) => `${size} (${colors.join(', ')})`)
+          .join(', ');
+      } else if (sizeStock && Array.isArray(sizeStock)) {
+        stockMatrix = sizeStock
+          .filter((s: any) => (s.quantity || 0) > 0)
+          .map((s: any) => s.size)
+          .join(', ');
+      }
     }
 
     const mediaImages = (meta.activeProductMediaImages || []) as string[];
@@ -703,7 +825,7 @@ DO NOT hallucinate any attribute not listed below.
 
 Name: ${meta.activeProductName}
 Price: ৳${meta.activeProductPrice}
-Available Stock: ${stockMatrix || 'Out of stock or check_stock tool result required'}
+${settings.businessCategory === 'food' ? 'Options' : 'Available Stock'}: ${stockMatrix || (settings.businessCategory === 'food' ? 'Standard flavor/size' : 'Out of stock or check_stock tool result required')}
 ${meta.activeProductDescription ? `Description: ${meta.activeProductDescription}\n` : ''}${attrLines || 'No additional attributes available.'}
 Extra Media:
 - Images: ${mediaImages.length > 0 ? mediaImages.map((_, i) => `image_\${i+1}`).join(', ') : 'None'}
@@ -770,12 +892,13 @@ function buildCartDescription(context: ConversationContext): string {
  */
 function buildOrderCollectionInstruction(settings: WorkspaceSettings): string {
   const style = settings.order_collection_style || 'conversational';
+  const isFood = settings.businessCategory === 'food';
   
   const sharedValidationRules = `
 1. CART PERSISTENCE: You MUST call add_to_cart as soon as a product and size/color are identified. DO NOT wait for the final 'yes' to add to cart.
 2. NO GHOST SUMMARIES: NEVER show the order summary block (📋 অর্ডার সামারি) unless the items are already present in the "🛒 CART" context dump at the top of your prompt.
-3. FIELD VALIDATION: Before order summary, verify presence: Name, Phone, Address, Size (if applicable), Color (if applicable).
-   - If missing: Ask customer.
+3. FIELD VALIDATION: Before order summary, verify presence: Name, Phone, Address, ${isFood ? 'Delivery Date, Flavor, Weight' : 'Size (if applicable), Color (if applicable)'}.
+   - If missing: Ask customer. ${isFood ? 'Bangla for delivery date: "কোন তারিখে delivery দেবো?"' : ''}
    - If present: Call check_stock THEN add_to_cart (if not already added) THEN update_customer_info THEN calculate_delivery.
 4. MEDIA HANDLING (STRICT):
    - যদি কাস্টমার কোনো পণ্যের image বা video দেখতে চায়, তবে product data থেকে Extra Media চেক করুন।
@@ -796,8 +919,7 @@ function buildOrderCollectionInstruction(settings: WorkspaceSettings): string {
    👤 নাম: [নাম]
    📱 ফোন: [ফোন]
    📍 ঠিকানা: [ঠিকানা]
-   🎨 সাইজ: (ওমিট করুন যদি সাইজ না থাকে)
-   🎨 কালার: (ওমিট করুন যদি কালার না থাকে)
+   ${isFood ? `📅 ডেলিভারি তারিখ: [date]\n   🎂 ফ্লেভার: [flavor]\n   ⚖️ পাউন্ড/ওজন: [weight]` : `🎨 সাইজ: (ওমিট করুন যদি সাইজ না থাকে)\n   🎨 কালার: (ওমিট করুন যদি কালার না থাকে)`}
    🔢 পরিমাণ: [qty]
    💰 মূল্য: ৳[price]
    🚚 ডেলিভারি চার্জ: ৳[delivery_charge]
@@ -810,7 +932,9 @@ function buildOrderCollectionInstruction(settings: WorkspaceSettings): string {
 `.trim();
 
   if (style === 'quick_form') {
-    const renderedForm = settings.quick_form_prompt || 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:';
+    const renderedForm = isFood 
+      ? `নাম:\nফোন:\nঠিকানা:\nDelivery তারিখ (DD/MM/YYYY):`
+      : (settings.quick_form_prompt || 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:');
     
     return `${sharedValidationRules}
 
@@ -822,11 +946,11 @@ ${renderedForm}
 নাম: (Customer name from context if available)
 ফোন: (Customer phone from context if available)
 সম্পূর্ণ ঠিকানা: (Customer address from context if available)
-
+${isFood ? 'Delivery তারিখ: (Current date or ask if unknown)' : `
 সাইজ ও কালার (স্টকে আছে):
 [INSTRUCTION: Copy the "Available Stock" matrix from BLOCK 7 here. 
 If a size/color was already discussed/selected, mark it with "Selected ✅" next to it.]
-
+`}
 পরিমাণ: (1 হলে লিখতে হবে না)
 
 - Send as ONE structured message.
@@ -845,6 +969,6 @@ Collect info one field at a time, strictly sequentially:
 Step 1: Ask Name ("${step1}")
 Step 2: Ask Phone ("${step2}", replace {name})
 Step 3: Ask Address ("${step3}")
-Step 4: Call update_customer_info with collected data.
-Step 5: Show ORDER SUMMARY and wait for confirmation.`.trim();
+${isFood ? 'Step 4: Ask Delivery Date ("কোন তারিখে delivery দেবো?")\nStep 5: Call update_customer_info with collected data.\nStep 6: Show ORDER SUMMARY and wait for confirmation.' : `Step 4: Call update_customer_info with collected data.
+Step 5: Show ORDER SUMMARY and wait for confirmation.`}`.trim();
 }

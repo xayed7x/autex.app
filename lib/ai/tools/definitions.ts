@@ -41,6 +41,10 @@ const searchProducts: ChatCompletionTool = {
           type: 'string',
           description: 'Specific color requested by customer (e.g., "Red", "Blue"). Optional.',
         },
+        cake_category: {
+          type: 'string',
+          description: 'Filter by cake category (e.g., "Vanilla", "Chocolate", "Anniversary"). Optional.',
+        },
         sendCard: {
           type: 'boolean',
           description: 
@@ -83,6 +87,26 @@ const addToCart: ChatCompletionTool = {
         selectedColor: {
           type: 'string',
           description: 'Selected color (e.g., "Red", "Blue"). Only if customer specified.',
+        },
+        delivery_date: {
+          type: 'string',
+          description: 'Required for food/cake businesses. The requested date for delivery. Format: DD/MM/YYYY. Do not pass for clothing businesses. Optional.',
+        },
+        flavor: {
+          type: 'string',
+          description: 'Required for food/cake businesses. The selected flavor. Do not pass for clothing businesses. Optional.',
+        },
+        weight: {
+          type: 'string',
+          description: 'Required for food/cake businesses. The selected weight (e.g. 1kg, 2 lbs). Do not pass for clothing businesses. Optional.',
+        },
+        custom_message: {
+          type: 'string',
+          description: 'Custom text to write on the cake. Optional. Can be long.',
+        },
+        pounds_ordered: {
+          type: 'number',
+          description: 'How many pounds of cake ordered. Required for food businesses. Optional.',
         },
         negotiatedPrice: {
           type: 'number',
@@ -181,6 +205,26 @@ const saveOrder: ChatCompletionTool = {
         customerAddress: {
           type: 'string',
           description: 'Full delivery address.',
+        },
+        delivery_date: {
+          type: 'string',
+          description: 'Required for food/cake businesses. The requested date for delivery. Format: DD/MM/YYYY. Do not pass for clothing businesses. Optional.',
+        },
+        flavor: {
+          type: 'string',
+          description: 'Required for food/cake businesses. The selected flavor (e.g. Chocolate, Vanilla, Red Velvet). Do not pass for clothing businesses. Optional.',
+        },
+        weight: {
+          type: 'string',
+          description: 'Required for food/cake businesses. The selected weight (e.g. 1kg, 2 lbs). Do not pass for clothing businesses. Optional.',
+        },
+        custom_message: {
+          type: 'string',
+          description: 'Custom text to write on the cake. Optional. Can be long.',
+        },
+        pounds_ordered: {
+          type: 'number',
+          description: 'How many pounds of cake ordered. Required for food businesses. Optional.',
         },
         note: {
           type: 'string',

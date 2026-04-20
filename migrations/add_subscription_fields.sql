@@ -8,7 +8,7 @@
 -- Subscription plan (starter, pro, business, enterprise)
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT NULL;
 
--- Trial end timestamp (set on signup: NOW() + 3 days in Bangladesh time)
+-- Trial end timestamp (set on signup: NOW() + 14 days in Bangladesh time)
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ DEFAULT NULL;
 
 -- Paid subscription expiry timestamp
@@ -46,9 +46,9 @@ ALTER TABLE workspaces ALTER COLUMN subscription_status SET DEFAULT 'trial';
 -- ========================================
 
 -- For existing workspaces that don't have trial_ends_at set,
--- give them 3 days from now (as a one-time migration)
+-- give them 14 days from now (as a one-time migration)
 UPDATE workspaces 
-SET trial_ends_at = NOW() + INTERVAL '3 days'
+SET trial_ends_at = NOW() + INTERVAL '14 days'
 WHERE subscription_status = 'trial' 
   AND trial_ends_at IS NULL;
 

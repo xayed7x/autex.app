@@ -9,7 +9,7 @@ We need to implement a manual subscription system for the first 3-5 real users. 
 ## 🎯 Core Requirements
 
 ### **Business Goals**
-- Give users 3 days free trial automatically on signup
+- Give users 14 days free trial automatically on signup
 - Collect payment manually via WhatsApp (personal bKash account)
 - Track subscription status per workspace
 - Block access when subscription expires
@@ -33,8 +33,8 @@ We need to implement a manual subscription system for the first 3-5 real users. 
 **Step 1: Signup**
 - User creates account (email + password)
 - System automatically creates workspace
-- System automatically activates 3-day trial
-- Trial end date = signup date + 3 days
+- System automatically activates 14-day trial
+- Trial end date = signup date + 14 days
 - Subscription status = 'trial'
 
 **Step 2: Using the App (Trial Period)**
@@ -50,7 +50,7 @@ We need to implement a manual subscription system for the first 3-5 real users. 
 - Bot continues working (grace until midnight)
 
 **Step 4: Trial Expired**
-- Trial period ends (3 days complete)
+- Trial period ends (14 days complete)
 - Bot automatically stops working
 - Subscription status = 'expired'
 - User sees dashboard but cannot interact
@@ -144,7 +144,7 @@ We need to implement a manual subscription system for the first 3-5 real users. 
 1. **Activate Trial**
    - Select workspace
    - Click "Start Trial"
-   - System sets trial_ends_at = +3 days
+   - System sets trial_ends_at = +14 days
 
 2. **Verify Payment & Activate**
    - Receive WhatsApp payment confirmation
@@ -602,7 +602,7 @@ Sadia Store     │ ❌ Expired│ Pro  │ -5 days   │ [Manage]
 
 **Action:**
 - Set subscription_status = 'trial'
-- Set trial_ends_at = signup_timestamp + 3 days
+- Set trial_ends_at = signup_timestamp + 14 days
 - Set subscription_plan = null (no paid plan yet)
 - Bot automatically enabled (bot_enabled = true)
 
@@ -760,7 +760,7 @@ Manual Deletion Only:
 ```
 🎉 Welcome to Autex AI!
 
-Your 3-day free trial has started.
+Your 14-day free trial has started.
 
 Trial ends: Jan 14, 2026
 
@@ -801,7 +801,7 @@ Plans: Starter ৳299 | Pro ৳599 | Business ৳1,299
 ```
 ⚠️ Trial Expired
 
-Your 3-day trial has ended.
+Your 14-day trial has ended.
 
 Your bot has stopped working. Renew now to continue:
 

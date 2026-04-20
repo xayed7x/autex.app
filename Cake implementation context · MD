@@ -1,0 +1,328 @@
+# Autex AI — Food/Cake Business Full Implementation Context
+**Document Owner:** Zayed Bin Hamid — Autex AI  
+**Purpose:** This document gives the AI code editor full context to implement cake/food business support end-to-end.  
+**Status:** Phases 1–3 already done. This document covers remaining work.
+
+---
+
+## 1. WHAT IS AUTEX AI (Brief)
+
+Autex AI is a multi-tenant SaaS that automates Facebook Messenger sales for Bangladeshi businesses. The AI agent (named Meem) handles product discovery, order collection, and payment in Bangla/Banglish.
+
+**Tech Stack:**
+- Next.js 14 + TypeScript
+- Supabase (PostgreSQL)
+- OpenAI GPT-4o-mini
+- Facebook Graph API v21.0
+- Hosting: Vercel/Netlify
+
+---
+
+## 2. WHAT HAS ALREADY BEEN DONE (Do NOT redo these)
+
+### Phase 1 — AI System Prompt (DONE)
+File: `lib/ai/single-agent.ts`
+
+- `generateSystemPrompt()` now checks `settings.businessCategory`
+- If `'food'`: AI collects flavor, weight, delivery_date instead of size/color
+- Mandatory delivery_date before save_order for food businesses
+- No size/color assumption rules replaced with flavor/weight assumption rules
+- Quick form template updated for food category
+
+### Phase 2 — Database + Order Flow (DONE)
+- `orders` table: `delivery_date` (date), `flavor` (text), `weight` (text) columns added
+- `save_order` tool: accepts and saves these new fields
+- `add_to_cart` tool: stores delivery_date, flavor, weight in cart context
+- Stock check bypass for food businesses (made-to-order, no stock tracking)
+- Orders dashboard: shows delivery_date, flavor, weight in order details modal
+
+### Phase 3 — Product Modal UI (DONE)
+File: `components/dashboard/add-product-modal.tsx`
+
+- If `businessCategory === 'food'`: shows Flavors + Weights inputs, hides size/color/stock table
+- If `businessCategory === 'clothing'`: unchanged
+- `products` table: `flavors` (text[]) and `weights` (text[]) columns added
+- `search_products` tool: exposes flavors and weights to AI
+- System prompt Active Product block: shows flavors/weights for food, size/color matrix for clothing
+
+---
+
+## 3. THE CAKE BUSINESS — HOW IT ACTUALLY WORKS
+
+The client runs a cake business. Here is how his business operates:
+
+**Customer Journey:**
+1. Customer messages the page: "একটা cake চাই" or "Vanilla cake দেখাও"
+2. AI asks: "কোন ধরনের cake চান? আমাদের আছে: Vanilla / Chocolate / Anniversary / Rasmalai / Photo Cake / Customized"
+3. Customer says a category (e.g., "Vanilla")
+4. AI fetches products from that category and sends image cards with name + price + pound info
+5. Customer picks a specific cake: "এই cake টা চাই"
+6. AI asks: "কত pound লাগবে?" and "কেকে কী লেখা দেবো?" (custom message — can be long or none)
+7. AI collects order info: name, phone, address, delivery date
+8. Order summary shown → customer confirms → order saved
+
+**Key facts about this business:**
+- Products are made-to-order (not pre-stocked)
+- Price is per pound (not per piece)
+- Each cake has a unique design name (e.g., "Butterfly Dream Vanilla Cake")
+- Cake categories (flavors): Vanilla, Chocolate, Anniversary, Rasmalai, Photo Cake, Customized Cake, Red Velvet, Mango, Gaye Holud, Makeup Cake, Baby Shower — these are the PRODUCT CATEGORIES the owner sets
+- Each product has multiple images
+- Custom message on cake is optional but common (e.g., "Happy Birthday Rahim")
+- Custom message can be very long — no character limit
+- Complex custom design requests → switch to manual mode (owner handles directly)
+- Delivery date is mandatory (owner needs to prepare in advance)
+
+---
+
+## 4. WHAT STILL NEEDS TO BE BUILT
+
+### 4A — Product Schema: Add `price_per_pound` and `cake_category`
+
+**Problem:** Current product schema has `price` as a single value. For cake businesses, price is calculated as `price_per_pound × pounds_ordered`. Also, there is no category field on individual products — only a workspace-level `business_category`.
+
+**Required DB changes to `products` table:**
+```sql
+ALTER TABLE products ADD COLUMN IF NOT EXISTS price_per_pound numeric(10,2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS cake_category text;
+-- cake_category examples: 'Vanilla', 'Chocolate', 'Anniversary', 'Rasmalai', 
+-- 'Photo Cake', 'Customized Cake', 'Red Velvet', 'Mango', 'Gaye Holud', 
+-- 'Makeup Cake', 'Baby Shower'
+ALTER TABLE products ADD COLUMN IF NOT EXISTS allows_custom_message boolean DEFAULT true;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_pounds numeric(4,2) DEFAULT 0.5;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS max_pounds numeric(4,2) DEFAULT 5.0;
+```
+
+**Note:** Keep existing `price` column for clothing businesses. For food businesses, `price_per_pound` is used instead.
+
+### 4B — Product Modal UI: Food-specific fields
+
+File: `components/dashboard/add-product-modal.tsx`
+
+When `businessCategory === 'food'`, replace the current flavor/weight chip inputs with the following fields:
+
+| Field | Type | Label | Notes |
+|-------|------|-------|-------|
+| `cake_category` | Select/text | "Cake Category" | e.g., Vanilla, Chocolate, Anniversary |
+| `price_per_pound` | Number input | "Price per Pound (৳)" | e.g., 775 |
+| `min_pounds` | Number input | "Min Pounds" | default 0.5 |
+| `max_pounds` | Number input | "Max Pounds" | default 5.0 |
+| `allows_custom_message` | Toggle/checkbox | "Allow Custom Message on Cake?" | default true |
+| `image_urls` | Multi-image upload | "Product Images" | multiple images, already supported? verify |
+| `description` | Textarea | "Short Description" | e.g., "Rich chocolate ganache with floral design" |
+
+Remove `flavors` and `weights` chip inputs for food — they are replaced by the above.
+
+**Cake category selector:** Should allow the owner to either pick from a predefined list OR type a custom category. Predefined list:
+```
+Vanilla, Chocolate, Anniversary, Rasmalai, Photo Cake, 
+Customized Cake, Red Velvet, Mango, Gaye Holud, Makeup Cake, Baby Shower
+```
+
+### 4C — AI Flow: Category-first discovery + price calculation
+
+File: `lib/ai/single-agent.ts`
+
+**Current problem:** AI jumps to asking flavor/weight immediately. It should first show categories, then show product cards for that category.
+
+**Required changes to food business AI flow in `generateSystemPrompt()`:**
+
+```
+FOOD DISCOVERY FLOW (inject when businessCategory === 'food'):
+
+STEP 1 — CATEGORY DISCOVERY:
+When customer says "cake চাই" or anything general:
+- Call search_products with no specific product name
+- From results, extract unique cake_category values
+- Present them as a list: "আমাদের কাছে এই ধরনের cake আছে: [list]"
+- Ask: "কোন ধরনের cake চান?"
+
+STEP 2 — SHOW PRODUCTS IN CATEGORY:
+When customer names a category:
+- Call search_products with cake_category filter
+- Send product cards (image + name + price_per_pound + description)
+- Each card shows: "Name | ৳[price]/pound | [description]"
+
+STEP 3 — CUSTOMER PICKS A PRODUCT:
+When customer picks a specific cake:
+- Ask: "কত pound এর cake চান? (minimum [min_pounds] pound, maximum [max_pounds] pound)"
+- Calculate total price: price_per_pound × pounds
+- Ask: "কেকে কী লেখা দেবো? (যেমন: Happy Birthday Rahim) — না চাইলে 'না' লিখুন"
+
+STEP 4 — CUSTOM MESSAGE:
+- If customer says 'না' or 'no' → custom_message = null, proceed
+- If customer gives text → save as custom_message (no length limit)
+- If customer asks for complex custom design (photo cake, multi-tier custom) → 
+  say "এই ধরনের special order এর জন্য আমাদের team আপনাকে directly contact করবে" 
+  → call flag_for_review
+
+STEP 5 — ORDER COLLECTION:
+Collect: name, phone, address, delivery_date
+delivery_date format: DD/MM/YYYY
+Always say: "আমরা order পাওয়ার পর তৈরি শুরু করি — তাই delivery date আগে থেকে জানানো জরুরি।"
+
+STEP 6 — ORDER SUMMARY:
+Show summary with:
+🎂 [Product Name]
+⚖️ Weight: [X] pound
+✍️ Custom Message: [message or "নেই"]
+📅 Delivery Date: [date]
+💰 Total: ৳[price_per_pound × pounds]
+👤 Name / Phone / Address
+
+PRICE CALCULATION RULE:
+Total price = price_per_pound × pounds_ordered
+Round to nearest 10 (e.g., ৳1,550 not ৳1,553)
+Never state price without calculating from price_per_pound × pounds first.
+```
+
+### 4D — save_order tool: custom_message + price calculation
+
+File: `lib/ai/tools/definitions.ts` and `lib/ai/tools/executor.ts`
+
+**Add to save_order tool schema:**
+```typescript
+custom_message: {
+  type: 'string',
+  description: 'Custom text to write on the cake. Optional. Can be long.',
+  optional: true
+},
+pounds_ordered: {
+  type: 'number', 
+  description: 'How many pounds of cake ordered. Required for food businesses.',
+  optional: true
+}
+```
+
+**In executor.ts save_order handler:**
+- Save `custom_message` to orders table
+- Save `pounds_ordered` to orders table  
+- Calculate final price: `price_per_pound × pounds_ordered` (round to nearest 10)
+- Save calculated price as `total_price`
+
+**Required DB migration:**
+```sql
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_message text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS pounds_ordered numeric(5,2);
+```
+
+### 4E — add_to_cart tool: store food-specific fields
+
+File: `lib/ai/tools/definitions.ts` and `lib/ai/tools/executor.ts`
+
+Add to add_to_cart tool:
+- `custom_message` (string, optional)
+- `pounds_ordered` (number, optional)
+- `calculated_price` (number, optional) — price_per_pound × pounds
+
+### 4F — search_products tool: expose cake fields to AI
+
+File: `lib/ai/tools/executor.ts`
+
+In `toCompactProduct()`, add these fields when they exist:
+```typescript
+cake_category: product.cake_category ?? null,
+price_per_pound: product.price_per_pound ?? null,
+allows_custom_message: product.allows_custom_message ?? true,
+min_pounds: product.min_pounds ?? 0.5,
+max_pounds: product.max_pounds ?? 5.0,
+```
+
+Also: when AI calls search_products for food business, allow filtering by `cake_category`.
+Add `cake_category` as an optional filter parameter to the search_products tool schema.
+
+### 4G — Orders Dashboard: show food-specific fields
+
+File: `app/dashboard/orders/page.tsx` and the Order Details Modal
+
+In the Order Details Modal, for food businesses show a "Cake Order Details" section:
+
+```
+🎂 Cake Order Details
+─────────────────────
+Product:        Butterfly Dream Vanilla Cake
+Weight:         2 Pound
+Price/Pound:    ৳775
+Total Price:    ৳1,550
+Custom Message: "Happy Birthday Rahim, 
+                 তোমার জন্য ভালোবাসা"
+Delivery Date:  25 April 2026
+```
+
+Show product image if available (use first image from product's image_urls).
+
+`custom_message` can be multi-line — render it with proper line breaks, not truncated.
+
+### 4H — Settings Page: Business Category selector
+
+File: `app/dashboard/settings/page.tsx`
+
+Add "Business Category" field to the Business Profile section (below Business Name and Email).
+
+UI:
+- Two radio cards or a styled select:
+  1. **Clothing & Fashion** (value: `'clothing'`) — "Size, color, stock management"
+  2. **Food & Cake** (value: `'food'`) — "Made-to-order, delivery date, custom messages"
+- Load current value from `workspace_settings.business_category` on page load
+- Save with existing Save Changes button
+- If changing an existing category (not null → new value), show browser `confirm()` dialog:
+  "Business category পরিবর্তন করলে AI behavior এবং product fields পরিবর্তন হবে। আপনি কি নিশ্চিত?"
+
+---
+
+## 5. IMPORTANT RULES — DO NOT BREAK THESE
+
+1. **Clothing businesses must be 100% unaffected.** All food logic must be inside `if (businessCategory === 'food')` checks.
+2. **Treat `null` or `undefined` businessCategory as `'clothing'`** — safe default.
+3. **Never ask AI to validate phone numbers** — this is done server-side in executor.ts.
+4. **Never hardcode prices in prompts** — always calculate from DB fields.
+5. **Stock check bypass for food** — already implemented, do not revert.
+6. **Custom message has no length limit** — do not truncate in DB or UI.
+7. **Price rounding rule** — always round to nearest 10 taka.
+8. **delivery_date is mandatory for food** — block save_order if missing.
+
+---
+
+## 6. FILE MAP (Key Files)
+
+| File | Purpose |
+|------|---------|
+| `lib/ai/single-agent.ts` | System prompt generation, AI flow logic |
+| `lib/ai/tools/definitions.ts` | Tool schemas (what parameters AI can pass) |
+| `lib/ai/tools/executor.ts` | Tool handlers (what actually runs server-side) |
+| `lib/conversation/orchestrator.ts` | Message routing, fast-path handlers |
+| `app/api/webhooks/facebook/route.ts` | Facebook webhook entry point |
+| `app/dashboard/orders/page.tsx` | Orders dashboard page |
+| `app/dashboard/settings/page.tsx` | Settings page |
+| `components/dashboard/add-product-modal.tsx` | Product add/edit modal |
+| `schema.sql` | Database schema reference |
+
+---
+
+## 7. IMPLEMENTATION ORDER (Recommended)
+
+Do these in order to avoid dependency issues:
+
+1. **DB migrations first** (4A, 4D) — add all new columns
+2. **Tool schemas** (4D, 4E, 4F) — update definitions.ts
+3. **Tool executors** (4D, 4E, 4F) — update executor.ts  
+4. **AI system prompt** (4C) — update generateSystemPrompt()
+5. **Product Modal UI** (4B) — update add-product-modal.tsx
+6. **Orders Dashboard** (4G) — update orders page + modal
+7. **Settings Page** (4H) — add category selector
+
+---
+
+## 8. TEST CHECKLIST (After Implementation)
+
+- [ ] Owner can set Business Category to "Food" in Settings
+- [ ] Product modal shows cake_category, price_per_pound, min/max pounds when food
+- [ ] Product modal hides size/color/stock for food businesses
+- [ ] AI asks category first, then shows product cards for that category
+- [ ] AI calculates price correctly (price_per_pound × pounds, rounded to 10)
+- [ ] AI collects custom message (or skips if customer says "না")
+- [ ] AI collects delivery date before save_order
+- [ ] save_order saves: flavor, weight, delivery_date, custom_message, pounds_ordered
+- [ ] Orders page shows all food-specific fields
+- [ ] Order details modal shows product image + custom message (full, not truncated)
+- [ ] Clothing businesses are completely unaffected
+- [ ] Complex custom design requests trigger flag_for_review + manual mode

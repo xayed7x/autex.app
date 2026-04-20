@@ -83,7 +83,7 @@ Quick answers to the most common questions about Autex AI.
 **A:** Yes, all data is encrypted and stored securely. We never share your data with third parties.
 
 ### Q: Can I use this with Instagram?
-**A:** Currently, Autex AI works with Facebook Messenger only. Instagram support is planned for the future.
+**A:** Yes! Autex AI supports both Facebook Messenger and Instagram DMs. If your Facebook Page has a linked Instagram Business Account, Instagram DM automation is enabled automatically when you connect the page.
 `,
         bn: `# সচরাচর জিজ্ঞাসিত প্রশ্ন
 
@@ -152,7 +152,7 @@ Autex AI সম্পর্কে সবচেয়ে common প্রশ্�
 **A:** হ্যাঁ, সব data encrypted আর securely stored। আমরা কখনো third parties এর সাথে আপনার data share করি না।
 
 ### Q: Instagram এ use করতে পারি?
-**A:** Currently, Autex AI শুধু Facebook Messenger এ কাজ করে। Instagram support future এ আসছে।
+**A:** হ্যাঁ! Autex AI এখন Facebook Messenger এবং Instagram DMs দুটোতেই কাজ করে। আপনার Facebook Page এ linked Instagram Business Account থাকলে, page connect করার সাথে সাথে Instagram DM automation automatically enable হয়ে যায়।
 `
       }
     },

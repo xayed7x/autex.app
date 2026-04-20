@@ -57,6 +57,11 @@ interface Order {
   created_at: string
   product_id?: string
   conversation_id?: string
+  delivery_date?: string
+  flavor?: string
+  weight?: string
+  custom_message?: string
+  pounds_ordered?: number
   order_items?: OrderItem[]
   products?: { name: string; image_urls?: string[] }
 }

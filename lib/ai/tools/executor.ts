@@ -150,7 +150,8 @@ async function executeSearchProducts(
   const query = String(args.query || '');
   const size = args.size ? String(args.size) : undefined;
   const color = args.color ? String(args.color) : undefined;
-  const searchResult = await searchProducts(query, ctx.workspaceId, size, color);
+  const cakeCategory = args.cake_category ? String(args.cake_category) : undefined;
+  const searchResult = await searchProducts(query, ctx.workspaceId, size, color, cakeCategory);
 
   const sendCard = args.sendCard === true;
   // Default false if not specified (to avoid spamming UI)
@@ -205,6 +206,11 @@ async function executeAddToCart(
   const selectedSize = args.selectedSize ? String(args.selectedSize) : undefined;
   const selectedColor = args.selectedColor ? String(args.selectedColor) : undefined;
   const negotiatedPrice = args.negotiatedPrice ? Number(args.negotiatedPrice) : undefined;
+  const deliveryDate = args.delivery_date ? String(args.delivery_date) : undefined;
+  const flavor = args.flavor ? String(args.flavor) : undefined;
+  const weight = args.weight ? String(args.weight) : undefined;
+  const customMessage = args.custom_message ? String(args.custom_message) : undefined;
+  const poundsOrdered = args.pounds_ordered ? Number(args.pounds_ordered) : undefined;
 
   if (!productId) {
     return {
@@ -223,36 +229,39 @@ async function executeAddToCart(
     };
   }
 
-   const productAny = product as Record<string, any>;
+  const productAny = product as Record<string, any>;
   const stockQuantity = productAny.stock_quantity ?? 0;
+  const isFood = ctx.settings.businessCategory === 'food';
 
-  if (stockQuantity <= 0) {
+  if (!isFood && stockQuantity <= 0) {
     return {
       result: { success: false, data: { productName: productAny.name }, message: `"${productAny.name}" is currently out of stock.` },
       sideEffects: {},
     };
   }
 
-  // Filter available sizes and colors to ONLY include those in stock
+  // Filter available sizes and colors to ONLY include those in stock (Unless food business)
   let availableSizes = Array.isArray(productAny.sizes) ? [...productAny.sizes] : [];
   let availableColors = Array.isArray(productAny.colors) ? [...productAny.colors] : [];
 
-  if (productAny.variant_stock && Array.isArray(productAny.variant_stock) && productAny.variant_stock.length > 0) {
-    availableSizes = availableSizes.filter(size => 
-      productAny.variant_stock.some((v: any) => v.size?.toUpperCase() === size.toUpperCase() && (v.quantity || 0) > 0)
-    );
-    availableColors = availableColors.filter(color => 
-      productAny.variant_stock.some((v: any) => v.color?.toLowerCase() === color.toLowerCase() && (v.quantity || 0) > 0)
-    );
-  } else if (productAny.variant_stock && typeof productAny.variant_stock === 'object' && Object.keys(productAny.variant_stock).length > 0) {
-    availableSizes = availableSizes.filter(size => {
-      const keys = Object.keys(productAny.variant_stock).filter(k => k.toUpperCase().includes(size.toUpperCase()));
-      return keys.some(k => Number((productAny.variant_stock as any)[k]) > 0);
-    });
-    availableColors = availableColors.filter(color => {
-      const keys = Object.keys(productAny.variant_stock).filter(k => k.toLowerCase().includes(color.toLowerCase()));
-      return keys.some(k => Number((productAny.variant_stock as any)[k]) > 0);
-    });
+  if (!isFood) {
+    if (productAny.variant_stock && Array.isArray(productAny.variant_stock) && productAny.variant_stock.length > 0) {
+      availableSizes = availableSizes.filter(size => 
+        productAny.variant_stock.some((v: any) => v.size?.toUpperCase() === size.toUpperCase() && (v.quantity || 0) > 0)
+      );
+      availableColors = availableColors.filter(color => 
+        productAny.variant_stock.some((v: any) => v.color?.toLowerCase() === color.toLowerCase() && (v.quantity || 0) > 0)
+      );
+    } else if (productAny.variant_stock && typeof productAny.variant_stock === 'object' && Object.keys(productAny.variant_stock).length > 0) {
+      availableSizes = availableSizes.filter(size => {
+        const keys = Object.keys(productAny.variant_stock).filter(k => k.toUpperCase().includes(size.toUpperCase()));
+        return keys.some(k => Number((productAny.variant_stock as any)[k]) > 0);
+      });
+      availableColors = availableColors.filter(color => {
+        const keys = Object.keys(productAny.variant_stock).filter(k => k.toLowerCase().includes(color.toLowerCase()));
+        return keys.some(k => Number((productAny.variant_stock as any)[k]) > 0);
+      });
+    }
   }
   
   // === STRICT VARIATION VALIDATION ===
@@ -280,9 +289,16 @@ async function executeAddToCart(
   }
 
   // Use negotiated price if provided and valid, otherwise use listed price
-  const effectivePrice = (negotiatedPrice && negotiatedPrice > 0) 
+  let effectivePrice = (negotiatedPrice && negotiatedPrice > 0) 
     ? negotiatedPrice 
     : productAny.price;
+
+  if (isFood && poundsOrdered && productAny.price_per_pound) {
+    // Total price = price_per_pound × pounds_ordered
+    // Round to nearest 10 (e.g., ৳1,550 not ৳1,553)
+    effectivePrice = Math.round((productAny.price_per_pound * poundsOrdered) / 10) * 10;
+    console.log(`🎂 [FOOD ORDER] Calculated price: ${productAny.price_per_pound} * ${poundsOrdered} = ${effectivePrice} (rounded to 10)`);
+  }
 
   const newItem: CartItem = {
     productId: productAny.id,
@@ -297,6 +313,10 @@ async function executeAddToCart(
     variant_stock: productAny.variant_stock,
     selectedSize,
     selectedColor,
+    selectedFlavor: flavor,
+    selectedWeight: weight,
+    selectedCustomMessage: customMessage,
+    selectedPounds: poundsOrdered,
     pricing_policy: productAny.pricing_policy || { isNegotiable: false },
   };
 
@@ -332,6 +352,10 @@ async function executeAddToCart(
     sideEffects: {
       updatedContext: {
         cart: updatedCart,
+        checkout: {
+          ...ctx.conversationContext.checkout,
+          ...(deliveryDate && { deliveryDate })
+        },
         metadata: {
           ...ctx.conversationContext.metadata,
           negotiation: negotiationMeta, // Set negotiation if price was negotiated, reset otherwise
@@ -591,6 +615,11 @@ async function executeSaveOrder(
   const customerName = args.customerName ? String(args.customerName) : undefined;
   const customerPhone = args.customerPhone ? String(args.customerPhone) : undefined;
   const customerAddress = args.customerAddress ? String(args.customerAddress) : undefined;
+  const deliveryDate = args.delivery_date ? String(args.delivery_date) : undefined;
+  const flavor = (args.flavor || ctx.conversationContext.metadata?.flavor) ? String(args.flavor || ctx.conversationContext.metadata?.flavor) : undefined;
+  const weight = args.weight ? String(args.weight) : undefined;
+  const custom_message = args.custom_message ? String(args.custom_message) : undefined;
+  const pounds_ordered = args.pounds_ordered ? Number(args.pounds_ordered) : undefined;
 
   const result = await saveOrder(
     ctx.workspaceId,
@@ -598,7 +627,7 @@ async function executeSaveOrder(
     ctx.fbPageId,
     ctx.conversationContext,
     ctx.settings,
-    { customerName, customerPhone, customerAddress }
+    { customerName, customerPhone, customerAddress, deliveryDate, flavor, weight, custom_message, pounds_ordered }
   );
 
   // If order was successful, reset negotiation state and product tracking

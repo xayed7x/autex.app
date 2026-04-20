@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     // Fetch connected pages
     const { data: pages, error: pagesError } = await supabase
       .from('facebook_pages')
-      .select('id, page_name, created_at, bot_enabled')
+      .select('id, page_name, created_at, bot_enabled, instagram_account_id, ig_bot_enabled')
       .eq('workspace_id', workspaceData.workspace_id)
       .eq('status', 'connected')
       .order('created_at', { ascending: false });

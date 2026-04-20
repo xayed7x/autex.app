@@ -38,6 +38,10 @@ export interface CartItem {
   // Selected values
   selectedSize?: string;
   selectedColor?: string;
+  selectedFlavor?: string; // NEW: For food businesses
+  selectedWeight?: string; // NEW: For food businesses
+  selectedCustomMessage?: string; // NEW: For cake businesses
+  selectedPounds?: number; // NEW: For cake businesses
   // Stock information for validation
   size_stock?: any[];
   variant_stock?: any[];
@@ -61,6 +65,7 @@ export interface CheckoutInfo {
   totalAmount?: number;
   paymentMethod?: 'cod' | 'bkash' | 'nagad' | 'bank';
   paymentLastTwoDigits?: string;
+  deliveryDate?: string; // NEW: For food businesses
   // Partial form data for Quick Form
   partialForm?: any;
 }

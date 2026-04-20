@@ -93,9 +93,14 @@ export async function POST(request: NextRequest) {
     const payload: FacebookWebhookPayload = JSON.parse(rawBody);
     console.log('📦 [WEBHOOK] Payload received, entries:', payload.entry?.length || 0);
 
-    if (payload.object !== 'page') {
-      console.log(`⚠️ [WEBHOOK] Ignoring non-page event: ${payload.object}`);
+    if (payload.object !== 'page' && payload.object !== 'instagram') {
+      console.log(`⚠️ [WEBHOOK] Ignoring unsupported event object: ${payload.object}`);
       return NextResponse.json({ status: 'ok' }, { status: 200 });
+    }
+
+    const isInstagram = payload.object === 'instagram';
+    if (isInstagram) {
+      console.log('📸 [WEBHOOK] Instagram webhook event detected');
     }
 
     // ========================================
@@ -111,18 +116,36 @@ export async function POST(request: NextRequest) {
 
     if (payload.entry) {
       for (const entry of payload.entry) {
-        // Handle messaging events
-        if (entry.messaging) {
-          for (const event of entry.messaging) {
-            await processMessagingEvent(supabase, entry.id, event);
+        if (isInstagram) {
+          // Instagram events: entry.id is the Instagram Business Account ID
+          if (entry.messaging) {
+            for (const event of entry.messaging) {
+              await processInstagramMessagingEvent(supabase, entry.id, event);
+            }
           }
-        }
-        
-        // Handle changes (e.g., comments)
-        if (entry.changes) {
-          for (const change of entry.changes) {
-            if (change.field === 'feed') {
-              await processCommentEvent(supabase, entry.id, change.value);
+          
+          // Handle Instagram changes (e.g., comments)
+          if (entry.changes) {
+            for (const change of entry.changes) {
+              if (change.field === 'comments') {
+                await processInstagramCommentEvent(supabase, entry.id, change.value);
+              }
+            }
+          }
+        } else {
+          // Facebook Messenger events: entry.id is the Facebook Page ID
+          if (entry.messaging) {
+            for (const event of entry.messaging) {
+              await processMessagingEvent(supabase, entry.id, event);
+            }
+          }
+          
+          // Handle changes (e.g., comments) — Messenger only
+          if (entry.changes) {
+            for (const change of entry.changes) {
+              if (change.field === 'feed') {
+                await processCommentEvent(supabase, entry.id, change.value);
+              }
             }
           }
         }
@@ -232,203 +255,136 @@ export async function processMessagingEvent(
       // Handle "Order Now" button click
       if (payload.startsWith('ORDER_NOW_')) {
         const productId = payload.replace('ORDER_NOW_', '');
-        console.log(`🛒 Order Now clicked for product: ${productId}`);
-        
+        console.log(`🛍️ Order Now clicked for product: ${productId}`);
+
         // Fetch product details
         const { data: product } = await supabase
           .from('products')
-          .select('*')
+          .select('id, name, price_per_pound, flavor, allows_custom_message')
           .eq('id', productId)
           .single();
-        
+
         if (product) {
-          // Load workspace settings first
+          // ENSURE CONVERSATION EXISTS
           const { data: fbPage } = await supabase
             .from('facebook_pages')
-            .select('workspace_id')
+            .select('id, workspace_id')
             .eq('id', pageId)
             .single();
-          
-          if (!fbPage) return;
-          
-          const { getCachedSettings } = await import('@/lib/workspace/settings-cache');
-          const settings = await getCachedSettings(fbPage.workspace_id);
-          
-          // CHECK STOCK FIRST - If out of stock, don't proceed to order flow
-          const totalStock = product.stock_quantity || 0;
-          
-          if (totalStock === 0) {
-            console.log(`❌ [ORDER_NOW] Product out of stock: ${product.name}`);
-            const { sendMessage } = await import('@/lib/facebook/messenger');
-            const defaultMessage = `দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️`;
-            const outOfStockMessage = (settings.out_of_stock_message || defaultMessage)
-              .replace('{productName}', product.name);
-            await sendMessage(pageId, customerPsid, outOfStockMessage);
-            return;
+
+          if (fbPage) {
+            let { data: conversation } = await supabase
+              .from('conversations')
+              .select('*')
+              .eq('fb_page_id', fbPage.id)
+              .eq('customer_psid', customerPsid)
+              .single();
+
+            // Create conversation if it doesn't exist
+            if (!conversation) {
+              const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+              const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
+
+              const { data: newConv } = await supabase
+                .from('conversations')
+                .insert({
+                  workspace_id: fbPage.workspace_id,
+                  fb_page_id: fbPage.id,
+                  customer_psid: customerPsid,
+                  customer_name: profile?.name || 'Unknown Customer',
+                  customer_profile_pic_url: profile?.profile_pic,
+                  current_state: 'IDLE',
+                  context: { state: 'IDLE', cart: [], checkout: {} },
+                  last_message_at: new Date(timestamp).toISOString(),
+                })
+                .select()
+                .single();
+              conversation = newConv;
+            }
+
+            if (conversation) {
+              const context = conversation.context as any || {};
+              const metadata = context.metadata || {};
+
+              // Update conversation context
+              metadata.activeProductId = product.id;
+              metadata.activeProductName = product.name;
+              metadata.pricePerPound = product.price_per_pound;
+              metadata.flavor = product.flavor;
+              metadata.allowsCustomMessage = product.allows_custom_message;
+              metadata.orderStage = 'COLLECTING_POUNDS';
+              context.metadata = metadata;
+
+              // Save updated context to DB
+              await supabase
+                .from('conversations')
+                .update({ context })
+                .eq('id', conversation.id);
+
+              // Call processMessage with a system-injected message
+              await processMessage({
+                workspaceId: fbPage.workspace_id,
+                fbPageId: Number(fbPage.id),
+                conversationId: conversation.id,
+                customerPsid,
+                pageId,
+                messageText: `[SYSTEM: Customer clicked Order Now for product: ${product.name} (${product.flavor}). Price: ৳${product.price_per_pound} per pound. Start order collection. First ask: কত pound এর cake চান Sir?]`,
+                isTestMode: false,
+              });
+            }
           }
-          
-          // Determine state and message based on order collection style
-          const isQuickForm = settings.order_collection_style === 'quick_form';
-          const targetState = isQuickForm ? 'AWAITING_CUSTOMER_DETAILS' : 'COLLECTING_NAME';
-         
-          console.log(`🔍 [ORDER_NOW] Order collection style: ${settings.order_collection_style}`);
-          console.log(`🔍 [ORDER_NOW] Target state: ${targetState}`);
-          console.log(`🔍 [ORDER_NOW] Product sizes: ${product.sizes?.join(', ') || 'none'}`);
-          console.log(`🔍 [ORDER_NOW] Product colors: ${product.colors?.join(', ') || 'none'}`);
-          
-          // Build cart item with sizes/colors and stock info for Quick Form validation
-          const cartItem = {
-            productId: product.id,
-            productName: product.name,
-            productPrice: product.price,
-            productImageUrl: product.image_urls?.[0],
-            quantity: 1,
-            // Include sizes/colors for Quick Form prompt building
-            sizes: product.sizes || [],
-            colors: product.colors || [],
-            // Include stock info for validation
-            size_stock: product.size_stock || [],
-            variant_stock: product.variant_stock || [],
-            stock_quantity: product.stock_quantity || 0,
-            // Pricing Policy for Negotiation
-            pricing_policy: product.pricing_policy || { isNegotiable: false },
-          };
-          
-          // Find or create conversation
-          let { data: conversation } = await supabase
+        }
+        return;
+      }
+
+      // Handle "More Photos" button click
+      if (payload.startsWith('MORE_PHOTOS_')) {
+        const productId = payload.replace('MORE_PHOTOS_', '');
+        console.log(`📸 More Photos clicked for product: ${productId}`);
+
+        const { data: product } = await supabase
+          .from('products')
+          .select('name, media_images')
+          .eq('id', productId)
+          .single();
+
+        const { sendMessage, sendImage } = await import('@/lib/facebook/messenger');
+
+        if (product && product.media_images && product.media_images.length > 0) {
+          // Log user interaction
+          const { data: convData } = await supabase
             .from('conversations')
-            .select('*')
-            .eq('fb_page_id', pageId)
+            .select('id')
             .eq('customer_psid', customerPsid)
+            .eq('fb_page_id', pageId)
             .single();
           
-          if (!conversation) {
-            // Fetch profile for new conversation
-            const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
-            const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
-
-            // Create conversation
-            const { data: newConv } = await supabase
-              .from('conversations')
-              .insert({
-                workspace_id: fbPage.workspace_id,
-                fb_page_id: pageId as unknown as number,
-                customer_psid: customerPsid,
-                customer_name: profile?.name || 'Unknown Customer',
-                customer_profile_pic_url: profile?.profile_pic,
-                current_state: targetState,
-                context: {
-                  state: targetState,
-                  cart: [cartItem],
-                  checkout: {},
-                },
-              })
-              .select()
-              .single();
-            conversation = newConv;
-          } else {
-            // Update existing conversation
-            const updates: any = {
-              current_state: targetState,
-              context: {
-                ...conversation.context,
-                state: targetState,
-                cart: [cartItem],
-              },
-            };
-
-            // Backfill profile if missing
-            const needsProfileBackfill = !conversation.customer_profile_pic_url || 
-              !conversation.customer_name || 
-              conversation.customer_name === 'Unknown Customer' ||
-              conversation.customer_name === 'Facebook User';
-            
-            if (needsProfileBackfill) {
-               const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
-               const profile = await fetchFacebookProfile(customerPsid, pageId, supabase);
-               if (profile) {
-                 if (profile.name && profile.name !== 'Facebook User') {
-                   updates.customer_name = profile.name;
-                 }
-                 if (profile.profile_pic) {
-                   updates.customer_profile_pic_url = profile.profile_pic;
-                 }
-               }
-            }
-
-            await supabase
-              .from('conversations')
-              .update(updates)
-              .eq('id', conversation.id);
+          if (convData) {
+            await supabase.from('messages').insert({
+              conversation_id: convData.id,
+              sender: 'customer',
+              message_text: `More Photos: ${product.name}`,
+              message_type: 'postback',
+            });
           }
-          
-          // Send appropriate message based on collection style
-          const { sendMessage } = await import('@/lib/facebook/messenger');
-          
-          if (isQuickForm) {
-            // Build dynamic quick form prompt with sizes/colors if available
-            let message = settings.quick_form_prompt || 
-              'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:';
+
+          const { data: fbPage } = await supabase
+            .from('facebook_pages')
+            .select('encrypted_access_token')
+            .eq('id', pageId)
+            .single();
+
+          if (fbPage) {
+            const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+            const accessToken = decryptToken(fbPage.encrypted_access_token);
             
-            const variantStock = product.variant_stock;
-            const askSize = true; // By default assume both should be asked if they exist for Quick Form
-            const askColor = true;
-            const availableSizes = product.sizes || [];
-            const availableColors = product.colors || [];
-            
-            const extraFields: string[] = [];
-            
-            if (askSize && askColor && variantStock && (Array.isArray(variantStock) || typeof variantStock === 'object')) {
-                const sizeMap = new Map<string, string[]>();
-                
-                if (Array.isArray(variantStock)) {
-                    for (const v of variantStock) {
-                        if ((v.quantity || 0) > 0 && v.size && v.color) {
-                            const s = v.size.toUpperCase();
-                            if (!sizeMap.has(s)) sizeMap.set(s, []);
-                            sizeMap.get(s)!.push(v.color);
-                        }
-                    }
-                } else if (typeof variantStock === 'object') {
-                    Object.entries(variantStock).forEach(([k, v]) => {
-                        if (Number(v) > 0 && k.includes('_')) {
-                            const [s, c] = k.split('_');
-                            const sizeStr = s.toUpperCase();
-                            if (!sizeMap.has(sizeStr)) sizeMap.set(sizeStr, []);
-                            sizeMap.get(sizeStr)!.push(c);
-                        }
-                    });
-                }
-                
-                if (sizeMap.size > 0) {
-                    const mappedLines = Array.from(sizeMap.entries()).map(([s, cList]) => `${s} → ${cList.join(', ')}`);
-                    extraFields.push(`সাইজ ও কালার (স্টকে আছে):\n${mappedLines.join('\n')}`);
-                } else {
-                    if (askSize && availableSizes.length > 0) extraFields.push(`সাইজ: (${availableSizes.join('/')})`);
-                    if (askColor && availableColors.length > 0) extraFields.push(`কালার: (${availableColors.join('/')})`);
-                }
-            } else {
-                if (askSize && availableSizes.length > 0) {
-                  extraFields.push(`সাইজ: (${availableSizes.join('/')})`);
-                }
-                if (askColor && availableColors.length > 0) {
-                  extraFields.push(`কালার: (${availableColors.join('/')})`);
-                }
+            // Send each image as an individual attachment
+            for (const imageUrl of product.media_images) {
+              await sendImage(pageId, customerPsid, imageUrl, accessToken);
             }
-            
-            if (extraFields.length > 0) {
-              message += '\n' + extraFields.join('\n');
-            }
-            
-            // Add optional quantity field
-            message += '\nপরিমাণ: (1 হলে লিখতে হবে না)';
-            
-            await sendMessage(pageId, customerPsid, message);
-          } else {
-            // Send conversational ask name message
-            const { Replies } = await import('@/lib/conversation/replies');
-            await sendMessage(pageId, customerPsid, Replies.ASK_NAME());
           }
+        } else {
+          await sendMessage(pageId, customerPsid, "এই product এর আর কোনো ছবি এখন নেই Sir 🙏");
         }
         return;
       }
@@ -973,6 +929,594 @@ export async function processMessagingEvent(
     }
   } catch (error) {
     console.error('❌ Error processing messaging event:', error);
+  }
+}
+
+/**
+ * Process a single Instagram DM messaging event
+ * 
+ * Instagram webhooks arrive with object: "instagram" and entry.id = Instagram Business Account ID.
+ * We look up the facebook_pages row by instagram_account_id to find the associated page and workspace.
+ * 
+ * Key differences from Messenger:
+ * - No postback/template support (Instagram API limitation)
+ * - entry.id is the Instagram Business Account ID, not the Facebook Page ID
+ * - Sender/recipient IDs are Instagram-Scoped User IDs (IGSIDs)
+ * - Messages are sent via the same Graph API /{page-id}/messages endpoint using the Page Access Token
+ */
+export async function processInstagramMessagingEvent(
+  supabase: any,
+  igAccountId: string,
+  event: MessagingEvent
+) {
+  try {
+    const { sender, recipient, timestamp, message } = event;
+    const senderId = sender.id;
+    const recipientId = recipient.id;
+
+    console.log(`📸 [INSTAGRAM] Processing event from IG account: ${igAccountId}`);
+    console.log(`📸 [INSTAGRAM] sender.id: ${senderId}, recipient.id: ${recipientId}`);
+
+    // ========================================
+    // LOOK UP PAGE BY INSTAGRAM ACCOUNT ID
+    // ========================================
+
+    const { data: fbPage } = await supabase
+      .from('facebook_pages')
+      .select('id, workspace_id, bot_enabled, ig_bot_enabled, instagram_account_id')
+      .eq('instagram_account_id', igAccountId)
+      .eq('status', 'connected')
+      .single();
+
+    if (!fbPage) {
+      console.error(`❌ [INSTAGRAM] No facebook_page found with instagram_account_id: ${igAccountId}`);
+      return;
+    }
+
+    const pageId = String(fbPage.id);
+    console.log(`📸 [INSTAGRAM] Resolved to Facebook Page ID: ${pageId}, Workspace: ${fbPage.workspace_id}`);
+
+    // ========================================
+    // DETECT MESSAGE SOURCE (Owner vs Customer)
+    // ========================================
+    
+    // For Instagram: 
+    // - Customer to Business: sender.id = customer IGSID, recipient.id = IG Business Account ID
+    // - Business to Customer: sender.id = IG Business Account ID, recipient.id = customer IGSID
+    const isOwnerMessage = senderId === igAccountId;
+    const customerIgsid = isOwnerMessage ? recipientId : senderId;
+
+    console.log(`📸 [INSTAGRAM] Is Owner Message: ${isOwnerMessage}`);
+    console.log(`📸 [INSTAGRAM] Customer IGSID: ${customerIgsid}`);
+
+    // ========================================
+    // HANDLE POSTBACKS (Instagram has limited support)
+    // ========================================
+
+    if (event.postback) {
+      console.log(`📸 [INSTAGRAM] Postback received: ${event.postback.payload}`);
+      // Instagram postbacks are limited — log and skip for now
+      // Product card buttons (ORDER_NOW_, VIEW_DETAILS_) don't exist on Instagram
+      return;
+    }
+
+    // ========================================
+    // HANDLE MESSAGES
+    // ========================================
+
+    if (!message || !message.mid) {
+      console.log('📸 [INSTAGRAM] Skipping non-message event');
+      return;
+    }
+
+    const messageText = message.text || '';
+    const messageId = message.mid;
+    const replyToMid = message.reply_to?.mid || null;
+
+    // Extract image URL if present
+    let imageUrl: string | undefined;
+    let modifiedMessageText = message.text || '';
+
+    if (message.attachments && message.attachments.length > 0) {
+      const imageAttachment = message.attachments.find(
+        (att) => att.type === 'image'
+      );
+      if (imageAttachment && imageAttachment.payload?.url) {
+        imageUrl = imageAttachment.payload.url;
+        console.log('📸 [INSTAGRAM] Image attachment detected:', imageUrl);
+      }
+
+      const audioAttachment = message.attachments.find(
+        (att) => att.type === 'audio'
+      );
+      if (audioAttachment) {
+        console.log('📸 [INSTAGRAM] Audio attachment detected');
+        modifiedMessageText = '[User sent a voice message]';
+      }
+    }
+
+    // ========================================
+    // CHECK IDEMPOTENCY
+    // ========================================
+
+    const eventId = generateEventId(igAccountId, timestamp, messageId);
+
+    const { data: existingEvent } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .eq('event_id', eventId)
+      .single();
+
+    if (existingEvent) {
+      console.log(`📸 [INSTAGRAM] Duplicate event detected: ${eventId}`);
+      return;
+    }
+
+    // Log event
+    await supabase.from('webhook_events').insert({
+      event_id: eventId,
+      event_type: 'instagram_messaging',
+      payload: event,
+    });
+
+    // ========================================
+    // FIND OR CREATE CONVERSATION
+    // ========================================
+    
+    let { data: conversation, error: convError } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('fb_page_id', fbPage.id)
+      .eq('customer_psid', customerIgsid)
+      .single();
+
+    if (convError || !conversation) {
+      // Fetch Instagram profile (uses same Graph API endpoint)
+      const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+      const profile = await fetchFacebookProfile(customerIgsid, pageId, supabase);
+
+      // Create new conversation
+      const { data: newConversation, error: createError } = await supabase
+        .from('conversations')
+        .insert({
+          workspace_id: fbPage.workspace_id,
+          fb_page_id: fbPage.id,
+          customer_psid: customerIgsid,
+          customer_name: profile?.name || 'Instagram User',
+          customer_profile_pic_url: profile?.profile_pic,
+          current_state: 'IDLE',
+          control_mode: 'bot',
+          context: {
+            state: 'IDLE',
+            cart: [],
+            checkout: {},
+            metadata: {
+              messageCount: 0,
+              source: 'instagram',
+            },
+          },
+          last_message_at: new Date(timestamp).toISOString(),
+        })
+        .select('*')
+        .single();
+
+      if (createError) {
+        console.error('❌ [INSTAGRAM] Error creating conversation:', createError);
+        return;
+      }
+
+      conversation = newConversation;
+    } else {
+      // Backfill profile if missing
+      const needsProfileBackfill = !conversation.customer_profile_pic_url ||
+        !conversation.customer_name ||
+        conversation.customer_name === 'Unknown Customer' ||
+        conversation.customer_name === 'Instagram User' ||
+        conversation.customer_name === 'Facebook User';
+
+      if (needsProfileBackfill) {
+        const { fetchFacebookProfile } = await import('@/lib/facebook/profile');
+        const profile = await fetchFacebookProfile(customerIgsid, pageId, supabase);
+
+        if (profile) {
+          const profileUpdates: any = {};
+          if (profile.name && profile.name !== 'Facebook User') {
+            profileUpdates.customer_name = profile.name;
+          }
+          if (profile.profile_pic) {
+            profileUpdates.customer_profile_pic_url = profile.profile_pic;
+          }
+          if (Object.keys(profileUpdates).length > 0) {
+            await supabase.from('conversations').update(profileUpdates).eq('id', conversation.id);
+          }
+        }
+      }
+    }
+
+    // ========================================
+    // HANDLE OWNER MESSAGE
+    // ========================================
+
+    if (isOwnerMessage) {
+      console.log('📸 [INSTAGRAM] Detected owner reply from Instagram app');
+
+      await supabase.from('messages').insert({
+        conversation_id: conversation.id,
+        sender: 'page',
+        sender_type: 'owner',
+        message_text: modifiedMessageText,
+        message_type: message.attachments ? 'attachment' : 'text',
+        attachments: message.attachments || null,
+        mid: messageId || null,
+        image_url: imageUrl || null,
+      });
+
+      const currentMode = conversation.control_mode || 'bot';
+      const newMode = currentMode === 'manual' ? 'manual' : 'hybrid';
+
+      await supabase
+        .from('conversations')
+        .update({
+          control_mode: newMode,
+          last_manual_reply_at: new Date().toISOString(),
+          last_manual_reply_by: 'owner',
+          last_message_at: new Date(timestamp).toISOString(),
+        })
+        .eq('id', conversation.id);
+
+      console.log(`✅ [INSTAGRAM] Owner message saved, control_mode: ${newMode}`);
+      return;
+    }
+
+    // ========================================
+    // CHECK SUBSCRIPTION STATUS
+    // ========================================
+
+    const { checkBotPermission } = await import('@/lib/subscription/utils');
+    const botPermission = await checkBotPermission(fbPage.workspace_id, supabase);
+
+    if (!botPermission.allowed) {
+      console.log(`🛑 [INSTAGRAM] Bot blocked by subscription: ${botPermission.reason}`);
+
+      await supabase.from('messages').insert({
+        conversation_id: conversation.id,
+        sender: customerIgsid,
+        sender_type: 'customer',
+        message_text: modifiedMessageText,
+        message_type: message.attachments ? 'attachment' : 'text',
+        attachments: message.attachments || null,
+      });
+
+      await supabase
+        .from('conversations')
+        .update({ last_message_at: new Date(timestamp).toISOString() })
+        .eq('id', conversation.id);
+
+      return;
+    }
+
+    // ========================================
+    // CHECK INSTAGRAM BOT TOGGLE
+    // ========================================
+
+    if (fbPage.ig_bot_enabled === false) {
+      console.log(`🛑 [INSTAGRAM] IG Bot disabled for page ${pageId} — saving message only`);
+
+      await supabase.from('messages').insert({
+        conversation_id: conversation.id,
+        sender: customerIgsid,
+        sender_type: 'customer',
+        message_text: modifiedMessageText,
+        message_type: message.attachments ? 'attachment' : 'text',
+        attachments: message.attachments || null,
+      });
+
+      await supabase
+        .from('conversations')
+        .update({ last_message_at: new Date(timestamp).toISOString() })
+        .eq('id', conversation.id);
+
+      return;
+    }
+
+    // ========================================
+    // LOG CUSTOMER MESSAGE
+    // ========================================
+
+    await supabase.from('messages').insert({
+      conversation_id: conversation.id,
+      sender: customerIgsid,
+      sender_type: 'customer',
+      message_text: modifiedMessageText,
+      message_type: message.attachments ? 'attachment' : 'text',
+      attachments: message.attachments || null,
+      image_url: imageUrl || null,
+      mid: messageId || null,
+    });
+
+    await supabase
+      .from('conversations')
+      .update({ last_message_at: new Date(timestamp).toISOString() })
+      .eq('id', conversation.id);
+
+    // ========================================
+    // CHECK HYBRID CONTROL MODE
+    // ========================================
+
+    const controlMode = conversation.control_mode || 'bot';
+    const lastManualReplyAt = conversation.last_manual_reply_at;
+    const currentState = conversation.current_state || 'IDLE';
+    const isProtectedState = PROTECTED_STATES.includes(currentState as any);
+
+    if (controlMode === 'manual' && !isProtectedState) {
+      console.log('⏭️ [INSTAGRAM] Manual mode — skipping bot processing');
+      return;
+    } else if (controlMode === 'manual' && isProtectedState) {
+      console.log('🛡️ [INSTAGRAM] Manual mode but protected state — bot continues');
+      const context = conversation.context || {};
+      context.owner_interrupted = true;
+      await supabase
+        .from('conversations')
+        .update({ context })
+        .eq('id', conversation.id);
+    }
+
+    if (controlMode === 'hybrid' && lastManualReplyAt) {
+      const HYBRID_PAUSE_MINUTES = 30;
+      const lastReplyTime = new Date(lastManualReplyAt).getTime();
+      const minutesSinceLastReply = (Date.now() - lastReplyTime) / (1000 * 60);
+
+      if (minutesSinceLastReply < HYBRID_PAUSE_MINUTES) {
+        if (isProtectedState) {
+          console.log(`🛡️ [INSTAGRAM] Protected state — bot continues despite owner reply`);
+          const context = conversation.context || {};
+          context.owner_interrupted = true;
+          await supabase.from('conversations').update({ context }).eq('id', conversation.id);
+        } else {
+          console.log(`⏭️ [INSTAGRAM] Owner replied ${minutesSinceLastReply.toFixed(1)} mins ago — skipping bot`);
+          return;
+        }
+      } else {
+        await supabase
+          .from('conversations')
+          .update({ control_mode: 'bot' })
+          .eq('id', conversation.id);
+        console.log('🔄 [INSTAGRAM] Reset to bot mode after pause period');
+      }
+    }
+
+    if (conversation.bot_pause_until && !isProtectedState) {
+      const pauseUntil = new Date(conversation.bot_pause_until).getTime();
+      if (Date.now() < pauseUntil) {
+        console.log(`⏭️ [INSTAGRAM] Bot paused — skipping`);
+        return;
+      } else {
+        await supabase.from('conversations').update({ bot_pause_until: null }).eq('id', conversation.id);
+      }
+    }
+
+    // ========================================
+    // CALL ORCHESTRATOR (Bot Processing)
+    // ========================================
+
+    console.log('📸 [INSTAGRAM] Calling Orchestrator...');
+
+    const lockAcquired = processingLock.acquireLock(conversation.id, 'bot_processing', 15000);
+
+    if (!lockAcquired) {
+      const currentLock = processingLock.isLocked(conversation.id);
+      if (currentLock?.lock_type === 'owner_sending') {
+        const released = await processingLock.waitForLock(conversation.id, 3000);
+        if (!released) {
+          console.log('⏭️ [INSTAGRAM] Owner still sending, skipping bot response');
+          return;
+        }
+        if (!processingLock.acquireLock(conversation.id, 'bot_processing', 15000)) {
+          console.log('⏭️ [INSTAGRAM] Could not acquire lock after waiting');
+          return;
+        }
+      } else {
+        console.log('⏭️ [INSTAGRAM] Could not acquire lock, skipping processing');
+        return;
+      }
+    }
+
+    try {
+      // Check if owner replied while waiting for lock
+      const { data: freshConv } = await supabase
+        .from('conversations')
+        .select('control_mode, last_manual_reply_at')
+        .eq('id', conversation.id)
+        .single();
+
+      if (freshConv?.control_mode === 'hybrid' || freshConv?.control_mode === 'manual') {
+        const lastManualReply = freshConv.last_manual_reply_at;
+        if (lastManualReply) {
+          const timeSinceReply = Date.now() - new Date(lastManualReply).getTime();
+          if (timeSinceReply < 5000) {
+            console.log('⏭️ [INSTAGRAM] Owner just replied, aborting bot response');
+            return;
+          }
+        }
+      }
+
+      await processMessage({
+        pageId,
+        customerPsid: customerIgsid,
+        messageText: modifiedMessageText || undefined,
+        imageUrl,
+        mid: messageId,
+        replyToMid,
+        workspaceId: fbPage.workspace_id,
+        fbPageId: fbPage.id,
+        conversationId: conversation.id,
+      });
+
+      console.log('✅ [INSTAGRAM] Message processed successfully');
+    } finally {
+      processingLock.releaseLock(conversation.id);
+    }
+  } catch (error) {
+    console.error('❌ [INSTAGRAM] Error processing Instagram messaging event:', error);
+  }
+}
+
+/**
+ * Process a single Instagram Comment from the 'changes' webhook
+ * Handles automatic public reply and private DM for Instagram comments.
+ */
+export async function processInstagramCommentEvent(
+  supabase: any,
+  igAccountId: string,
+  commentData: any
+) {
+  try {
+    const commentId = commentData.id;
+    const fromId = commentData.from?.id;
+    const fromUsername = commentData.from?.username;
+    const message = commentData.text;
+
+    console.log(`📸💬 [IG_COMMENT] Processing comment ${commentId} from ${fromUsername}`);
+
+    // Step 1: Idempotency Check
+    const { data: existingEvent } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .eq('event_id', `ig_comment_${commentId}`)
+      .single();
+
+    if (existingEvent || !commentId || commentId === 'undefined') {
+      console.log(`📸💬 [IG_COMMENT] Skipping duplicate or invalid IG comment: ${commentId}`);
+      return;
+    }
+
+    // Log the event immediately to prevent race conditions
+    await supabase.from('webhook_events').insert({
+      event_id: `ig_comment_${commentId}`,
+      event_type: 'ig_comment',
+      payload: commentData,
+    });
+
+    // Basic Filters
+    if (!message) return;
+    const text = message.trim();
+
+    // Skip if comment is from the page itself
+    if (fromId === igAccountId) {
+      console.log('📸💬 [IG_COMMENT] Skipping own page comment to prevent loop');
+      return;
+    }
+
+    const hasRealText = /[a-zA-Z\u0980-\u09FF]/.test(text);
+    if (!hasRealText || text.length < 2) {
+      console.log('📸💬 [IG_COMMENT] Skipping emoji-only or too short comment:', text);
+      return;
+    }
+
+    // Step 2: Find workspace by IG Account Id
+    const { data: fbPage } = await supabase
+      .from('facebook_pages')
+      .select('id, workspace_id, encrypted_access_token, ig_bot_enabled')
+      .eq('instagram_account_id', igAccountId)
+      .eq('status', 'connected')
+      .single();
+
+    if (!fbPage) {
+      console.log('📸💬 [IG_COMMENT] No facebook_page found for igAccountId:', igAccountId);
+      return;
+    }
+
+    if (!fbPage.ig_bot_enabled) {
+      console.log('📸💬 [IG_COMMENT] IG Bot disabled for this page. Skipping automation.');
+      return;
+    }
+
+    const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+    const decryptedToken = decryptToken(fbPage.encrypted_access_token);
+
+    // Step 3: Classify comment using AI
+    const classification = await classifyComment(text, fbPage.workspace_id);
+
+    console.log(`📸💬 [IG_COMMENT] Classification: ${classification.type}`);
+
+    // Step 4: Build replies based on classification
+    let publicReplyText = '';
+    let privateDmText = '';
+    
+    if (classification.type === 'price_inquiry') {
+      publicReplyText = `ধন্যবাদ! details আপনার inbox এ পাঠানো হয়েছে 📥`;
+      privateDmText = `হ্যালো! আপনি আমাদের একটি পোস্টে price সম্পর্কে জানতে চেয়েছিলেন। বিস্তারিত জানতে বা অর্ডার করতে আমাকে জানান 😊`;
+    } else if (classification.type === 'appreciation') {
+      publicReplyText = `ধন্যবাদ! 🙏 আপনার ভালো লেগেছে জেনে খুশি হলাম।`;
+    } else if (classification.type === 'complaint') {
+      publicReplyText = `আন্তরিকভাবে দুঃখিত। আমরা আপনার inbox এ message পাঠিয়েছি, দয়া করে একটু check করুন 🙏`;
+      privateDmText = `হ্যালো, আমরা আপনার কমেন্ট দেখেছি। সমস্যার জন্য আমরা দুঃখিত। দয়া করে বিস্তারিত জানান, আমরা দ্রুত সমাধান করার চেষ্টা করবো।`;
+    } else {
+      publicReplyText = `ধন্যবাদ! যেকোনো প্রয়োজনে inbox এ message করুন 😊`;
+    }
+
+    // Step 5: Send Replies (Public first, then Private DM)
+    const { replyToInstagramComment, sendPrivateReplyToInstagramComment } = await import('@/lib/facebook/messenger');
+
+    // 5a. Public Reply
+    try {
+      console.log(`📸💬 [IG_COMMENT] Attempting public reply | Text: "${publicReplyText}"`);
+      const publicResult = await replyToInstagramComment(commentId, publicReplyText, decryptedToken);
+      
+      if (publicResult?.id) {
+        console.log(`📸💬 [IG_COMMENT] Public reply successful: ${publicResult.id}`);
+        // Log bot's public reply to database
+        await supabase.from('messages').insert({
+          conversation_id: null,
+          sender: String(fbPage.id),
+          sender_type: 'bot',
+          message_text: `[IG_PUBLIC_REPLY] ${publicReplyText}`,
+          message_type: 'comment',
+        });
+      }
+    } catch (publicError) {
+      console.error(`📸💬 [IG_COMMENT] Error sending public reply:`, publicError);
+    }
+
+    // 5b. Private DM Reply
+    if (privateDmText) {
+      try {
+        console.log(`📸💬 [IG_COMMENT] Attempting private DM reply | Text: "${privateDmText}"`);
+        // Note: Graph API requires the Facebook Page ID for the /messages endpoint, not the IG Account ID.
+        const privateResult = await sendPrivateReplyToInstagramComment(
+          String(fbPage.id), 
+          commentId, 
+          privateDmText, 
+          decryptedToken
+        );
+        
+        if (privateResult?.message_id || privateResult?.already_replied) {
+          console.log(`📸💬 [IG_COMMENT] Private DM reply initiated successfully`);
+          
+          await supabase.from('messages').insert({
+            conversation_id: null,
+            sender: String(fbPage.id),
+            sender_type: 'bot',
+            message_text: `[IG_PRIVATE_DM_REPLY] ${privateDmText}`,
+            message_type: 'comment',
+          });
+        }
+      } catch (privateError) {
+        console.error(`📸💬 [IG_COMMENT] Error sending private DM reply:`, privateError);
+      }
+    }
+
+    // Step 6: Save Original Customer Comment to DB for dashboard visibility
+    await supabase.from('messages').insert({
+      conversation_id: null,
+      sender: fromId,
+      sender_type: 'customer',
+      message_text: `[IG_COMMENT] ${text}`,
+      message_type: 'comment',
+    });
+
+  } catch (err) {
+    console.error(`❌ [WEBHOOK] Critical error in processInstagramCommentEvent:`, err);
   }
 }
 

@@ -49,18 +49,18 @@ export const TrialEndingEmail = ({ businessName, expiryDate }: TrialEndingEmailP
         <tr>
           <td style={pricingCard}>
             <Text style={planName}>Starter</Text>
-            <Text style={planPrice}>৳499<span style={planPeriod}>/mo</span></Text>
+            <Text style={planPrice}>৳1,499<span style={planPeriod}>/mo</span></Text>
           </td>
           <td width="12"></td>
           <td style={pricingCardHighlight}>
             <Text style={planBadge}>Popular</Text>
-            <Text style={planName}>Pro</Text>
-            <Text style={planPrice}>৳899<span style={planPeriod}>/mo</span></Text>
+            <Text style={planName}>Growth</Text>
+            <Text style={planPrice}>৳2,999<span style={planPeriod}>/mo</span></Text>
           </td>
           <td width="12"></td>
           <td style={pricingCard}>
-            <Text style={planName}>Business</Text>
-            <Text style={planPrice}>৳1,799<span style={planPeriod}>/mo</span></Text>
+            <Text style={planName}>Pro</Text>
+            <Text style={planPrice}>৳5,999<span style={planPeriod}>/mo</span></Text>
           </td>
         </tr>
       </table>

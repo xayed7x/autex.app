@@ -38,6 +38,7 @@ interface PaymentModalProps {
 export function PaymentModal({ open, onOpenChange, workspaceName }: PaymentModalProps) {
   const { plans, contact } = useSubscription()
   const [copiedBkash, setCopiedBkash] = useState(false)
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
 
   const handleCopyBkash = async () => {
     if (!contact?.bkash) return
@@ -59,8 +60,8 @@ export function PaymentModal({ open, onOpenChange, workspaceName }: PaymentModal
 
   const planEntries = [
     { key: 'starter', ...plans.starter },
+    { key: 'growth', ...plans.growth },
     { key: 'pro', ...plans.pro },
-    { key: 'business', ...plans.business },
   ]
 
   return (
@@ -118,26 +119,54 @@ export function PaymentModal({ open, onOpenChange, workspaceName }: PaymentModal
               <span className="font-medium text-sm">Choose Your Plan</span>
             </div>
             
+            <div className="flex items-center justify-between ml-8 mb-2">
+              <div className="flex bg-muted p-0.5 rounded-lg">
+                <button
+                  onClick={() => setBillingCycle('monthly')}
+                  className={cn(
+                    "px-3 py-1 text-[10px] font-medium rounded-md transition-all",
+                    billingCycle === 'monthly' ? "bg-white shadow-sm" : "text-muted-foreground"
+                  )}
+                >
+                  Monthly
+                </button>
+                <button
+                  onClick={() => setBillingCycle('yearly')}
+                  className={cn(
+                    "px-3 py-1 text-[10px] font-medium rounded-md transition-all",
+                    billingCycle === 'yearly' ? "bg-white shadow-sm" : "text-muted-foreground"
+                  )}
+                >
+                  Yearly <span className="text-emerald-500 font-bold ml-1">SAVE 20%</span>
+                </button>
+              </div>
+            </div>
+            
             <div className="ml-8 grid gap-2">
               {planEntries.map((plan) => (
                 <div 
                   key={plan.key}
                   className={cn(
                     "flex items-center justify-between p-2.5 rounded-lg border transition-colors",
-                    plan.key === 'pro' 
+                    plan.key === 'growth' 
                       ? "bg-primary/5 border-primary/20" 
                       : "bg-muted/30 border-border"
                   )}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">{plan.name}</span>
-                    {plan.key === 'pro' && (
+                    {plan.key === 'growth' && (
                       <Badge variant="secondary" className="text-[10px] h-4">Popular</Badge>
                     )}
                   </div>
-                  <span className="font-mono font-semibold text-sm">
-                    ৳{plan.price}<span className="text-xs text-muted-foreground">/mo</span>
-                  </span>
+                  <div className="text-right">
+                    <div className="font-mono font-semibold text-sm">
+                      ৳{billingCycle === 'monthly' ? plan.price : (plan as any).yearlyPrice}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {billingCycle === 'monthly' ? 'per month' : 'per year'}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

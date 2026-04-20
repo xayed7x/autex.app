@@ -1,14 +1,14 @@
--- Trigger to automatically set 3-day trial when a new workspace is created
+-- Trigger to automatically set 14-day trial when a new workspace is created
 CREATE OR REPLACE FUNCTION public.handle_new_workspace_subscription()
 RETURNS TRIGGER AS $$
 BEGIN
   -- Set status to trial
   NEW.subscription_status := 'trial';
   
-  -- Set trial end date to 3 days from now
-  -- Using (now() AT TIME ZONE 'UTC') + INTERVAL '3 days'
+  -- Set trial end date to 14 days from now
+  -- Using (now() AT TIME ZONE 'UTC') + INTERVAL '14 days'
   -- We store in UTC, display logic handles timezone conversion
-  NEW.trial_ends_at := NOW() + INTERVAL '3 days';
+  NEW.trial_ends_at := NOW() + INTERVAL '14 days';
   
   -- Ensure other fields are null/default
   NEW.subscription_expires_at := NULL;

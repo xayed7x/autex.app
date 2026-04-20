@@ -161,6 +161,8 @@ export type Database = {
           bot_enabled: boolean
           created_at: string | null
           id: number
+          instagram_account_id: string | null
+          ig_bot_enabled: boolean
           page_name: string
           page_username: string | null
           encrypted_access_token: string
@@ -171,6 +173,8 @@ export type Database = {
           bot_enabled?: boolean
           created_at?: string | null
           id: number
+          instagram_account_id?: string | null
+          ig_bot_enabled?: boolean
           page_name: string
           page_username?: string | null
           encrypted_access_token: string
@@ -181,6 +185,8 @@ export type Database = {
           bot_enabled?: boolean
           created_at?: string | null
           id?: number
+          instagram_account_id?: string | null
+          ig_bot_enabled?: boolean
           page_name?: string
           page_username?: string | null
           encrypted_access_token?: string
@@ -543,6 +549,9 @@ export type Database = {
           variant_stock: Json | null
           variations: Json | null
           workspace_id: string
+          category: string | null
+          flavors: string[] | null
+          weights: string[] | null
           image_hash: string | null
           dominant_colors: string[] | null
           visual_features: Json | null
@@ -569,6 +578,9 @@ export type Database = {
           variant_stock?: Json | null
           variations?: Json | null
           workspace_id: string
+          category?: string | null
+          flavors?: string[] | null
+          weights?: string[] | null
           image_hash?: string | null
           dominant_colors?: string[] | null
           visual_features?: Json | null
@@ -595,6 +607,9 @@ export type Database = {
           variant_stock?: Json | null
           variations?: Json | null
           workspace_id?: string
+          category?: string | null
+          flavors?: string[] | null
+          weights?: string[] | null
           image_hash?: string | null
           dominant_colors?: string[] | null
           visual_features?: Json | null

@@ -52,10 +52,10 @@ export async function GET(request: NextRequest) {
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowISO = tomorrow.toISOString();
     
-    // Calculate 3 days from now for renewal reminders
-    const threeDays = new Date(now);
-    threeDays.setDate(threeDays.getDate() + 3);
-    const threeDaysISO = threeDays.toISOString();
+    // Calculate 14 days from now for renewal reminders
+    const fourteenDays = new Date(now);
+    fourteenDays.setDate(fourteenDays.getDate() + 14);
+    const fourteenDaysISO = fourteenDays.toISOString();
 
     const emailResults = {
       trialEndingReminders: 0,
@@ -110,14 +110,14 @@ export async function GET(request: NextRequest) {
     }
 
     // ==========================================
-    // 4. Send Renewal Reminders (3 days before)
+    // 4. Send Renewal Reminders (14 days before)
     // ==========================================
     const { data: renewalSoon } = await supabase
       .from('workspaces')
       .select('id, name, owner_id, subscription_plan, subscription_expires_at')
       .eq('subscription_status', 'active')
       .gte('subscription_expires_at', nowISO)
-      .lt('subscription_expires_at', threeDaysISO);
+      .lt('subscription_expires_at', fourteenDaysISO);
 
     for (const workspace of renewalSoon || []) {
       const ownerEmail = await getOwnerEmail(supabase, workspace.owner_id);

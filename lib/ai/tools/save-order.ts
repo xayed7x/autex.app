@@ -62,7 +62,16 @@ export async function saveOrder(
   fbPageId: number,
   context: ConversationContext,
   settings: WorkspaceSettings,
-  overrides?: { customerName?: string; customerPhone?: string; customerAddress?: string }
+  overrides?: {
+    customerName?: string;
+    customerPhone?: string;
+    customerAddress?: string;
+    deliveryDate?: string;
+    flavor?: string;
+    weight?: string;
+    custom_message?: string;
+    pounds_ordered?: number;
+  }
 ): Promise<SaveOrderOutput> {
   const cart = context.cart || [];
   
@@ -72,6 +81,7 @@ export async function saveOrder(
     ...(overrides?.customerName && { customerName: overrides.customerName }),
     ...(overrides?.customerPhone && { customerPhone: overrides.customerPhone }),
     ...(overrides?.customerAddress && { customerAddress: overrides.customerAddress }),
+    ...(overrides?.deliveryDate && { deliveryDate: overrides.deliveryDate }),
   };
   
   const negotiation = (context.metadata as Record<string, any>)?.negotiation;
@@ -80,7 +90,7 @@ export async function saveOrder(
   // PHASE 1: VALIDATION
   // ========================================
 
-  const validation = validateOrderData(cart, checkout);
+  const validation = validateOrderData(cart, checkout, settings.businessCategory);
 
   if (validation.missing.length > 0 || validation.errors.length > 0) {
     const allIssues = [...validation.missing, ...validation.errors];
@@ -112,7 +122,7 @@ export async function saveOrder(
   }
 
   // ========================================
-  // PHASE 3: STOCK VERIFICATION
+  // PHASE 3: STOCK VERIFICATION (Exclude food businesses)
   // ========================================
 
   const supabase = createClient<Database>(
@@ -121,17 +131,19 @@ export async function saveOrder(
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 
-  const stockIssue = await verifyStock(supabase, cart);
+  if (settings.businessCategory !== 'food') {
+    const stockIssue = await verifyStock(supabase, cart);
 
-  if (stockIssue) {
-    return {
-      result: {
-        success: false,
-        data: { error: 'out_of_stock' },
-        message: stockIssue,
-      },
-      sideEffects: {},
-    };
+    if (stockIssue) {
+      return {
+        result: {
+          success: false,
+          data: { error: 'out_of_stock' },
+          message: stockIssue,
+        },
+        sideEffects: {},
+      };
+    }
   }
 
   // ========================================
@@ -191,6 +203,11 @@ export async function saveOrder(
       payment_last_two_digits: checkout.paymentLastTwoDigits || null,
       selected_size: cart.length === 1 ? (firstItemAny.selectedSize || null) : null,
       selected_color: cart.length === 1 ? (firstItemAny.selectedColor || null) : null,
+      delivery_date: checkout.deliveryDate || null,
+      flavor: cart.length === 1 ? (firstItemAny.selectedFlavor || null) : null,
+      weight: cart.length === 1 ? (firstItemAny.selectedWeight || null) : null,
+      custom_message: cart.length === 1 ? (firstItemAny.selectedCustomMessage || overrides?.custom_message || null) : null,
+      pounds_ordered: cart.length === 1 ? (firstItemAny.selectedPounds || overrides?.pounds_ordered || null) : null,
     };
 
     const { data: orderResult, error: orderError } = await supabase
@@ -299,7 +316,8 @@ export async function saveOrder(
 
 function validateOrderData(
   cart: CartItem[],
-  checkout: Record<string, any>
+  checkout: Record<string, any>,
+  businessCategory?: string
 ): ValidationError {
   const missing: string[] = [];
   const errors: string[] = [];
@@ -337,6 +355,12 @@ function validateOrderData(
     missing.push('address');
   } else if (checkout.customerAddress.trim().length < MIN_ADDRESS_LENGTH) {
     errors.push(`Address too short (minimum ${MIN_ADDRESS_LENGTH} characters)`);
+  }
+
+  if (businessCategory === 'food') {
+    if (!checkout.deliveryDate?.trim()) {
+      missing.push('delivery date (required for made-to-order food/cake)');
+    }
   }
 
   return { missing, errors };

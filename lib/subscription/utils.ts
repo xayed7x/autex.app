@@ -18,19 +18,41 @@ export const CONTACT_NUMBERS = {
 export const SUBSCRIPTION_PLANS = {
   starter: { 
     name: 'Starter', 
-    price: 499, 
-    features: ['Unlimited Products', '500 Screenshots/Month', 'Unlimited Comments', 'Unlimited Conversations'] 
+    price: 1499, 
+    yearlyPrice: 14990,
+    features: [
+      'Unlimited Products', 
+      '500 Customers/Month', 
+      'Unlimited Comments', 
+      'Unlimited Conversations',
+      'Overages: ৳3/extra customer'
+    ] 
+  },
+  growth: { 
+    name: 'Growth', 
+    price: 2999, 
+    yearlyPrice: 29990,
+    features: [
+      'Unlimited Products', 
+      '1,500 Customers/Month', 
+      'Unlimited Comments', 
+      'Unlimited Conversations', 
+      'Priority Support',
+      'Overages: ৳3/extra customer'
+    ] 
   },
   pro: { 
-    name: 'Pro — Founder Launch', 
-    price: 599, 
-    regularPrice: 899,
-    features: ['Unlimited Products', '1,500 Screenshots/Month', 'Unlimited Comments', 'Unlimited Conversations', 'Priority Support'] 
-  },
-  business: { 
-    name: 'Business', 
-    price: 1799, 
-    features: ['Unlimited Products', '5,000 Screenshots/Month', 'Unlimited Comments', 'Unlimited Conversations', 'Dedicated Support'] 
+    name: 'Pro', 
+    price: 5999, 
+    yearlyPrice: 59990,
+    features: [
+      'Unlimited Products', 
+      '3,500 Customers/Month', 
+      'Unlimited Comments', 
+      'Unlimited Conversations', 
+      'Dedicated Support',
+      'Overages: ৳3/extra customer'
+    ] 
   },
 } as const
 

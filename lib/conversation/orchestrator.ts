@@ -196,6 +196,62 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       };
     }
 
+    // ========================================
+    // FAST PATH: Pound Collection for Cake Orders
+    // ========================================
+    if (currentContext.metadata?.orderStage === 'COLLECTING_POUNDS' && messageText && !messageText.startsWith('[SYSTEM:')) {
+      // Try to extract a number from customer message
+      const text = messageText.toLowerCase();
+      const numberMatch = text.match(/([0-9\.\u09E6-\u09EF]+)\s*(pound|পাউন্ড|kg|কেজি)?/i) || 
+                          text.match(/half|হাফ|অর্ধেক/i) ||
+                          text.match(/এক|দুই|তিন|চার|পাঁচ/i);
+
+      if (numberMatch) {
+        let extractedNumber = 0;
+
+        // Parse different formats
+        if (text.includes('half') || text.includes('হাফ') || text.includes('অর্ধেক') || text.includes('.5') || text.includes('০.৫')) {
+          extractedNumber = 0.5;
+        } else if (text.includes('এক') || text.includes('১ পাউন্ড')) {
+          extractedNumber = 1;
+        } else if (text.includes('দুই') || text.includes('২ পাউন্ড')) {
+          extractedNumber = 2;
+        } else if (text.includes('তিন') || text.includes('৩ পাউন্ড')) {
+          extractedNumber = 3;
+        } else if (text.includes('চার') || text.includes('৪ পাউন্ড')) {
+          extractedNumber = 4;
+        } else if (text.includes('পাঁচ') || text.includes('৫ পাউন্ড')) {
+          extractedNumber = 5;
+        } else if (numberMatch[1]) {
+           // Parse English digits and Bengali digits
+           const engOrBngDigit = numberMatch[1]
+              .replace(/০/g, "0").replace(/১/g, "1").replace(/২/g, "2")
+              .replace(/৩/g, "3").replace(/৪/g, "4").replace(/৫/g, "5")
+              .replace(/৬/g, "6").replace(/৭/g, "7").replace(/৮/g, "8")
+              .replace(/৯/g, "9");
+           extractedNumber = parseFloat(engOrBngDigit);
+        }
+
+        if (extractedNumber > 0) {
+          if (text.includes('kg') || text.includes('কেজি')) {
+            extractedNumber = extractedNumber * 2.2; // roughly convert kg to pounds
+          }
+
+          console.log(`✅ [FAST PATH] Pounds extracted: ${extractedNumber}`);
+          
+          currentContext.metadata.selectedPounds = extractedNumber;
+          
+          // Calculate price: price_per_pound * pounds (round to nearest 10)
+          const pricePerPound = currentContext.metadata.pricePerPound || 0;
+          const calculatedPrice = Math.round((pricePerPound * extractedNumber) / 10) * 10;
+          currentContext.metadata.calculatedPrice = calculatedPrice;
+
+          // Advance to custom message collection
+          currentContext.metadata.orderStage = 'COLLECTING_CUSTOM_MESSAGE';
+        }
+      }
+    }
+
     // Load ALL messages for this conversation to feed the memory manager
     const { data: allMessages, error: msgError } = await supabase
       .from('messages')
@@ -440,16 +496,36 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
             variantStock: p.variantStock || null,
             sizeStock: p.sizeStock || null,
             media_images: p.media_images || [],
-            media_videos: p.media_videos || []
+            media_videos: p.media_videos || [],
+            // Include food-specific fields
+            cake_category: p.cake_category,
+            price_per_pound: p.price_per_pound,
+            min_pounds: p.min_pounds,
+            max_pounds: p.max_pounds
           };
         });
 
         if (!input.isTestMode) {
+          // Add text prefix for food businesses
+          if (settings.businessCategory === 'food') {
+            const prefixText = mappedProducts.length === 1
+              ? "এই cake টা আমাদের কাছে আছে 👇 অর্ডার করতে চাইলে 'Order Now 🛒' বাটনে ক্লিক করুন Sir!"
+              : `আমাদের কাছে এই ${mappedProducts.length}টা cake ডিজাইন আছে 👇 যেটা আপনার পছন্দ হয় সেটার 'Order Now 🛒' বাটনে ক্লিক করুন Sir!`;
+            await sendMessage(input.pageId, input.customerPsid, prefixText);
+          }
+
           if (mappedProducts.length === 1) {
-             await sendProductCard(input.pageId, input.customerPsid, mappedProducts[0]);
+             await sendProductCard(input.pageId, input.customerPsid, mappedProducts[0] as any, settings.businessCategory);
              productCard = mappedProducts[0];
           } else {
-             await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts);
+             if (settings.businessCategory === 'food') {
+                // FIX 2: Vertical delivery for cakes
+                const { sendProductsVertical } = await import('@/lib/facebook/messenger');
+                await sendProductsVertical(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+             } else {
+                // Keep horizontal carousel for clothing
+                await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+             }
           }
         }
 

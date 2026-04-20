@@ -36,6 +36,13 @@ export interface ProductSearchResult {
   product_attributes: Record<string, any> | null;
   media_images: string[];
   media_videos: string[];
+  flavors?: string[];
+  weights?: string[];
+  flavor?: string | null;
+  price_per_pound?: number | null;
+  allows_custom_message?: boolean;
+  min_pounds?: number;
+  max_pounds?: number;
 }
 
 export interface SearchProductsOutput {
@@ -70,11 +77,12 @@ export async function searchProducts(
   query: string,
   workspaceId: string,
   requestedSize?: string,
-  requestedColor?: string
+  requestedColor?: string,
+  flavor?: string
 ): Promise<SearchProductsOutput> {
   const trimmedQuery = query.trim();
 
-  if (!trimmedQuery) {
+  if (!trimmedQuery && !flavor) {
     return {
       success: false,
       products: [],
@@ -94,24 +102,25 @@ export async function searchProducts(
     const rawProducts = await searchProductsByKeywordsWithScoring(
       trimmedQuery,
       workspaceId,
-      MAX_RESULTS
+      MAX_RESULTS,
+      flavor
     );
 
-    if (rawProducts.length === 0) {
-      return {
-        success: true,
-        products: [],
-        message: `No products found matching "${trimmedQuery}".`,
-      };
-    }
+      if (rawProducts.length === 0) {
+        return {
+          success: true,
+          products: [],
+          message: `No products found matching "${trimmedQuery}"${flavor ? ` with flavor "${flavor}"` : ''}.`,
+        };
+      }
 
     const products = rawProducts.map(p => toCompactProduct(p, requestedSize, requestedColor));
 
-    return {
-      success: true,
-      products,
-      message: `Found ${products.length} product(s) matching "${trimmedQuery}".`,
-    };
+      return {
+        success: true,
+        products,
+        message: `Found ${products.length} product(s) matching "${trimmedQuery}"${flavor ? ` with flavor "${flavor}"` : ''}.`,
+      };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`[search-products] Failed for query "${trimmedQuery}":`, errorMessage);
@@ -189,6 +198,13 @@ function toCompactProduct(row: Record<string, any>, requestedSize?: string, requ
     product_attributes: row.product_attributes || null,
     media_images: row.media_images || [],
     media_videos: row.media_videos || [],
+    flavors: Array.isArray(row.flavors) ? row.flavors : [],
+    weights: Array.isArray(row.weights) ? row.weights : [],
+    flavor: row.flavor ?? null,
+    price_per_pound: row.price_per_pound ?? null,
+    allows_custom_message: row.allows_custom_message ?? true,
+    min_pounds: row.min_pounds ?? 0.5,
+    max_pounds: row.max_pounds ?? 5.0,
   };
 }
 

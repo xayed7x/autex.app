@@ -35,13 +35,23 @@ export async function GET(request: Request) {
       .eq('owner_id', user.id)
       .single()
 
+    // Get workspace settings
+    const { data: settings } = await supabase
+      .from('workspace_settings')
+      .select('business_category')
+      .eq('workspace_id', workspace?.id)
+      .single()
+
     return NextResponse.json({
       user: {
         id: user.id,
         email: user.email,
         ...profile
       },
-      workspace: workspace || null
+      workspace: workspace ? {
+        ...workspace,
+        business_category: settings?.business_category || 'clothing'
+      } : null
     })
   } catch (error) {
     console.error('Settings API error:', error)
@@ -63,7 +73,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json()
-    const { business_name, phone, workspace_name } = body
+    const { business_name, phone, workspace_name, business_category } = body
 
     // Update profile
     if (business_name !== undefined || phone !== undefined) {
@@ -92,6 +102,31 @@ export async function PATCH(request: Request) {
       if (workspaceError) {
         console.error('Error updating workspace:', workspaceError)
         return NextResponse.json({ error: workspaceError.message }, { status: 500 })
+      }
+    }
+
+    // Update business category
+    if (business_category !== undefined) {
+      // Get workspace first
+      const { data: workspace } = await supabase
+        .from('workspaces')
+        .select('id')
+        .eq('owner_id', user.id)
+        .single()
+      
+      if (workspace) {
+        const { error: settingsError } = await supabase
+          .from('workspace_settings')
+          .upsert({
+            workspace_id: workspace.id,
+            business_category,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'workspace_id' })
+        
+        if (settingsError) {
+          console.error('Error updating business category:', settingsError)
+          return NextResponse.json({ error: settingsError.message }, { status: 500 })
+        }
       }
     }
 

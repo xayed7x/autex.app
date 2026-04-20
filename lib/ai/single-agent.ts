@@ -510,7 +510,50 @@ FLAVOR CONFUSION FIX:
   6. After custom message → collect name/phone/address/date
   Never ask flavor again after category is known.
 ` : ''}
+- NO GENDER ASSUMPTION: Use 'Sir' as default if gender is unknown.
+- NOTE — "size?" is a QUESTION not an answer. 
+  Ask again: "কোন size লাগবে Sir?"
+
+## FIELD PRESENCE RULES (product data handling)
+- If a product field (fabric, fitType, occasion) is null — 
+  do not mention it at all.
+- If customer directly asks about a null field — say: 
+  "এই info এখনো নেই Sir।"
+- Never invent product attributes that are not in the tool result.
+
+## POST-ORDER RULES
+- If awaitingPaymentDigits is true — ONLY collect 2 digits. 
+  Do not restart order flow, do not ask for name/phone again.
+- After collect_payment_digits succeeds — STOP. Return immediately.
+- Empty cart after order save is NORMAL. 
+  It does not mean the order failed.
+
+## NEGATIVE RESPONSE RULES  
+- If customer says 'na', 'nah', 'thak', 'nebo na', 'লাগবে না' — 
+  stop the current flow immediately. Do not push.
+- If customer says 'ok', 'ঠিক আছে', 'আচ্ছা' after a complaint 
+  or delivery question — reply ONLY: 
+  "জি Sir, আর কিছু লাগলে জানাবেন 😊"
 `.trim();
+
+  // --- BUSINESS CONTEXT (Owner-provided info) ---
+  const businessContextBlock = settings.businessContext?.trim()
+    ? `
+[BUSINESS CONTEXT - GROUND TRUTH]
+The following information is provided directly by the business owner. Treat it as absolute truth for this business:
+${settings.businessContext}
+`.trim()
+    : null;
+
+  // --- DELIVERY ZONES (Food only) ---
+  const deliveryZones = (settings as any).delivery_zones;
+  const deliveryZonesBlock = settings.businessCategory === 'food' && Array.isArray(deliveryZones) && deliveryZones.length > 0
+    ? `
+[DELIVERY ZONES]
+Available delivery zones. Ask the customer to pick one:
+${deliveryZones.map((z: any) => `- ${z.label}: ৳${z.charge}`).join('\n')}
+`.trim()
+    : null;
 
   // --- BLOCK 2: THINKING PROTOCOL ---
   const block2Thinking = `
@@ -581,8 +624,14 @@ STATE: COLLECTING_POUNDS
   (৳[pricePerPound] per pound)"
 - Wait for number. Do not proceed without valid pound number.
 
+STATE: COLLECTING_DESCRIPTION
+- Context has: selectedPounds
+- Your job: Ask for a detailed description of their vision
+- Message: "Sir, আপনি cake টি কেমন চাচ্ছেন তা কি একটু বিস্তারিত বলবেন? মাটির মানুষ নাকি অন্য কোনো design? (আপনি চাইলে কোনো ছবিও পাঠাতে পারেন 😊)"
+- Save this as order_description in upcoming save_order call.
+
 STATE: COLLECTING_CUSTOM_MESSAGE  
-- Context has: selectedPounds, calculatedPrice
+- Context has: selectedPounds, calculatedPrice, orderDescription
 - Your job: Ask for custom message
 - Message: "৳[calculatedPrice] হবে Sir 😊
   কেকের উপর কী লেখা দেবো?
@@ -590,6 +639,11 @@ STATE: COLLECTING_CUSTOM_MESSAGE
   না চাইলে 'না' লিখুন।"
 - Accept any text as custom message, no length limit
 - 'না'/'no'/'nah'/'na' = no custom message
+
+STATE: COLLECTING_ZONE
+- Your job: Ask for delivery zone from the [DELIVERY ZONES] list
+- Message: "Sir, আপনার delivery area কোনটি? নিচের অপশন গুলো থেকে একটি জানান:
+  ${Array.isArray(deliveryZones) ? deliveryZones.map((z: any) => `- ${z.label}`).join('\n  ') : 'জেলা সদর / উপজেলা / ঢাকার বাইরে'}"
 
 STATE: COLLECTING_INFO
 - Context has: customMessage (or null)
@@ -625,7 +679,7 @@ STATE: ORDER_CONFIRMED
   product_id, product_name, pounds_ordered,
   price_per_pound, total_price, custom_message,
   delivery_date, customer_name, customer_phone,
-  customer_address, flavor
+  customer_address, flavor, order_description, delivery_zone
 - After save: 
   "আলহামদুলিল্লাহ! অর্ডার confirm হয়েছে Sir 🎉
   আমরা [delivery_date] তারিখে deliver করবো।
@@ -849,8 +903,10 @@ Extra Media:
     });
   }
 
-  const sections: string[] = [
+  const sections: (string | null)[] = [
     block1Identity,
+    businessContextBlock,
+    deliveryZonesBlock,
     block2Thinking,
     block3Rules,
     block4Tools,
@@ -860,7 +916,7 @@ Extra Media:
     block7Dynamic
   ];
 
-  return sections.join('\n\n─────────────────────────────────\n\n');
+  return sections.filter(Boolean).join('\n\n─────────────────────────────────\n\n');
 }
 
 // ============================================

@@ -112,6 +112,18 @@ const addToCart: ChatCompletionTool = {
           type: 'number',
           description: 'If a price was negotiated and customer agreed, pass the final agreed price here. This overrides the listed price.',
         },
+        order_description: {
+          type: 'string',
+          description: "Detailed description of what the customer wants, in their own words. Example: '3 pound chocolate cake with red roses on top'.",
+        },
+        delivery_zone: {
+          type: 'string',
+          description: "The selected delivery zone label (e.g., জেলা সদর, উপজেলা, ঢাকার বাইরে).",
+        },
+        inspiration_image: {
+          type: 'string',
+          description: "URL of the image the customer sent as inspiration/reference. Optional: If omitted, the system will automatically link the most recent customer-provided image.",
+        },
       },
       required: ['productId'],
     },
@@ -229,6 +241,18 @@ const saveOrder: ChatCompletionTool = {
         note: {
           type: 'string',
           description: 'Optional delivery note.',
+        },
+        order_description: {
+          type: 'string',
+          description: "Detailed description of what the customer wants, in their own words. Example: '3 pound chocolate cake with red roses on top'.",
+        },
+        delivery_zone: {
+          type: 'string',
+          description: "The selected delivery zone label (e.g., জেলা সদর, উপজেলা, ঢাকার বাইরে).",
+        },
+        inspiration_image: {
+          type: 'string',
+          description: "URL of the image the customer sent as inspiration/reference. Optional: If omitted, the system will automatically link the most recent customer-provided image.",
         },
       },
       required: ['customerName', 'customerPhone', 'customerAddress'],

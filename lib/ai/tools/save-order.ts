@@ -71,6 +71,9 @@ export async function saveOrder(
     weight?: string;
     custom_message?: string;
     pounds_ordered?: number;
+    delivery_zone?: string;
+    order_description?: string;
+    inspiration_image?: string;
   }
 ): Promise<SaveOrderOutput> {
   const cart = context.cart || [];
@@ -184,6 +187,27 @@ export async function saveOrder(
     console.log('[save_order] Calculated:', { subtotal, deliveryCharge, totalAmount, orderNumber });
     console.log('[save_order] === END DIAGNOSTIC ===');
 
+    // === FOOD BUSINESS: INSPIRATION IMAGE LOOKUP ===
+    let detectedInspirationImage = overrides?.inspiration_image || null;
+    
+    if (settings.businessCategory === 'food' && !detectedInspirationImage) {
+      // Look back through current conversation messages to find the most recent image sent by customer
+      const { data: lastImageMsg } = await supabase
+        .from('messages')
+        .select('image_url')
+        .eq('conversation_id', conversationId)
+        .eq('sender_type', 'customer')
+        .not('image_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (lastImageMsg?.image_url) {
+        detectedInspirationImage = lastImageMsg.image_url;
+        console.log(`📸 [FOOD ORDER] Auto-linked last customer image as inspiration: ${detectedInspirationImage}`);
+      }
+    }
+
     const orderData = {
       workspace_id: workspaceId,
       fb_page_id: fbPageId, // bigint in DB — pass as number, not string
@@ -208,6 +232,9 @@ export async function saveOrder(
       weight: cart.length === 1 ? (firstItemAny.selectedWeight || null) : null,
       custom_message: cart.length === 1 ? (firstItemAny.selectedCustomMessage || overrides?.custom_message || null) : null,
       pounds_ordered: cart.length === 1 ? (firstItemAny.selectedPounds || overrides?.pounds_ordered || null) : null,
+      delivery_zone: overrides?.delivery_zone || null,
+      order_description: overrides?.order_description || null,
+      inspiration_image: detectedInspirationImage,
     };
 
     const { data: orderResult, error: orderError } = await supabase

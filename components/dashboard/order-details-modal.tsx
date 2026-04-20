@@ -56,10 +56,10 @@ interface Order {
   delivery_date?: string
   flavor?: string
   weight?: string
-  custom_message?: string
   pounds_ordered?: number
-  custom_message?: string
-  pounds_ordered?: number
+  delivery_zone?: string
+  order_description?: string
+  inspiration_image?: string
   // Legacy fields for backward compatibility
   customer?: {
     name: string
@@ -274,7 +274,7 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                     )}
 
                     {/* Food Business Specific Fields: Cake Order Details Aesthetic */}
-                    {(order.delivery_date || order.flavor || order.weight || order.custom_message || order.pounds_ordered) && (
+                    {(order.delivery_date || order.flavor || order.weight || order.custom_message || order.pounds_ordered || order.delivery_zone || order.order_description || order.inspiration_image) && (
                         <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
                             <div className="flex items-center gap-2">
                                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">🎂 Cake Order Details</span>
@@ -294,16 +294,13 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                                         </div>
                                     )}
 
-                                    {/* Only show calculation if price_per_pound somehow exists (reserved for future) */}
-                                    {order.pounds_ordered && (order as any).price_per_pound && (
-                                        <div className="px-4 py-2.5 flex justify-between items-center text-xs">
-                                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Calculation</span>
-                                            <span className="text-muted-foreground font-mono">
-                                                ৳{(order as any).price_per_pound} × {order.pounds_ordered} = ৳{Math.round(((order as any).price_per_pound * order.pounds_ordered) / 10) * 10}
-                                            </span>
+                                    {order.delivery_zone && (
+                                        <div className="px-4 py-2.5 flex justify-between items-center">
+                                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Delivery Zone</span>
+                                            <span className="text-sm font-medium">{order.delivery_zone}</span>
                                         </div>
                                     )}
-
+                                    
                                     {order.delivery_date && (
                                         <div className="px-4 py-2.5 flex justify-between items-center bg-primary/5">
                                             <span className="text-[10px] text-primary/70 font-bold uppercase tracking-wider">Delivery Date</span>
@@ -313,9 +310,30 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                                 </div>
                             </div>
 
+                            {order.order_description && (
+                                <div className="space-y-1.5">
+                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">📝 কাস্টমার বিবরণ</p>
+                                    <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-sm leading-relaxed">
+                                        {order.order_description}
+                                    </div>
+                                </div>
+                            )}
+
+                            {order.inspiration_image && (
+                                <div className="space-y-1.5">
+                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">🖼️ Inspiration Image</p>
+                                    <div
+                                        className="rounded-xl border border-white/10 overflow-hidden bg-black/40 aspect-video flex items-center justify-center group cursor-pointer transition-all hover:border-white/20"
+                                        onClick={() => window.open(order.inspiration_image, '_blank')}
+                                    >
+                                        <img src={order.inspiration_image} alt="Inspiration" className="max-h-full max-w-full object-contain" />
+                                    </div>
+                                </div>
+                            )}
+
                             {order.custom_message && (
                                 <div className="space-y-1.5">
-                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">✍️ Custom Message on Cake</p>
+                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">✍️ কেকের লেখা (Custom Message)</p>
                                     <div className="p-4 rounded-xl bg-gradient-to-br from-white/[0.08] to-transparent border border-white/10 text-sm font-medium italic text-zinc-200 leading-relaxed">
                                         {order.custom_message}
                                     </div>

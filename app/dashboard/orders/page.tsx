@@ -62,6 +62,9 @@ interface Order {
   weight?: string
   custom_message?: string
   pounds_ordered?: number
+  delivery_zone?: string
+  order_description?: string
+  inspiration_image?: string
   order_items?: OrderItem[]
   products?: { name: string; image_urls?: string[] }
 }

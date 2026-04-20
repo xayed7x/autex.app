@@ -10,10 +10,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  experimental: {
-    outputFileTracingRoot: process.cwd(),
-  },
+  outputFileTracingRoot: process.cwd(),
 }
+
 
 export default withSentryConfig(nextConfig, {
   // For all available options, see:

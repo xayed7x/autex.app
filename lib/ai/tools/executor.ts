@@ -620,6 +620,9 @@ async function executeSaveOrder(
   const weight = args.weight ? String(args.weight) : undefined;
   const custom_message = args.custom_message ? String(args.custom_message) : undefined;
   const pounds_ordered = args.pounds_ordered ? Number(args.pounds_ordered) : undefined;
+  const delivery_zone = args.delivery_zone ? String(args.delivery_zone) : undefined;
+  const order_description = args.order_description ? String(args.order_description) : undefined;
+  const inspiration_image = args.inspiration_image ? String(args.inspiration_image) : undefined;
 
   const result = await saveOrder(
     ctx.workspaceId,
@@ -627,7 +630,19 @@ async function executeSaveOrder(
     ctx.fbPageId,
     ctx.conversationContext,
     ctx.settings,
-    { customerName, customerPhone, customerAddress, deliveryDate, flavor, weight, custom_message, pounds_ordered }
+    { 
+      customerName, 
+      customerPhone, 
+      customerAddress, 
+      deliveryDate, 
+      flavor, 
+      weight, 
+      custom_message, 
+      pounds_ordered,
+      delivery_zone,
+      order_description,
+      inspiration_image
+    }
   );
 
   // If order was successful, reset negotiation state and product tracking

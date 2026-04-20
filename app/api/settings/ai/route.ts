@@ -97,6 +97,8 @@ export async function POST(request: Request) {
       exchange_policy: body.exchangePolicy,
       custom_faqs: body.customFaqs,
       conversation_examples: body.conversationExamples || [],
+      business_context: body.businessContext,
+      delivery_zones: body.deliveryZones,
       updated_at: new Date().toISOString()
     }
 

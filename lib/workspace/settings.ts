@@ -74,6 +74,8 @@ export interface WorkspaceSettings {
   businessAddress: string;
   customFaqs: Array<{ question: string; answer: string }>;
   conversationExamples: ConversationExample[];
+  businessContext: string;
+  deliveryZones: Array<{ label: string; amount: number }>;
 }
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -135,6 +137,11 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
   businessAddress: '',
   customFaqs: [],
   conversationExamples: [],
+  businessContext: '',
+  deliveryZones: [
+    { label: "জেলা সদর", amount: 150 },
+    { label: "উপজেলা", amount: 200 }
+  ],
 };
 
 /**
@@ -224,6 +231,8 @@ export async function loadWorkspaceSettings(
       businessAddress: (settings as any).business_address || DEFAULT_SETTINGS.businessAddress,
       customFaqs: (settings as any).custom_faqs || DEFAULT_SETTINGS.customFaqs,
       conversationExamples: (settings as any).conversation_examples || DEFAULT_SETTINGS.conversationExamples,
+      businessContext: (settings as any).business_context || DEFAULT_SETTINGS.businessContext,
+      deliveryZones: (settings as any).delivery_zones || DEFAULT_SETTINGS.deliveryZones,
     };
   } catch (error) {
     console.error('Error loading workspace settings:', error);

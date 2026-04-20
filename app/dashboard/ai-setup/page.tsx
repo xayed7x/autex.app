@@ -35,6 +35,8 @@ import {
   X,
   CheckCircle,
   XCircle,
+  HelpCircle,
+  Trash2,
 } from "lucide-react"
 import { TestChatWidget } from "@/components/chat/test-chat-widget"
 import {
@@ -139,6 +141,11 @@ export default function AISetupPage() {
   const [qualityGuarantee, setQualityGuarantee] = useState('')
   const [businessCategory, setBusinessCategory] = useState('')
   const [businessAddress, setBusinessAddress] = useState('')
+  const [businessContext, setBusinessContext] = useState('')
+  const [deliveryZones, setDeliveryZones] = useState<Array<{ label: string; amount: number }>>([
+    { label: "জেলা সদর", amount: 150 },
+    { label: "উপজেলা", amount: 200 }
+  ])
   const [customFaqs, setCustomFaqs] = useState<Array<{ question: string; answer: string }>>([])
 
   const toneExamples = {
@@ -204,6 +211,10 @@ export default function AISetupPage() {
           setQualityGuarantee(s.quality_guarantee || '')
           setBusinessCategory(s.business_category || '')
           setBusinessAddress(s.business_address || '')
+          setBusinessContext(s.business_context || '')
+          if (s.delivery_zones && Array.isArray(s.delivery_zones)) {
+            setDeliveryZones(s.delivery_zones)
+          }
           setCustomFaqs(s.custom_faqs || [])
           
           if (s.conversation_examples) {
@@ -262,6 +273,8 @@ export default function AISetupPage() {
         qualityGuarantee,
         businessCategory,
         businessAddress,
+        businessContext,
+        deliveryZones,
         customFaqs,
         conversationExamples,
       }
@@ -343,6 +356,11 @@ export default function AISetupPage() {
     setQualityGuarantee('')
     setBusinessCategory('')
     setBusinessAddress('')
+    setBusinessContext('')
+    setDeliveryZones([
+      { label: "জেলা সদর", amount: 150 },
+      { label: "উপজেলা", amount: 200 }
+    ])
     setCustomFaqs([])
     
     toast.success("Settings reset to default")
@@ -437,6 +455,33 @@ export default function AISetupPage() {
                   <p className="text-xs text-zinc-400">This name appears in the bot's introduction.</p>
                 </div>
 
+                {/* Business Context (The most important field) */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="business-context" className="text-sm font-bold text-zinc-900 dark:text-white">
+                      আপনার ব্যবসা সম্পর্কে বলুন (Business Context)
+                    </Label>
+                    <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20">
+                      Most Important
+                    </Badge>
+                  </div>
+                  <Textarea 
+                    id="business-context"
+                    placeholder={`উদাহরণ:
+আমরা custom cake বানাই। আমাদের specialty হলো wedding cake এবং birthday cake। minimum order 1 pound। আমরা সাধারণত 3 দিন আগে order নিই। আমাদের delivery area হলো Khulna জেলা।
+গ্রাহকদের সাথে আমরা খুব বন্ধুত্বপূর্ণ আচরণ করি।`}
+                    value={businessContext}
+                    onChange={(e) => setBusinessContext(e.target.value)}
+                    className="min-h-[160px] bg-zinc-50 border-zinc-200 focus:ring-black dark:bg-white/5 dark:border-white/10 dark:focus:ring-white text-base"
+                  />
+                  <p className="text-xs text-zinc-500 flex items-center gap-1.5">
+                    <Sparkles className="h-3 w-3 text-orange-500" />
+                    এই তথ্য AI সরাসরি পড়বে এবং গ্রাহকদের সাথে কথা বলার সময় ব্যবহার করবে।
+                  </p>
+                </div>
+
+                <Separator className="bg-zinc-100 dark:bg-white/10 my-4" />
+
                 {/* Greeting */}
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Greeting Message</Label>
@@ -479,7 +524,10 @@ export default function AISetupPage() {
                   <div className="space-y-6">
                     <div className="space-y-4">
                       <div className="flex justify-between">
-                         <Label className="font-semibold">Language Mix</Label>
+                         <div className="flex items-center gap-2">
+                           <Label className="font-semibold">Language Mix</Label>
+                           <span className="text-[10px] text-zinc-400 uppercase font-bold">Optional</span>
+                         </div>
                          <span className="text-xs font-mono bg-zinc-100 dark:bg-white/10 px-2 py-0.5 rounded">
                            {bengaliPercent[0]}% Bengali
                          </span>
@@ -1037,32 +1085,87 @@ export default function AISetupPage() {
               {/* Delivery Config */}
               <div className="space-y-5">
                 <h4 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Delivery Fees</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Inside Dhaka</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5 text-zinc-400">৳</span>
-                      <Input 
-                        type="number" 
-                        value={deliveryInsideDhaka} 
-                        onChange={(e) => setDeliveryInsideDhaka(Number(e.target.value))}
-                        className="pl-8 bg-zinc-50 dark:bg-white/5 border-zinc-200 dark:border-white/10" 
-                      />
+                
+                {businessCategory === 'food' ? (
+                  /* Dynamic Delivery Zones for Food */
+                  <div className="space-y-4">
+                    {deliveryZones.map((zone, idx) => (
+                      <div key={idx} className="flex gap-2 items-end group">
+                        <div className="flex-1 space-y-1.5">
+                          {idx === 0 && <Label className="text-[10px] uppercase text-zinc-400">Zone Name</Label>}
+                          <Input 
+                            value={zone.label}
+                            onChange={(e) => {
+                              const newZones = [...deliveryZones];
+                              newZones[idx].label = e.target.value;
+                              setDeliveryZones(newZones);
+                            }}
+                            placeholder="e.g. জেলা সদর"
+                            className="bg-zinc-50 dark:bg-white/5 h-9"
+                          />
+                        </div>
+                        <div className="w-24 space-y-1.5">
+                          {idx === 0 && <Label className="text-[10px] uppercase text-zinc-400">Charge (৳)</Label>}
+                          <Input 
+                            type="number"
+                            value={zone.amount}
+                            onChange={(e) => {
+                              const newZones = [...deliveryZones];
+                              newZones[idx].amount = Number(e.target.value);
+                              setDeliveryZones(newZones);
+                            }}
+                            className="bg-zinc-50 dark:bg-white/5 h-9"
+                          />
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          disabled={deliveryZones.length <= 1}
+                          onClick={() => setDeliveryZones(deliveryZones.filter((_, i) => i !== idx))}
+                          className="h-9 w-9 text-zinc-400 hover:text-red-500"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full border-dashed flex gap-2 h-9"
+                      onClick={() => setDeliveryZones([...deliveryZones, { label: "", amount: 0 }])}
+                    >
+                      <Plus className="h-3 w-3" /> Add Delivery Zone
+                    </Button>
+                  </div>
+                ) : (
+                  /* Standard Delivery for Clothing/Other */
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs">Inside Dhaka</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2.5 text-zinc-400">৳</span>
+                        <Input 
+                          type="number" 
+                          value={deliveryInsideDhaka} 
+                          onChange={(e) => setDeliveryInsideDhaka(Number(e.target.value))}
+                          className="pl-8 bg-zinc-50 dark:bg-white/5 border-zinc-200 dark:border-white/10" 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Outside Dhaka</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2.5 text-zinc-400">৳</span>
+                        <Input 
+                          type="number" 
+                          value={deliveryOutsideDhaka} 
+                          onChange={(e) => setDeliveryOutsideDhaka(Number(e.target.value))}
+                          className="pl-8 bg-zinc-50 dark:bg-white/5 border-zinc-200 dark:border-white/10" 
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Outside Dhaka</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5 text-zinc-400">৳</span>
-                      <Input 
-                        type="number" 
-                        value={deliveryOutsideDhaka} 
-                        onChange={(e) => setDeliveryOutsideDhaka(Number(e.target.value))}
-                        className="pl-8 bg-zinc-50 dark:bg-white/5 border-zinc-200 dark:border-white/10" 
-                      />
-                    </div>
-                  </div>
-                </div>
+                )}
                 <div className="space-y-2">
                     <Label className="text-xs">Estimated Time</Label>
                     <Input 

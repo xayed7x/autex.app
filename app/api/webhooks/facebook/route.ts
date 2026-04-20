@@ -183,36 +183,39 @@ export async function processMessagingEvent(
     // DETECT MESSAGE SOURCE (Owner vs Customer)
     // ========================================
     
-    // In Facebook webhooks:
-    // - Customer to Page: sender.id = customer PSID, recipient.id = page ID
-    // - Page to Customer: sender.id = page ID, recipient.id = customer PSID
-    // 
-    // When owner replies from Messenger app (not via API), Facebook sends us a webhook
-    // where sender.id === page_id (the owner's message appears as coming from the page)
+    // In Facebook webhooks, entry.id is ALWAYS the Page ID.
+    // This is the most robust way to find the workspace.
+    console.log(`🔍 [WEBHOOK_DEBUG] Entry ID: ${entryId}, Sender: ${senderId}, Recipient: ${recipientId}`);
     
-    console.log(`🔍 [SOURCE DETECTION] sender.id: ${senderId}, recipient.id: ${recipientId}`);
-    
-    // Fetch the page to check if sender is the page itself (owner message)
-    const { data: fbPageCheck } = await supabase
+    // Fetch the page using entries.id (Page ID)
+    const { data: fbPageCheck, error: lookupError } = await supabase
       .from('facebook_pages')
-      .select('id, workspace_id, bot_enabled')
-      .or(`id.eq.${senderId},id.eq.${recipientId}`)
+      .select('id, workspace_id, bot_enabled, encrypted_access_token')
+      .eq('id', entryId)
       .limit(1)
       .single();
     
-    if (!fbPageCheck) {
-      console.error(`❌ [SOURCE DETECTION] No Facebook page found for sender: ${senderId} or recipient: ${recipientId}`);
-      return;
+    if (lookupError || !fbPageCheck) {
+      console.error(`❌ [SOURCE DETECTION] No Facebook page record found for ID: ${entryId}. Re-sync might be needed.`);
+      // Fallback matching logic
+      const { data: fallbackPage } = await supabase
+        .from('facebook_pages')
+        .select('id, workspace_id, bot_enabled')
+        .or(`id.eq.${senderId},id.eq.${recipientId}`)
+        .limit(1)
+        .single();
+        
+      if (!fallbackPage) return;
+      fbPageCheck = fallbackPage;
     }
-    
+
     const actualPageId = String(fbPageCheck.id);
     const isOwnerMessage = senderId === actualPageId;
     const customerPsid = isOwnerMessage ? recipientId : senderId;
     const pageId = actualPageId;
     
-    console.log(`🔍 [SOURCE DETECTION] Page ID: ${actualPageId}`);
-    console.log(`🔍 [SOURCE DETECTION] Is Owner Message: ${isOwnerMessage}`);
-    console.log(`🔍 [SOURCE DETECTION] Customer PSID: ${customerPsid}`);
+    console.log(`🔍 [SOURCE DETECTION] Workspace: ${fbPageCheck.workspace_id}, Is Owner: ${isOwnerMessage}, Customer: ${customerPsid}`);
+
 
     const referral = event.referral || event.postback?.referral;
     

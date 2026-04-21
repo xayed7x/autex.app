@@ -53,7 +53,7 @@ const productAttributesSchema = z.object({
  */
 export const createProductSchema = z.object({
   name: z.string().min(1, 'Product name is required').max(255),
-  price: z.number().positive('Price must be positive').optional(),
+  price: z.number().min(0, 'Price cannot be negative').optional(),
   description: z.string().optional(),
   category: z.string().optional(),
   stock_quantity: z.number().int().min(0, 'Stock quantity cannot be negative').optional(),
@@ -68,11 +68,11 @@ export const createProductSchema = z.object({
   media_videos: z.array(z.string()).optional(),
   flavors: z.array(z.string()).optional(),
   weights: z.array(z.string()).optional(),
-  price_per_pound: z.number().positive().optional().nullable(),
+  price_per_pound: z.number().min(0).optional().nullable(),
   flavor: z.string().optional().nullable(),
   allows_custom_message: z.boolean().default(true),
-  min_pounds: z.number().positive().default(0.5),
-  max_pounds: z.number().positive().default(5.0),
+  min_pounds: z.number().min(0).default(0.5),
+  max_pounds: z.number().min(0).default(5.0),
 });
 
 /**

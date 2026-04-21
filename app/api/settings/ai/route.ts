@@ -87,7 +87,6 @@ export async function POST(request: Request) {
       fast_lane_messages: body.fastLaneMessages,
       order_collection_style: body.order_collection_style,
       quick_form_prompt: body.quick_form_prompt,
-      quick_form_error: body.quick_form_error,
       out_of_stock_message: body.out_of_stock_message,
       // Business Policies
       return_policy: body.returnPolicy,

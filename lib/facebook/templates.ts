@@ -37,58 +37,64 @@ interface GenericTemplateMessage {
 
 /**
  * Creates a Facebook Generic Template product card message.
- * This displays a product with image, details, and action buttons in Messenger.
- * 
- * @param product - The product to display
- * @param pageId - The Facebook Page ID (for context, not used in template)
- * @param psid - The recipient's Page-Scoped ID (for context, not used in template)
- * @returns Facebook Generic Template message object
  */
 export function createProductCard(
-  product: Product,
+  product: any,
   pageId: string,
-  psid: string
+  psid: string,
+  businessCategory?: string
 ): GenericTemplateMessage {
-  // Determine stock status
-  const stockStatus = (product.stock_quantity ?? 0) > 0 ? 'Available' : 'Out of Stock';
-  
-  // Format price with Bangladeshi Taka symbol
+  const isFood = businessCategory === 'food';
   const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
   
-  // Create subtitle with price and stock info
-  const subtitle = `Price: ${formattedPrice} | Stock: ${stockStatus}`;
-  
-  // Get the first image URL or use a placeholder
-  const imageUrl = product.image_urls && product.image_urls.length > 0
-    ? product.image_urls[0]
-    : undefined;
-  
-  // Create the Generic Template element
-  const element: GenericTemplateElement = {
-    title: product.name,
-    subtitle: subtitle,
-    image_url: imageUrl,
-    buttons: [
+  let subtitle = '';
+  let buttons = [];
+
+  if (isFood) {
+    const pricePerPound = product.price_per_pound || product.price;
+    subtitle = `৳${pricePerPound.toLocaleString()} per pound`;
+    
+    buttons = [
       {
-        type: 'postback',
+        type: 'postback' as const,
+        title: 'এই design চাই 🎂',
+        payload: `ORDER_NOW_${product.id}`,
+      },
+    ];
+  } else {
+    const stockStatus = (product.stock_quantity ?? 0) > 0 ? 'Available' : 'Out of Stock';
+    subtitle = `Price: ${formattedPrice} | Stock: ${stockStatus}`;
+    
+    buttons = [
+      {
+        type: 'postback' as const,
         title: '🛒 Order Now',
         payload: `ORDER_NOW_${product.id}`,
       },
       {
-        type: 'postback',
+        type: 'postback' as const,
         title: 'ℹ️ View Details',
         payload: `VIEW_DETAILS_${product.id}`,
       },
-    ],
-  };
+    ];
+  }
   
-  // Return the complete Generic Template message
+  const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
+  
   return {
     attachment: {
       type: 'template',
       payload: {
         template_type: 'generic',
-        elements: [element],
+        image_aspect_ratio: isFood ? 'square' : 'horizontal',
+        elements: [
+          {
+            title: `${product.name}${!isFood ? ` — ${formattedPrice}` : ''}`,
+            subtitle: subtitle,
+            image_url: imageUrl,
+            buttons: buttons,
+          },
+        ],
       },
     },
   };
@@ -96,46 +102,60 @@ export function createProductCard(
 
 /**
  * Creates a carousel of multiple product cards.
- * Displays up to 10 products in a horizontal scrollable carousel.
- * 
- * @param products - Array of products to display (max 10)
- * @param pageId - The Facebook Page ID
- * @param psid - The recipient's Page-Scoped ID
- * @returns Facebook Generic Template message with multiple elements
  */
 export function createProductCarousel(
-  products: Product[],
+  products: any[],
   pageId: string,
-  psid: string
+  psid: string,
+  businessCategory?: string
 ): GenericTemplateMessage {
-  // Facebook limits Generic Template to 10 elements
+  const isFood = businessCategory === 'food';
   const limitedProducts = products.slice(0, 10);
   
-  // Create an element for each product
   const elements: GenericTemplateElement[] = limitedProducts.map((product) => {
-    const stockStatus = (product.stock_quantity ?? 0) > 0 ? 'Available' : 'Out of Stock';
     const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
-    const subtitle = `Price: ${formattedPrice} | Stock: ${stockStatus}`;
-    const imageUrl = product.image_urls && product.image_urls.length > 0
-      ? product.image_urls[0]
-      : undefined;
-    
-    return {
-      title: product.name,
-      subtitle: subtitle,
-      image_url: imageUrl,
-      buttons: [
+    let subtitle = '';
+    let buttons = [];
+
+    if (isFood) {
+      const flavor = product.flavor || 'Cake';
+      const pricePerPound = product.price_per_pound || product.price;
+      const minP = product.min_pounds || 0.5;
+      const maxP = product.max_pounds || 5.0;
+      subtitle = `🎂 ${flavor} | ৳${pricePerPound.toLocaleString()}/lb | ${minP}-${maxP} lb`;
+      
+      buttons = [
         {
-          type: 'postback',
+          type: 'postback' as const,
+          title: 'এই design চাই 🎂',
+          payload: `ORDER_NOW_${product.id}`,
+        },
+      ];
+    } else {
+      const stockStatus = (product.stock_quantity ?? 0) > 0 ? 'Available' : 'Out of Stock';
+      subtitle = `Price: ${formattedPrice} | Stock: ${stockStatus}`;
+      
+      buttons = [
+        {
+          type: 'postback' as const,
           title: '🛒 Order Now',
           payload: `ORDER_NOW_${product.id}`,
         },
         {
-          type: 'postback',
+          type: 'postback' as const,
           title: 'ℹ️ View Details',
           payload: `VIEW_DETAILS_${product.id}`,
         },
-      ],
+      ];
+    }
+
+    const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
+    
+    return {
+      title: `${product.name}${!isFood ? ` — ${formattedPrice}` : ''}`,
+      subtitle: subtitle,
+      image_url: imageUrl,
+      buttons: buttons,
     };
   });
   
@@ -144,6 +164,7 @@ export function createProductCarousel(
       type: 'template',
       payload: {
         template_type: 'generic',
+        image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: elements,
       },
     },
@@ -152,63 +173,54 @@ export function createProductCarousel(
 
 /**
  * Creates a detailed product view with full description.
- * Used when user clicks "View Details" button.
- * 
- * @param product - The product to display
- * @param pageId - The Facebook Page ID
- * @param psid - The recipient's Page-Scoped ID
- * @returns Facebook Generic Template message with detailed info
  */
 export function createProductDetailsCard(
-  product: Product,
+  product: any,
   pageId: string,
-  psid: string
+  psid: string,
+  businessCategory?: string
 ): GenericTemplateMessage {
-  const stockStatus = (product.stock_quantity ?? 0) > 0 
-    ? `✅ In Stock (${product.stock_quantity} available)` 
-    : '❌ Out of Stock';
-  
+  const isFood = businessCategory === 'food';
   const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
   
-  // Create detailed subtitle with description
-  let subtitle = `Price: ${formattedPrice}\n${stockStatus}`;
+  let subtitle = isFood 
+    ? `Price: ৳${(product.price_per_pound || product.price).toLocaleString()} per pound`
+    : `Price: ${formattedPrice}`;
   
   if (product.description) {
-    // Limit description to 80 characters for subtitle (Facebook limit)
     const truncatedDesc = product.description.length > 80
       ? product.description.substring(0, 77) + '...'
       : product.description;
     subtitle += `\n\n${truncatedDesc}`;
   }
   
-  const imageUrl = product.image_urls && product.image_urls.length > 0
-    ? product.image_urls[0]
-    : undefined;
-  
-  const element: GenericTemplateElement = {
-    title: product.name,
-    subtitle: subtitle,
-    image_url: imageUrl,
-    buttons: [
-      {
-        type: 'postback',
-        title: '🛒 Order Now',
-        payload: `ORDER_NOW_${product.id}`,
-      },
-      {
-        type: 'postback',
-        title: '🔙 Back to Search',
-        payload: 'BACK_TO_SEARCH',
-      },
-    ],
-  };
+  const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
   
   return {
     attachment: {
       type: 'template',
       payload: {
         template_type: 'generic',
-        elements: [element],
+        image_aspect_ratio: isFood ? 'square' : 'horizontal',
+        elements: [
+          {
+            title: product.name,
+            subtitle: subtitle,
+            image_url: imageUrl,
+            buttons: [
+              {
+                type: 'postback' as const,
+                title: isFood ? 'এই design চাই 🎂' : '🛒 Order Now',
+                payload: `ORDER_NOW_${product.id}`,
+              },
+              {
+                type: 'postback' as const,
+                title: '🔙 Back',
+                payload: 'BACK_TO_SEARCH',
+              },
+            ],
+          },
+        ],
       },
     },
   };

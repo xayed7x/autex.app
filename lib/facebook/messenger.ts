@@ -6,6 +6,10 @@ import {
   FacebookError,
   RateLimitInfo,
 } from '@/types/facebook';
+import { 
+  createProductCard, 
+  createProductCarousel 
+} from '@/lib/facebook/templates';
 
 const GRAPH_API_VERSION = 'v24.0';
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -147,36 +151,14 @@ export async function sendMessage(
 export async function sendProductCard(
   pageId: string,
   recipientPsid: string,
-  product: {
-    id: string;
-    name: string;
-    price: number;
-    imageUrl: string;
-    stock: number;
-    category?: string;
-    description?: string;
-    variations?: {
-      colors?: string[];
-      sizes?: string[];
-    };
-    flavor?: string;
-    price_per_pound?: number;
-    min_pounds?: number;
-    max_pounds?: number;
-  },
+  product: any,
   businessCategory?: string
 ): Promise<SendMessageResponse> {
   try {
-    // Fetch access token from database
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
+      { auth: { autoRefreshToken: false, persistSession: false } }
     );
     
     const { data: fbPage, error: pageError } = await supabase
@@ -189,111 +171,31 @@ export async function sendProductCard(
       throw new Error(`Failed to fetch Facebook page: ${pageError?.message || 'Page not found'}`);
     }
 
-    // Decrypt access token
     const accessToken = decryptToken(fbPage.encrypted_access_token);
 
-    // Prepare Generic Template payload
-    
-    let subtitleText = '';
-    let buttons = [];
-
-    if (businessCategory === 'food') {
-      // Food format: "৳[price_per_pound] per pound" only
-      const pricePerPound = product.price_per_pound || product.price;
-      
-      subtitleText = `৳${pricePerPound.toLocaleString()} per pound`;
-      
-      buttons = [
-        {
-          type: 'postback',
-          title: 'Order Now 🛒',
-          payload: `ORDER_NOW_${product.id}`,
-        },
-      ];
-    } else {
-      // Clothing format
-      const sizes = product.variations?.sizes;
-      const colors = product.variations?.colors;
-      if (sizes && sizes.length > 0) {
-        subtitleText += `সাইজ: ${sizes.join(', ')}`;
-      }
-      if (colors && colors.length > 0) {
-        if (subtitleText.length > 0) subtitleText += ' | ';
-        subtitleText += `কালার: ${colors.join(', ')}`;
-      }
-      
-      if (!subtitleText) {
-        subtitleText = 'Available for Order';
-      }
-
-      buttons = [
-        {
-          type: 'postback',
-          title: 'Order now 🛒',
-          payload: `ORDER_NOW_${product.id}`,
-        },
-        {
-          type: 'postback',
-          title: 'Description 📋',
-          payload: `VIEW_DETAILS_${product.id}`,
-        },
-      ];
-    }
+    // Use unified template
+    const message = createProductCard(product, pageId, recipientPsid, businessCategory);
 
     const requestBody = {
-      recipient: {
-        id: recipientPsid,
-      },
-      message: {
-        attachment: {
-          type: 'template',
-          payload: {
-            template_type: 'generic',
-            image_aspect_ratio: businessCategory === 'food' ? 'square' : 'horizontal',
-            elements: [
-              {
-                title: `${product.name} ${businessCategory !== 'food' ? `— ৳${product.price.toLocaleString()}` : ''}`,
-                image_url: product.imageUrl || undefined,
-                subtitle: subtitleText,
-                buttons: buttons,
-              },
-            ],
-          },
-        },
-      },
+      recipient: { id: recipientPsid },
+      message: message
     };
 
-    console.log('Sending product card:', {
-      productName: product.name,
-      productId: product.id,
-      imageUrl: product.imageUrl,
-    });
-
-    // Call Facebook Graph API
     const apiUrl = `${GRAPH_API_BASE_URL}/${pageId}/messages?access_token=${accessToken}`;
     const response = await fetch(apiUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     });
 
-    // Check rate limits
     checkRateLimits(response.headers);
 
-    // Handle errors
     if (!response.ok) {
       const errorData: FacebookError = await response.json();
-      console.error('Facebook API Error sending product card:', errorData);
-      throw new Error(
-        `Failed to send product card: ${errorData.error.message}`
-      );
+      throw new Error(`Failed to send product card: ${errorData.error.message}`);
     }
 
-    const result: SendMessageResponse = await response.json();
-    console.log(`Product card sent successfully to ${recipientPsid}: ${result.message_id}`);
-    return result;
+    return await response.json();
   } catch (error) {
     console.error('Error sending product card:', error);
     throw error;
@@ -313,41 +215,14 @@ export async function sendProductCard(
 export async function sendProductCarousel(
   pageId: string,
   recipientPsid: string,
-  products: Array<{
-    id: string;
-    name: string;
-    price: number;
-    imageUrl?: string;
-    stock?: number;
-    variations?: {
-      colors?: string[];
-      sizes?: string[];
-    };
-    flavor?: string;
-    price_per_pound?: number;
-    min_pounds?: number;
-    max_pounds?: number;
-  }>,
+  products: any[],
   businessCategory?: string
 ): Promise<SendMessageResponse> {
   try {
-    // Facebook limits Generic Template to 10 elements
-    const limitedProducts = products.slice(0, 10);
-    
-    if (limitedProducts.length === 0) {
-      throw new Error('No products provided for carousel');
-    }
-
-    // Fetch access token from database
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
+      { auth: { autoRefreshToken: false, persistSession: false } }
     );
     
     const { data: fbPage, error: pageError } = await supabase
@@ -360,114 +235,31 @@ export async function sendProductCarousel(
       throw new Error(`Failed to fetch Facebook page: ${pageError?.message || 'Page not found'}`);
     }
 
-    // Decrypt access token
     const accessToken = decryptToken(fbPage.encrypted_access_token);
 
-    // Build carousel elements
-    const elements = limitedProducts.map(product => {
-      let subtitleText = '';
-      let buttons = [];
+    // Use unified template
+    const message = createProductCarousel(products, pageId, recipientPsid, businessCategory);
 
-      if (businessCategory === 'food') {
-        const flavor = product.flavor || 'Cake';
-        const pricePerPound = product.price_per_pound || product.price;
-        const minP = product.min_pounds || 0.5;
-        const maxP = product.max_pounds || 5.0;
-        
-        subtitleText = `🎂 ${flavor} | ৳${pricePerPound.toLocaleString()}/pound | ${minP}–${maxP} pound`;
-        
-        buttons = [
-          {
-            type: 'postback',
-            title: 'Order Now 🛒',
-            payload: `ORDER_NOW_${product.id}`,
-          },
-          {
-            type: 'postback',
-            title: 'More Photos 📸',
-            payload: `MORE_PHOTOS_${product.id}`,
-          },
-        ];
-      } else {
-        const sizes = product.variations?.sizes;
-        const colors = product.variations?.colors;
-        if (sizes && sizes.length > 0) {
-          subtitleText += `সাইজ: ${sizes.join(', ')}`;
-        }
-        if (colors && colors.length > 0) {
-          if (subtitleText.length > 0) subtitleText += ' | ';
-          subtitleText += `কালার: ${colors.join(', ')}`;
-        }
-        
-        if (!subtitleText) {
-          subtitleText = 'Available for Order';
-        }
-
-        buttons = [
-          {
-            type: 'postback',
-            title: 'Order now 🛒',
-            payload: `ORDER_NOW_${product.id}`,
-          },
-          {
-            type: 'postback',
-            title: 'Description 📋',
-            payload: `VIEW_DETAILS_${product.id}`,
-          },
-        ];
-      }
-
-      return {
-        title: `${product.name} ${businessCategory !== 'food' ? `— ৳${product.price.toLocaleString()}` : ''}`,
-        image_url: product.imageUrl || undefined,
-        subtitle: subtitleText,
-        buttons: buttons,
-      };
-    });
-
-    // Prepare Generic Template payload
     const requestBody = {
-      recipient: {
-        id: recipientPsid,
-      },
-      message: {
-        attachment: {
-          type: 'template',
-          payload: {
-            template_type: 'generic',
-            elements: elements,
-          },
-        },
-      },
+      recipient: { id: recipientPsid },
+      message: message
     };
 
-    console.log(`Sending product carousel with ${limitedProducts.length} products`);
-
-    // Call Facebook Graph API
     const apiUrl = `${GRAPH_API_BASE_URL}/${pageId}/messages?access_token=${accessToken}`;
     const response = await fetch(apiUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     });
 
-    // Check rate limits
     checkRateLimits(response.headers);
 
-    // Handle errors
     if (!response.ok) {
       const errorData: FacebookError = await response.json();
-      console.error('Facebook API Error sending product carousel:', errorData);
-      throw new Error(
-        `Failed to send product carousel: ${errorData.error.message}`
-      );
+      throw new Error(`Failed to send product carousel: ${errorData.error.message}`);
     }
 
-    const result: SendMessageResponse = await response.json();
-    console.log(`Product carousel sent successfully to ${recipientPsid}: ${result.message_id}`);
-    return result;
+    return await response.json();
   } catch (error) {
     console.error('Error sending product carousel:', error);
     throw error;
@@ -487,19 +279,22 @@ export async function sendProductsVertical(
   recipientPsid: string,
   products: any[],
   businessCategory?: string
-): Promise<void> {
+): Promise<SendMessageResponse[]> {
   // Limit to max 4 products to avoid spamming
   const limitedProducts = products.slice(0, 4);
+  const results: SendMessageResponse[] = [];
   
   for (const product of limitedProducts) {
     try {
-      await sendProductCard(pageId, recipientPsid, product, businessCategory);
+      const result = await sendProductCard(pageId, recipientPsid, product, businessCategory);
+      results.push(result);
       // Wait 300ms between sends for vertical arrival feel
       await new Promise(resolve => setTimeout(resolve, 300));
     } catch (err) {
       console.error(`Failed to send vertical product card for ${product.id}:`, err);
     }
   }
+  return results;
 }
 
 /**
@@ -905,5 +700,67 @@ export async function sendPrivateReplyToInstagramComment(
   } catch (error) {
     console.error('📸💬 Error in sendPrivateReplyToInstagramComment helper:', error);
     throw error;
+  }
+}
+
+/**
+ * Takes control of a conversation thread from other apps (like Meta Business Suite)
+ * @param pageId - The Facebook Page ID
+ * @param psid - The recipient's Page-Scoped ID
+ * @returns Promise that resolves when control is taken
+ */
+export async function takeThreadControl(
+  pageId: string,
+  psid: string
+): Promise<void> {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
+    
+    const { data: fbPage, error: pageError } = await supabase
+      .from('facebook_pages')
+      .select('encrypted_access_token')
+      .eq('id', pageId)
+      .single();
+
+    if (pageError || !fbPage) {
+      throw new Error(`Failed to fetch Facebook page: ${pageError?.message || 'Page not found'}`);
+    }
+
+    const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+    const accessToken = decryptToken(fbPage.encrypted_access_token);
+    const apiUrl = `https://graph.facebook.com/v24.0/${pageId}/take_thread_control?access_token=${accessToken}`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipient: { id: psid },
+        metadata: 'Autex AI taking control to assist customer',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      // Code 10: User already has control. Subcode 2018048: Conversation is already controlled by this app.
+      // We ignore these as they mean we are already in control.
+      if (errorData.error?.code !== 10 && errorData.error?.error_subcode !== 2018048) {
+        console.warn('⚠️ [HANDOVER] Could not take thread control:', errorData.error?.message);
+      }
+    } else {
+      console.log(`✅ [HANDOVER] Successfully took thread control for ${psid}`);
+    }
+  } catch (error) {
+    console.warn('⚠️ [HANDOVER] Error taking thread control:', error);
   }
 }

@@ -54,6 +54,7 @@ interface Order {
   selected_size?: string
   selected_color?: string
   delivery_date?: string
+  delivery_time?: string
   flavor?: string
   weight?: string
   pounds_ordered?: number
@@ -275,67 +276,98 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
 
                     {/* Food Business Specific Fields: Cake Order Details Aesthetic */}
                     {(order.delivery_date || order.flavor || order.weight || order.custom_message || order.pounds_ordered || order.delivery_zone || order.order_description || order.inspiration_image) && (
-                        <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
-                            <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">🎂 Cake Order Details</span>
+                        <div className="mt-6 pt-6 border-t border-white/10 space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/80">Cake Specifications</span>
+                                </div>
+                                {order.delivery_date && (
+                                    <Badge variant="outline" className="text-[10px] font-mono border-primary/20 bg-primary/5 text-primary py-0.5">
+                                        📅 {order.delivery_date} {order.delivery_time ? `| ${order.delivery_time}` : ''}
+                                    </Badge>
+                                )}
                             </div>
                             
-                            <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
-                                <div className="grid grid-cols-1 divide-y divide-white/5">
-                                    <div className="px-4 py-2.5 flex justify-between items-center bg-white/[0.02]">
-                                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Product / Flavor</span>
-                                        <span className="text-sm font-semibold text-primary">{order.flavor || productName}</span>
+                            {/* Primary Info Grid */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
+                                    <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Flavor / Type</p>
+                                    <p className="text-sm font-semibold text-foreground">{order.flavor || productName}</p>
+                                </div>
+                                <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
+                                    <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Size / Weight</p>
+                                    <p className="text-sm font-semibold text-foreground font-mono">{order.pounds_ordered ? `${order.pounds_ordered} Lbs` : (order.weight || 'N/A')}</p>
+                                </div>
+                                <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
+                                    <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Delivery Zone</p>
+                                    <p className="text-sm font-semibold text-foreground">{order.delivery_zone || 'Not Specified'}</p>
+                                </div>
+                                <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
+                                    <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Delivery Date</p>
+                                    <p className="text-sm font-semibold text-primary">{order.delivery_date || 'TBD'}</p>
+                                </div>
+                                {order.delivery_time && (
+                                    <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
+                                        <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Delivery Time</p>
+                                        <p className="text-sm font-semibold text-primary">{order.delivery_time}</p>
                                     </div>
-                                    
-                                    {order.pounds_ordered && (
-                                        <div className="px-4 py-2.5 flex justify-between items-center">
-                                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Weight / Pounds</span>
-                                            <span className="text-sm font-mono font-medium">{order.pounds_ordered} lbs</span>
-                                        </div>
-                                    )}
+                                )}
+                            </div>
 
-                                    {order.delivery_zone && (
-                                        <div className="px-4 py-2.5 flex justify-between items-center">
-                                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Delivery Zone</span>
-                                            <span className="text-sm font-medium">{order.delivery_zone}</span>
+                            {/* Inscription / Message - The Most Important Part */}
+                            <div className="space-y-2">
+                                <p className="text-[10px] text-muted-foreground uppercase tracking-widest ml-1">✍️ Design & Inscription</p>
+                                <div className="relative group">
+                                    <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-primary/0 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-1000"></div>
+                                    <div className="relative p-5 rounded-2xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden">
+                                        {/* Subtle pattern background */}
+                                        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                                            <FileText className="h-16 w-16" />
                                         </div>
-                                    )}
-                                    
-                                    {order.delivery_date && (
-                                        <div className="px-4 py-2.5 flex justify-between items-center bg-primary/5">
-                                            <span className="text-[10px] text-primary/70 font-bold uppercase tracking-wider">Delivery Date</span>
-                                            <span className="text-sm font-bold text-primary font-mono">{order.delivery_date}</span>
+                                        
+                                        <div className="space-y-4">
+                                            {order.order_description && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] text-primary/60 font-bold uppercase tracking-tighter">Design Vision</p>
+                                                    <p className="text-sm leading-relaxed text-zinc-300">{order.order_description}</p>
+                                                </div>
+                                            )}
+                                            
+                                            <div className="space-y-1 pt-2 border-t border-white/5">
+                                                <p className="text-[10px] text-primary font-bold uppercase tracking-tighter">Inscribed Message</p>
+                                                <p className="text-lg font-serif italic text-white tracking-wide">
+                                                    {order.custom_message ? `"${order.custom_message}"` : "None"}
+                                                </p>
+                                            </div>
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
                             </div>
 
-                            {order.order_description && (
-                                <div className="space-y-1.5">
-                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">📝 কাস্টমার বিবরণ</p>
-                                    <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-sm leading-relaxed">
-                                        {order.order_description}
-                                    </div>
-                                </div>
-                            )}
-
+                            {/* Inspiration Image */}
                             {order.inspiration_image && (
-                                <div className="space-y-1.5">
-                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">🖼️ Inspiration Image</p>
-                                    <div
-                                        className="rounded-xl border border-white/10 overflow-hidden bg-black/40 aspect-video flex items-center justify-center group cursor-pointer transition-all hover:border-white/20"
-                                        onClick={() => window.open(order.inspiration_image, '_blank')}
-                                    >
-                                        <img src={order.inspiration_image} alt="Inspiration" className="max-h-full max-w-full object-contain" />
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between ml-1">
+                                        <p className="text-[10px] text-muted-foreground uppercase tracking-widest">🖼️ Reference Image</p>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            className="h-6 text-[10px] text-primary hover:bg-primary/10"
+                                            onClick={() => window.open(order.inspiration_image, '_blank')}
+                                        >
+                                            View Full Size
+                                        </Button>
                                     </div>
-                                </div>
-                            )}
-
-                            {order.custom_message && (
-                                <div className="space-y-1.5">
-                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">✍️ কেকের লেখা (Custom Message)</p>
-                                    <div className="p-4 rounded-xl bg-gradient-to-br from-white/[0.08] to-transparent border border-white/10 text-sm font-medium italic text-zinc-200 leading-relaxed">
-                                        {order.custom_message}
+                                    <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.02] aspect-video group relative">
+                                        <img 
+                                            src={order.inspiration_image} 
+                                            alt="Inspiration" 
+                                            className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-105" 
+                                        />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <ExternalLink className="h-6 w-6 text-white" />
+                                        </div>
                                     </div>
                                 </div>
                             )}

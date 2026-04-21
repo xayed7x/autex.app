@@ -146,7 +146,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       }
 
       // Render the paymentReview template
-      const customerName = currentContext.checkout?.customerName || 'ভাইয়া';
+      const customerName = currentContext.checkout?.customerName || 'Sir';
       const paymentReviewTemplate = settings.fastLaneMessages?.paymentReview
         || 'ধন্যবাদ {name}! 🙏\n\n📱 আপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉';
       
@@ -255,7 +255,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // Load ALL messages for this conversation to feed the memory manager
     const { data: allMessages, error: msgError } = await supabase
       .from('messages')
-      .select('sender, message_text, created_at, mid, image_url')
+      .select('sender, message_text, created_at, mid, image_url, attachments')
       .eq('conversation_id', input.conversationId)
       .order('created_at', { ascending: true }); // Chronological order
 
@@ -273,12 +273,25 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     }) as ChatCompletionMessageParam[];
 
     // ========================================
-    // REPLY CONTEXT
+    // REPLY CONTEXT & AUTOMATIC SELECTION
     // ========================================
     let replyContext: string | undefined;
     if (input.replyToMid && allMessages) {
       const repliedMsg = allMessages.find((m: any) => m.mid === input.replyToMid);
       if (repliedMsg) {
+        // [AUTO-SELECTION] If replied message is a product card, select it automatically
+        const attachments = repliedMsg.attachments as any;
+        if (attachments?.type === 'product_card' && attachments?.productIds?.length > 0) {
+          const productId = attachments.productIds[0];
+          console.log(`🎯 [REPLY-TO-CARD] Automatically selecting product: ${productId}`);
+          
+          if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
+          currentContext.metadata.activeProductId = productId;
+          
+          // Inject system instruction so AI knows the choice is already made
+          input.messageText = `[SYSTEM: USER REPLIED TO PRODUCT CARD FOR: ${productId}]\n${input.messageText || ''}`;
+        }
+
         if (repliedMsg.sender === 'bot') {
           replyContext = `[Customer is replying to bot's message: '${repliedMsg.message_text}']`;
         } else if (repliedMsg.image_url) {
@@ -357,6 +370,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       fbPageId: input.fbPageId.toString(), // Passing as string for tool executor compatibility
       conversationId: input.conversationId,
       messageText: input.messageText || '',
+      isTest: !!convData.is_test,
       replyContext,
       imageRecognitionResult: imageContext,
       conversationHistory: recentMessages,
@@ -509,34 +523,62 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           // Add text prefix for food businesses
           if (settings.businessCategory === 'food') {
             const prefixText = mappedProducts.length === 1
-              ? "এই cake টা আমাদের কাছে আছে 👇 অর্ডার করতে চাইলে 'Order Now 🛒' বাটনে ক্লিক করুন Sir!"
-              : `আমাদের কাছে এই ${mappedProducts.length}টা cake ডিজাইন আছে 👇 যেটা আপনার পছন্দ হয় সেটার 'Order Now 🛒' বাটনে ক্লিক করুন Sir!`;
+              ? `এই design চাই 🎂 বাটনে ক্লিক করে আপনি সরাসরি order করতে পারবেন Sir! 👇`
+              : `নিচের যে design-টি আপনার পছন্দ হয় সেটার 'এই design চাই 🎂' বাটনে ক্লিক করুন Sir! 👇`;
             await sendMessage(input.pageId, input.customerPsid, prefixText);
           }
 
           if (mappedProducts.length === 1) {
-             await sendProductCard(input.pageId, input.customerPsid, mappedProducts[0] as any, settings.businessCategory);
+             const result = await sendProductCard(input.pageId, input.customerPsid, mappedProducts[0] as any, settings.businessCategory);
              productCard = mappedProducts[0];
+             
+             // Log the product card mapping to the database
+             await supabase.from('messages').insert({
+               conversation_id: input.conversationId,
+               sender: 'bot',
+               sender_type: 'bot',
+               message_text: `[Sent Card: ${mappedProducts[0].name}]`,
+               message_type: 'template',
+               mid: result.message_id,
+               attachments: { type: 'product_card', productIds: [mappedProducts[0].id] }
+             });
           } else {
              if (settings.businessCategory === 'food') {
                 // FIX 2: Vertical delivery for cakes
                 const { sendProductsVertical } = await import('@/lib/facebook/messenger');
-                await sendProductsVertical(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+                const results = await sendProductsVertical(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+                
+                // Log each vertical card mapping individually
+                for (let i = 0; i < results.length; i++) {
+                  if (results[i]?.message_id) {
+                    await supabase.from('messages').insert({
+                      conversation_id: input.conversationId,
+                      sender: 'bot',
+                      sender_type: 'bot',
+                      message_text: `[Sent Vertical Card (${i+1}): ${mappedProducts[i].name}]`,
+                      message_type: 'template',
+                      mid: results[i].message_id,
+                      attachments: { type: 'product_card', productIds: [mappedProducts[i].id] }
+                    });
+                  }
+                }
              } else {
                 // Keep horizontal carousel for clothing
-                await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+                const result = await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+                
+                // Log carousel mapping
+                await supabase.from('messages').insert({
+                   conversation_id: input.conversationId,
+                   sender: 'bot',
+                   sender_type: 'bot',
+                   message_text: `[Sent Carousel: ${mappedProducts.length} products]`,
+                   message_type: 'template',
+                   mid: result.message_id,
+                   attachments: { type: 'product_card', productIds: mappedProducts.map(p => p.id) }
+                });
              }
           }
         }
-
-        // Log the product card as a system message
-        await supabase.from('messages').insert({
-          conversation_id: input.conversationId,
-          sender: 'bot',
-          sender_type: 'bot',
-          message_text: `[Sent Generic Template: ${mappedProducts.length} products]`,
-          message_type: 'template',
-        });
 
         // Track which product(s) were shown so subsequent tools can resolve identity
         // without relying on identifiedProducts (which we are about to clear).

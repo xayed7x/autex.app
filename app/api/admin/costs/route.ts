@@ -157,6 +157,8 @@ export async function GET(request: NextRequest) {
     const messengerCostsByConv: Record<string, number> = {};
     let commentCostsTotal = 0;
     let commentCallCount = 0;
+    let voiceCostsTotal = 0;
+    let voiceCallCount = 0;
 
     (usageData || []).forEach((record: any) => {
       // Use consistent BDT rate for all metrics
@@ -173,6 +175,12 @@ export async function GET(request: NextRequest) {
         commentCostsTotal += cost;
         commentCallCount += 1;
       }
+
+      // Track Voice Transcription events
+      if (feature === 'voice_transcription') {
+        voiceCostsTotal += cost;
+        voiceCallCount += 1;
+      }
     });
 
     const messengerConvIds = Object.keys(messengerCostsByConv);
@@ -182,6 +190,10 @@ export async function GET(request: NextRequest) {
     
     const avgCostComment = commentCallCount > 0
       ? commentCostsTotal / commentCallCount
+      : 0;
+
+    const avgCostVoiceTotal = voiceCallCount > 0
+      ? voiceCostsTotal / voiceCallCount
       : 0;
 
     return NextResponse.json({
@@ -198,6 +210,9 @@ export async function GET(request: NextRequest) {
         exchangeRate: USD_TO_BDT_RATE,
         avgCostMessenger,
         avgCostComment,
+        totalVoiceCost: voiceCostsTotal,
+        totalVoiceRequests: voiceCallCount,
+        avgCostVoice: avgCostVoiceTotal,
       },
       breakdown: formattedBreakdown,
 
@@ -218,6 +233,7 @@ function formatApiType(type: string): string {
     case 'image_recognition_tier3': case 'openai_vision': return 'Vision Scan (Tier 3)';
     case 'auto_tagging': return 'Product Auto-Tagging';
     case 'hash_match': return 'Image Cache Hit';
+    case 'voice_transcription': return 'Voice Transcription';
     default: return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
 }

@@ -116,8 +116,7 @@ export default function AISetupPage() {
   // Order Collection Style
   const [orderCollectionStyle, setOrderCollectionStyle] = useState<'conversational' | 'quick_form'>('quick_form')
   const [quickFormPrompt, setQuickFormPrompt] = useState('দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:')
-  const [quickFormError, setQuickFormError] = useState('দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা')
-  const [outOfStockMessage, setOutOfStockMessage] = useState('দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️')
+  const [outOfStockMessage, setOutOfStockMessage] = useState('দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\নআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️')
 
   // Conversation Examples (Few-Shot)
   const [conversationExamples, setConversationExamples] = useState<Array<{
@@ -203,7 +202,6 @@ export default function AISetupPage() {
           // Order Collection Style
           setOrderCollectionStyle(s.order_collection_style || 'conversational')
           setQuickFormPrompt(s.quick_form_prompt || quickFormPrompt)
-          setQuickFormError(s.quick_form_error || quickFormError)
           setOutOfStockMessage(s.out_of_stock_message || outOfStockMessage)
           // Business Policies
           setReturnPolicy(s.return_policy || '')
@@ -265,7 +263,6 @@ export default function AISetupPage() {
         fastLaneMessages,
         order_collection_style: orderCollectionStyle,
         quick_form_prompt: quickFormPrompt,
-        quick_form_error: quickFormError,
         out_of_stock_message: outOfStockMessage,
         // Business Policies
         returnPolicy,
@@ -347,7 +344,6 @@ export default function AISetupPage() {
     
     setOrderCollectionStyle('conversational')
     setQuickFormPrompt('দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:')
-    setQuickFormError('দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা')
     setOutOfStockMessage('দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️')
     
     // Reset business policies
@@ -642,9 +638,7 @@ export default function AISetupPage() {
                      </div>
 
                      <div className="space-y-2">
-                       <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Quick Form Error Message</Label>
                        <Textarea
-                         value={quickFormError}
                          onChange={(e) => setQuickFormError(e.target.value)}
                          placeholder="Error message when parsing fails..."
                          rows={4}

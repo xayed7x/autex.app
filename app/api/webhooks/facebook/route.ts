@@ -8,6 +8,8 @@ import {
 import { processMessage } from '@/lib/conversation/orchestrator';
 import { processingLock } from '@/lib/conversation/processing-lock';
 import { logApiUsage } from '@/lib/ai/usage-tracker';
+import { transcribeVoiceMessage } from '@/lib/ai/voice-transcription';
+import { decryptToken } from '@/lib/facebook/crypto-utils';
 
 
 export const maxDuration = 60;
@@ -140,6 +142,14 @@ export async function POST(request: NextRequest) {
             }
           }
           
+          // Handle Standby events (messages sent while our app is not the primary receiver)
+          if (entry.standby) {
+            for (const event of entry.standby) {
+              console.log('👀 [STANDBY] Detected message while in standby mode');
+              await processMessagingEvent(supabase, entry.id, event);
+            }
+          }
+          
           // Handle changes (e.g., comments) — Messenger only
           if (entry.changes) {
             for (const change of entry.changes) {
@@ -180,6 +190,15 @@ export async function processMessagingEvent(
     const recipientId = recipient.id;
     
     // ========================================
+    // FILTER ECHOES & SYSTEM MESSAGES
+    // ========================================
+    if (message?.is_echo) {
+      console.log('🗣️ [ECHO] Ignoring bot\'s own message echo');
+      return;
+    }
+
+    
+    // ========================================
     // DETECT MESSAGE SOURCE (Owner vs Customer)
     // ========================================
     
@@ -215,6 +234,14 @@ export async function processMessagingEvent(
     const pageId = actualPageId;
     
     console.log(`🔍 [SOURCE DETECTION] Workspace: ${fbPageCheck.workspace_id}, Is Owner: ${isOwnerMessage}, Customer: ${customerPsid}`);
+
+    // If it's a customer message and the bot is enabled, take thread control from Meta Business Suite
+    if (!isOwnerMessage && fbPageCheck.bot_enabled) {
+      console.log('🤖 [HANDOVER] Requesting thread control for customer assist');
+      const { takeThreadControl } = await import('@/lib/facebook/messenger');
+      await takeThreadControl(pageId, customerPsid);
+    }
+
 
 
     const referral = event.referral || event.postback?.referral;
@@ -541,9 +568,41 @@ export async function processMessagingEvent(
       const audioAttachment = message.attachments.find(
         (att) => att.type === 'audio'
       );
-      if (audioAttachment) {
+      if (audioAttachment && audioAttachment.payload?.url) {
         console.log('🎙️ Audio attachment detected');
-        modifiedMessageText = '[User sent a voice message]';
+        
+        // We only transcribe customer messages for the bot
+        if (!isOwnerMessage && fbPageCheck?.encrypted_access_token) {
+          try {
+            const accessToken = decryptToken(fbPageCheck.encrypted_access_token);
+            const transcript = await transcribeVoiceMessage(audioAttachment.payload.url, accessToken);
+            
+            if (transcript) {
+              modifiedMessageText = `[Voice: ${transcript}]`;
+              
+              // Log usage as whisper-1 (assume 1 min minimum for fallback if duration unknown)
+              await logApiUsage({
+                workspaceId: fbPageCheck.workspace_id,
+                featureName: 'voice_transcription',
+                model: 'whisper-1',
+                cost: 0.006 
+              });
+            } else {
+              // Transcription failed - send fallback and stop
+              const { sendMessage } = await import('@/lib/facebook/messenger');
+              await sendMessage(pageId, customerPsid, "দুঃখিত, আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু টেক্সট এ লিখে জানাতেন তাহলে আমি আপনাকে দ্রুত সাহায্য করতে পারতাম। 😊");
+              return;
+            }
+          } catch (error) {
+            console.error('❌ Error transcribing voice message:', error);
+            // Fallback
+            const { sendMessage } = await import('@/lib/facebook/messenger');
+            await sendMessage(pageId, customerPsid, "দুঃখিত, আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু টেক্সট এ লিখে জানাতেন তাহলে আমি আপনাকে দ্রুত সাহায্য করতে পারতাম। 😊");
+            return;
+          }
+        } else {
+          modifiedMessageText = '[Voice Message]';
+        }
       }
     }
 
@@ -916,7 +975,7 @@ export async function processMessagingEvent(
       await processMessage({
         pageId,
         customerPsid,
-        messageText: modifiedMessageText || undefined,
+        messageText: (modifiedMessageText || '').replace(/^\[Voice: (.*)\]$/i, '$1') || undefined,
         imageUrl,
         mid: messageId,
         replyToMid,
@@ -1034,7 +1093,9 @@ export async function processInstagramMessagingEvent(
       );
       if (audioAttachment) {
         console.log('📸 [INSTAGRAM] Audio attachment detected');
-        modifiedMessageText = '[User sent a voice message]';
+        // For now, Instagram doesn't have the Whisper integration applied, but we ensure
+        // it doesn't trigger the old "can't hear" AI rule.
+        modifiedMessageText = '(Voice Message)';
       }
     }
 

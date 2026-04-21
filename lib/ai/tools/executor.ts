@@ -38,6 +38,7 @@ export interface ToolExecutionContext {
   settings: WorkspaceSettings;
   fbPageId: number;
   customerPsid: string;
+  isTest?: boolean;
 }
 
 /** Tracks what changed after a tool runs, so the orchestrator can persist it. */
@@ -429,13 +430,15 @@ async function executeUpdateCustomerInfo(
 
   // Validate and normalize phone if provided
   if (phone) {
-    let normalizedPhone = phone.replace(/\D/g, ''); // Remove all non-digits first
+    const cleanPhone = phone.replace(/\D/g, ''); // Remove all non-digits
     
     // Handle international format: +8801XXXXXXXXX or 8801XXXXXXXXX
+    let normalizedPhone = cleanPhone;
     if (normalizedPhone.startsWith('880') && normalizedPhone.length === 13) {
-      normalizedPhone = '0' + normalizedPhone.slice(3); // Convert to 01XXXXXXXXX
+      normalizedPhone = '0' + normalizedPhone.slice(3);
     }
     
+    // Any 11 digit number starting with 01 is valid for BD
     const isValid = normalizedPhone.length === 11 && normalizedPhone.startsWith('01');
     
     if (!isValid) {
@@ -443,13 +446,11 @@ async function executeUpdateCustomerInfo(
         result: {
           success: false,
           data: { invalidField: 'phone' },
-          message: `Phone number "${phone}" is invalid. Must be 11 digits starting with 01 (e.g. 01712345678).`,
+          message: `Phone number "${phone}" is invalid. Please give a valid 11-digit number (e.g. 01712345678).`,
         },
         sideEffects: {},
       };
     }
-    
-    // Use the normalized version for saving
     phone = normalizedPhone;
   }
 
@@ -459,42 +460,50 @@ async function executeUpdateCustomerInfo(
   // If the customer updates info AFTER an order is already saved and paid for, flag for manual review.
   // CRITICAL: We only trigger this if the cart is EMPTY. If there are items in the cart, 
   // it means the customer is placing a NEW order, so info updates are allowed.
-  try {
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
+  if (!ctx.isTest) {
+    try {
+      const supabase = createClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
 
-    const { data: recentOrders } = await supabase
-      .from('orders')
-      .select('id, status, payment_last_two_digits, created_at')
-      .eq('conversation_id', ctx.conversationId)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1);
+      const { data: recentOrders } = await supabase
+        .from('orders')
+        .select('id, status, payment_last_two_digits, created_at')
+        .eq('conversation_id', ctx.conversationId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-    const isCartEmpty = !ctx.conversationContext.cart || ctx.conversationContext.cart.length === 0;
+      const isCartEmpty = !ctx.conversationContext.cart || ctx.conversationContext.cart.length === 0;
 
-    if (isCartEmpty && recentOrders && recentOrders.length > 0 && recentOrders[0].payment_last_two_digits) {
-      console.log(`🚩 [POST-ORDER UPDATE] Blocked: Customer trying to update info for finalized order ${recentOrders[0].id}.`);
-      return {
-        result: { 
-          success: false, 
-          data: { shouldFlag: true }, 
-          message: "আপনার অর্ডারটি ইতিমধ্যই কনফার্ম করা হয়েছে। তথ্য পরিবর্তন করতে চাইলে আমাদের টিম আপনার সাথে কথা বলবে। 😊" 
-        },
-        sideEffects: { shouldFlag: true, flagReason: "Customer trying to update info for a finalized order." },
-      };
+      // Only block if the order was placed very recently (last 15 minutes)
+      // This prevents accidental updates to finished orders while allowing re-testing or new orders.
+      const FIFTEEN_MINUTES = 15 * 60 * 1000;
+      const isVeryRecent = recentOrders && recentOrders.length > 0 && 
+                          (Date.now() - new Date(recentOrders[0].created_at).getTime()) < FIFTEEN_MINUTES;
+
+      if (isCartEmpty && isVeryRecent && recentOrders[0].payment_last_two_digits) {
+        console.log(`🚩 [POST-ORDER UPDATE] Blocked: Recent order ${recentOrders[0].id} exists.`);
+        return {
+          result: { 
+            success: false, 
+            data: { shouldFlag: true }, 
+            message: "আপনার অর্ডারটি ইতিমধ্যই কনফার্ম করা হয়েছে। তথ্য পরিবর্তন করতে চাইলে আমাদের টিম আপনার সাথে কথা বলবে। 😊" 
+          },
+          sideEffects: { shouldFlag: true, flagReason: "Customer trying to update info for a very recent finalized order." },
+        };
+      }
+    } catch (err) {
+      console.error('Error checking recent orders for post-order protection:', err);
     }
-  } catch (err) {
-    console.error('Error checking recent orders for post-order protection:', err);
   }
 
   // Calculate delivery charge if address is provided
   let deliveryCharge = currentCheckout.deliveryCharge;
   if (address) {
-    deliveryCharge = getDeliveryCharge(address, ctx.settings);
+    deliveryCharge = getDeliveryCharge(address, ctx.settings, ctx.conversationContext.metadata?.delivery_zone);
   }
 
   const updatedCheckout = {
@@ -616,6 +625,7 @@ async function executeSaveOrder(
   const customerPhone = args.customerPhone ? String(args.customerPhone) : undefined;
   const customerAddress = args.customerAddress ? String(args.customerAddress) : undefined;
   const deliveryDate = args.delivery_date ? String(args.delivery_date) : undefined;
+  const delivery_time = args.delivery_time ? String(args.delivery_time) : undefined;
   const flavor = (args.flavor || ctx.conversationContext.metadata?.flavor) ? String(args.flavor || ctx.conversationContext.metadata?.flavor) : undefined;
   const weight = args.weight ? String(args.weight) : undefined;
   const custom_message = args.custom_message ? String(args.custom_message) : undefined;
@@ -624,35 +634,36 @@ async function executeSaveOrder(
   const order_description = args.order_description ? String(args.order_description) : undefined;
   const inspiration_image = args.inspiration_image ? String(args.inspiration_image) : undefined;
 
-  const result = await saveOrder(
-    ctx.workspaceId,
-    ctx.conversationId,
-    ctx.fbPageId,
-    ctx.conversationContext,
-    ctx.settings,
-    { 
-      customerName, 
-      customerPhone, 
-      customerAddress, 
-      deliveryDate, 
-      flavor, 
-      weight, 
-      custom_message, 
-      pounds_ordered,
-      delivery_zone,
-      order_description,
-      inspiration_image
-    }
-  );
+    const saveResult = await saveOrder(
+      ctx.workspaceId,
+      ctx.conversationId,
+      ctx.fbPageId,
+      ctx.conversationContext,
+      ctx.settings,
+      { 
+        customerName, 
+        customerPhone, 
+        customerAddress, 
+        deliveryDate, 
+        deliveryTime: delivery_time,
+        flavor, 
+        weight, 
+        custom_message, 
+        pounds_ordered,
+        delivery_zone,
+        customer_description: (args.customer_description || args.order_description) ? String(args.customer_description || args.order_description) : undefined,
+        inspiration_image
+      }
+    );
 
   // If order was successful, reset negotiation state and product tracking
-  if (result.result.success) {
-    if (!result.sideEffects.updatedContext) result.sideEffects.updatedContext = {};
-    if (!result.sideEffects.updatedContext.metadata) {
-      result.sideEffects.updatedContext.metadata = { ...ctx.conversationContext.metadata };
+  if (saveResult.result.success) {
+    if (!saveResult.sideEffects.updatedContext) saveResult.sideEffects.updatedContext = {};
+    if (!saveResult.sideEffects.updatedContext.metadata) {
+      saveResult.sideEffects.updatedContext.metadata = { ...ctx.conversationContext.metadata };
     }
     
-    const meta = result.sideEffects.updatedContext.metadata as any;
+    const meta = saveResult.sideEffects.updatedContext.metadata as any;
     if (meta.negotiation) {
       meta.negotiation.rounds = {};
     }
@@ -661,7 +672,7 @@ async function executeSaveOrder(
     meta.recentlyShownProducts = undefined;
   }
 
-  return result;
+  return saveResult;
 }
 
 async function executeRecordNegotiationAttempt(
@@ -1094,7 +1105,8 @@ async function executeCalculateDelivery(
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
   const address = String(args.address || '');
-  const charge = getDeliveryCharge(address, ctx.settings);
+  const delivery_zone = args.delivery_zone ? String(args.delivery_zone) : undefined;
+  const charge = getDeliveryCharge(address, ctx.settings, delivery_zone);
 
   return {
     result: {

@@ -64,7 +64,6 @@ export interface WorkspaceSettings {
   fastLaneMessages: FastLaneMessages;
   order_collection_style: 'conversational' | 'quick_form';
   quick_form_prompt: string;
-  quick_form_error: string;
   out_of_stock_message: string;
   // Business Policies
   returnPolicy: string;
@@ -127,7 +126,6 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
   },
   order_collection_style: 'conversational',
   quick_form_prompt: 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nসম্পূর্ণ ঠিকানা:',
-  quick_form_error: 'দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔\n\nঅনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:\n\nনাম: আপনার নাম\nফোন: 017XXXXXXXX\nঠিকানা: আপনার সম্পূর্ণ ঠিকানা\n\nঅথবা একটি লাইন করে দিতে পারেন:\nআপনার নাম\n017XXXXXXXX\nআপনার সম্পূর্ণ ঠিকানা',
   out_of_stock_message: 'দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।\n\nআপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️',
   // Business Policies
   returnPolicy: '',
@@ -221,7 +219,6 @@ export async function loadWorkspaceSettings(
       fastLaneMessages: transformFastLaneMessages((settings as any).fast_lane_messages) || DEFAULT_SETTINGS.fastLaneMessages,
       order_collection_style: (settings as any).order_collection_style || DEFAULT_SETTINGS.order_collection_style,
       quick_form_prompt: (settings as any).quick_form_prompt || DEFAULT_SETTINGS.quick_form_prompt,
-      quick_form_error: (settings as any).quick_form_error || DEFAULT_SETTINGS.quick_form_error,
       out_of_stock_message: (settings as any).out_of_stock_message || DEFAULT_SETTINGS.out_of_stock_message,
       // Business Policies
       returnPolicy: (settings as any).return_policy || DEFAULT_SETTINGS.returnPolicy,
@@ -245,8 +242,42 @@ export async function loadWorkspaceSettings(
  */
 export function getDeliveryCharge(
   address: string,
-  settings: WorkspaceSettings
+  settings: WorkspaceSettings,
+  zoneLabel?: string
 ): number {
+  // If we have an explicit zone label from the AI/User, prioritize it
+  if (zoneLabel && settings.deliveryZones && settings.deliveryZones.length > 0) {
+    const normalizedZone = zoneLabel.toLowerCase().trim();
+    
+    // Mapping for common English/Bengali terms to ensure they match dashboard labels
+    const zoneMatch = settings.deliveryZones.find(zone => {
+      const label = zone.label.toLowerCase();
+      return label.includes(normalizedZone) || 
+             normalizedZone.includes(label) ||
+             // English to Bengali mappings
+             (normalizedZone === 'upazila' && (label.includes('উপজেলা') || label.includes('upazila'))) ||
+             (normalizedZone === 'district' && (label.includes('জেলা') || label.includes('district')));
+    });
+
+    if (zoneMatch) {
+      console.log(`📍 Explicit Zone Match: "${zoneMatch.label}" -> ৳${zoneMatch.amount}`);
+      return zoneMatch.amount;
+    }
+  }
+
+  // Fallback to address-based matching
+  if (settings.deliveryZones && settings.deliveryZones.length > 0) {
+    const normalizedAddress = address.toLowerCase();
+    const zoneMatch = settings.deliveryZones.find(zone => 
+      normalizedAddress.includes(zone.label.toLowerCase())
+    );
+    
+    if (zoneMatch) {
+      console.log(`📍 Address Zone Match: "${zoneMatch.label}" -> ৳${zoneMatch.amount}`);
+      return zoneMatch.amount;
+    }
+  }
+
   const isDhaka = address.toLowerCase().includes('dhaka') || 
                   address.toLowerCase().includes('ঢাকা');
   
@@ -254,3 +285,4 @@ export function getDeliveryCharge(
     ? settings.deliveryCharges.insideDhaka 
     : settings.deliveryCharges.outsideDhaka;
 }
+

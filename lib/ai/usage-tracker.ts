@@ -25,6 +25,9 @@ const PRICING = {
     inputPer1M: 2.50,
     cachedInputPer1M: 1.25, // GPT-4o cached is usually 50%
     outputPer1M: 10.00,
+  },
+  'whisper-1': {
+    costPerMinute: 0.006,
   }
 };
 
@@ -52,6 +55,7 @@ export interface ApiUsagePayload {
   model: string;
   featureName: FeatureName;
   usage?: TokenUsage;
+  cost?: number; // Manual override for models like Whisper
 }
 
 // ============================================
@@ -62,6 +66,7 @@ export interface ApiUsagePayload {
  * Calculates the exact cost in USD for a given model and token usage.
  */
 export function calculateCostUSD(model: string, usage?: TokenUsage): number {
+  if (model === 'whisper-1') return 0; // Handled via manual cost for now
   if (!usage || !usage.totalTokens) return 0;
   
   // Normalize model string in case of versions like gpt-4o-2024-05-13
@@ -90,7 +95,7 @@ export async function logApiUsage(payload: ApiUsagePayload): Promise<void> {
       { auth: { persistSession: false } }
     );
 
-    const costUSD = calculateCostUSD(payload.model, payload.usage);
+    const costUSD = payload.cost ?? calculateCostUSD(payload.model, payload.usage);
 
     await supabase.from('api_usage').insert({
       workspace_id: payload.workspaceId,

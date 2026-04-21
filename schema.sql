@@ -95,6 +95,8 @@ CREATE TABLE public.order_items (
   subtotal numeric NOT NULL,
   product_image_url text,
   created_at timestamp with time zone DEFAULT now(),
+  selected_flavor text,
+  pounds numeric,
   CONSTRAINT order_items_pkey PRIMARY KEY (id),
   CONSTRAINT order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.orders(id),
   CONSTRAINT order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
@@ -128,6 +130,13 @@ CREATE TABLE public.orders (
   delivery_date text,
   flavor text,
   weight text,
+  custom_message text,
+  pounds_ordered numeric,
+  cake_category text,
+  price_per_pound numeric,
+  customer_description text,
+  inspiration_image text,
+  delivery_zone text,
   CONSTRAINT orders_pkey PRIMARY KEY (id),
   CONSTRAINT orders_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT orders_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
@@ -181,11 +190,14 @@ CREATE TABLE public.products (
   variant_stock jsonb DEFAULT '[]'::jsonb,
   pricing_policy jsonb DEFAULT '{}'::jsonb,
   product_attributes jsonb DEFAULT '{}'::jsonb,
+  media_images ARRAY,
+  media_videos ARRAY,
   category text,
-  flavors text[] DEFAULT '{}'::text[],
-  weights text[] DEFAULT '{}'::text[],
-  media_images text[],
-  media_videos text[],
+  price_per_pound numeric,
+  flavor text,
+  allows_custom_message boolean DEFAULT true,
+  min_pounds numeric DEFAULT 0.5,
+  max_pounds numeric DEFAULT 5.0,
   CONSTRAINT products_pkey PRIMARY KEY (id),
   CONSTRAINT products_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -254,18 +266,6 @@ Screenshot পাঠালে আমরা verify করব।'::text,
 নাম:
 ফোন:
 সম্পূর্ণ ঠিকানা:'::text,
-  quick_form_error text NOT NULL DEFAULT 'দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔
-
-অনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:
-
-নাম: আপনার নাম
-ফোন: 017XXXXXXXX
-ঠিকানা: আপনার সম্পূর্ণ ঠিকানা
-
-অথবা একটি লাইন করে দিতে পারেন:
-আপনার নাম
-017XXXXXXXX
-আপনার সম্পূর্ণ ঠিকানা'::text,
   out_of_stock_message text DEFAULT 'দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।
 
 আপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️'::text,
@@ -277,6 +277,8 @@ Screenshot পাঠালে আমরা verify করব।'::text,
   custom_faqs jsonb DEFAULT '[]'::jsonb,
   conversation_examples jsonb DEFAULT '[]'::jsonb,
   custom_ai_instructions text,
+  delivery_zones jsonb DEFAULT '[]'::jsonb,
+  business_context text,
   CONSTRAINT workspace_settings_pkey PRIMARY KEY (id),
   CONSTRAINT workspace_settings_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );

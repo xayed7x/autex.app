@@ -39,7 +39,7 @@ interface ValidationError {
 // CONSTANTS
 // ============================================
 
-const BD_PHONE_REGEX = /^01[3-9]\d{8}$/;
+const BD_PHONE_REGEX = /^01[3-9]\d{8}$/; // Matches all major BD operators
 const MIN_ADDRESS_LENGTH = 10;
 
 // ============================================
@@ -67,12 +67,13 @@ export async function saveOrder(
     customerPhone?: string;
     customerAddress?: string;
     deliveryDate?: string;
+    deliveryTime?: string;
     flavor?: string;
     weight?: string;
     custom_message?: string;
     pounds_ordered?: number;
     delivery_zone?: string;
-    order_description?: string;
+    customer_description?: string;
     inspiration_image?: string;
   }
 ): Promise<SaveOrderOutput> {
@@ -85,6 +86,7 @@ export async function saveOrder(
     ...(overrides?.customerPhone && { customerPhone: overrides.customerPhone }),
     ...(overrides?.customerAddress && { customerAddress: overrides.customerAddress }),
     ...(overrides?.deliveryDate && { deliveryDate: overrides.deliveryDate }),
+    ...(overrides?.deliveryTime && { deliveryTime: overrides.deliveryTime }),
   };
   
   const negotiation = (context.metadata as Record<string, any>)?.negotiation;
@@ -155,7 +157,7 @@ export async function saveOrder(
 
   const subtotal = calculateSubtotal(cart, negotiation);
   const deliveryCharge = checkout.deliveryCharge
-    ?? getDeliveryCharge(checkout.customerAddress!, settings);
+    ?? getDeliveryCharge(checkout.customerAddress!, settings, overrides?.delivery_zone);
   const totalAmount = subtotal + deliveryCharge;
 
   // ========================================
@@ -208,9 +210,11 @@ export async function saveOrder(
       }
     }
 
-    const orderData = {
+    const isFood = settings.businessCategory === 'food';
+
+    const orderData: any = {
       workspace_id: workspaceId,
-      fb_page_id: fbPageId, // bigint in DB — pass as number, not string
+      fb_page_id: fbPageId,
       conversation_id: conversationId,
       customer_name: checkout.customerName,
       customer_phone: checkout.customerPhone,
@@ -227,15 +231,21 @@ export async function saveOrder(
       payment_last_two_digits: checkout.paymentLastTwoDigits || null,
       selected_size: cart.length === 1 ? (firstItemAny.selectedSize || null) : null,
       selected_color: cart.length === 1 ? (firstItemAny.selectedColor || null) : null,
-      delivery_date: checkout.deliveryDate || null,
-      flavor: cart.length === 1 ? (firstItemAny.selectedFlavor || null) : null,
-      weight: cart.length === 1 ? (firstItemAny.selectedWeight || null) : null,
-      custom_message: cart.length === 1 ? (firstItemAny.selectedCustomMessage || overrides?.custom_message || null) : null,
-      pounds_ordered: cart.length === 1 ? (firstItemAny.selectedPounds || overrides?.pounds_ordered || null) : null,
-      delivery_zone: overrides?.delivery_zone || null,
-      order_description: overrides?.order_description || null,
-      inspiration_image: detectedInspirationImage,
     };
+
+    if (isFood) {
+      Object.assign(orderData, {
+        delivery_date: checkout.deliveryDate || null,
+        delivery_time: checkout.deliveryTime || null,
+        flavor: cart.length === 1 ? (firstItemAny.selectedFlavor || null) : null,
+        weight: cart.length === 1 ? (firstItemAny.selectedWeight || null) : null,
+        custom_message: cart.length === 1 ? (firstItemAny.selectedCustomMessage || overrides?.custom_message || null) : null,
+        pounds_ordered: cart.length === 1 ? (firstItemAny.selectedPounds || overrides?.pounds_ordered || null) : null,
+        delivery_zone: overrides?.delivery_zone || null,
+        customer_description: overrides?.customer_description || null,
+        inspiration_image: detectedInspirationImage,
+      });
+    }
 
     const { data: orderResult, error: orderError } = await supabase
       .from('orders')

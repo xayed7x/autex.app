@@ -775,7 +775,6 @@ export type Database = {
           fast_lane_messages: Json | null
           order_collection_style: string
           quick_form_prompt: string
-          quick_form_error: string
           out_of_stock_message: string | null
           return_policy: string | null
           quality_guarantee: string | null
@@ -807,7 +806,6 @@ export type Database = {
           fast_lane_messages?: Json | null
           order_collection_style: string
           quick_form_prompt: string
-          quick_form_error: string
           out_of_stock_message?: string | null
           return_policy?: string | null
           quality_guarantee?: string | null
@@ -839,7 +837,6 @@ export type Database = {
           fast_lane_messages?: Json | null
           order_collection_style?: string
           quick_form_prompt?: string
-          quick_form_error?: string
           out_of_stock_message?: string | null
           return_policy?: string | null
           quality_guarantee?: string | null

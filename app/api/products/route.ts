@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase
       .from('products')
-      .select('id, name, price, stock_quantity, description, image_urls, colors, sizes, size_stock, variant_stock, pricing_policy, product_attributes, flavors, weights, price_per_pound, flavor, allows_custom_message, min_pounds, max_pounds, created_at, updated_at', { count: 'exact' })
+      .select('id, name, price, category, stock_quantity, description, image_urls, colors, sizes, size_stock, variant_stock, pricing_policy, product_attributes, price_per_pound, flavor, allows_custom_message, min_pounds, max_pounds, created_at, updated_at', { count: 'exact' })
       .eq('workspace_id', workspace.id);
 
     // Apply filters
@@ -225,12 +225,9 @@ export async function POST(request: NextRequest) {
         // Upload to Cloudinary
         const uploadResult = await uploadToCloudinary(buffer);
         
-        // Skip hash generation for food businesses
-        let hashes: string[] = [];
-        if (!isFood) {
-          const { generateMultiHashes } = await import('@/lib/image-recognition/hash');
-          hashes = await generateMultiHashes(buffer);
-        }
+        // Execute hash generation (enabled for all business categories)
+        const { generateMultiHashes } = await import('@/lib/image-recognition/hash');
+        const hashes = await generateMultiHashes(buffer);
         
         return {
           url: uploadResult.secure_url,
@@ -313,7 +310,7 @@ export async function POST(request: NextRequest) {
 
     // Extract visual features for Tier 2 matching (from first image only)
     let visualFeatures = null;
-    if (firstImageBuffer && !isFood) {
+    if (firstImageBuffer) {
       console.log('Extracting visual features...');
       try {
         visualFeatures = await extractVisualFeatures(firstImageBuffer);
@@ -331,7 +328,7 @@ export async function POST(request: NextRequest) {
     let searchKeywords: string[] | null = null;
     let autoTaggingCost = 0;
     
-    if (firstImageBuffer && !isFood) {
+    if (firstImageBuffer) {
       console.log('🪄 Generating search keywords with OpenAI...');
       try {
         const OpenAI = (await import('openai')).default;
@@ -347,7 +344,9 @@ export async function POST(request: NextRequest) {
           messages: [
             {
               role: 'system',
-              content: 'Analyze this product image. Return a JSON object with a "keywords" array containing 10-15 descriptive single words (lowercase) about color, pattern, material, style, clothing type, and visible brand. Example: {"keywords": ["navy", "blue", "striped", "polo", "collar", "cotton", "half-sleeve", "summer", "men"]}',
+              content: isFood 
+                ? 'Analyze this food/cake product image. Return a JSON object with a "keywords" array containing 10-15 descriptive single words (lowercase) about color, flavor profile, occasion (e.g. birthday, wedding), texture, decorations, and cake type. Example: {"keywords": ["chocolate", "triple-layer", "birthday", "sprinkles", "ganache", "moist", "dessert", "red-velvet"]}'
+                : 'Analyze this clothing product image. Return a JSON object with a "keywords" array containing 10-15 descriptive single words (lowercase) about color, pattern, material, style, clothing type, and visible brand. Example: {"keywords": ["navy", "blue", "striped", "polo", "collar", "cotton", "half-sleeve", "summer", "men"]}',
             },
             {
               role: 'user',

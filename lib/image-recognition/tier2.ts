@@ -2,8 +2,7 @@ import sharp from 'sharp';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
 
-// Import colorthief
-import ColorThief from 'colorthief';
+// Removed top-level import to avoid ESM issues with colorthief in Node
 
 type Product = Database['public']['Tables']['products']['Row'];
 
@@ -58,7 +57,8 @@ export async function extractVisualFeatures(
     const dominantColors: RGBColor[] = [];
     
     try {
-      // Get palette of 3 colors
+      // Get palette of 3 colors using dynamic require for Node compatibility
+      const ColorThief = require('colorthief');
       const palette = await ColorThief.getPalette(imageBuffer, 3);
       
       // Convert to RGB objects

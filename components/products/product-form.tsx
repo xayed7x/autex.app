@@ -6,9 +6,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2, Upload, X, Plus, Trash2, ImagePlus, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
+import { toast } from 'sonner';
 import { PremiumButton } from '@/components/ui/premium/premium-button';
 import { SmartCard } from '@/components/ui/premium/smart-card';
 import { VariantStockMatrix, VariantStockItem } from './variant-stock-matrix';
+import { CategoryCombobox } from './category-combobox';
+
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -99,6 +102,7 @@ const productFormSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
   price: z.string().optional(), // Required for clothing, optional for food
   description: z.string().optional(),
+  category: z.string().optional(),
   colors: z.string().optional(),
   price_per_pound: z.string().optional(), // Required for food
   flavor: z.string().optional(),
@@ -198,6 +202,7 @@ export function ProductForm({
       name: '',
       price: '',
       description: '',
+      category: '',
       colors: '',
     },
   });
@@ -209,6 +214,7 @@ export function ProductForm({
         name: product.name,
         price: product.price.toString(),
         description: product.description || '',
+        category: product.category || '',
         colors: product.colors?.join(', ') || '',
         price_per_pound: product.price_per_pound?.toString() || '',
         flavor: product.flavor || '',
@@ -432,7 +438,7 @@ export function ProductForm({
     
     // Check for duplicate
     if (sizeStock.some(item => item.size.toUpperCase() === sizeUpper)) {
-      alert(`Size "${sizeUpper}" already exists`);
+      toast.error(`Size "${sizeUpper}" already exists`);
       return;
     }
     
@@ -529,8 +535,7 @@ export function ProductForm({
 
       // Send food-specific fields if applicable
       if (isFood) {
-        formData.append('flavors', flavors.join(', '));
-        formData.append('weights', weights.join(', '));
+        if (values.category) formData.append('category', values.category);
         if (values.price_per_pound) formData.append('price_per_pound', values.price_per_pound);
         if (values.flavor) formData.append('flavor', values.flavor);
         formData.append('allows_custom_message', values.allows_custom_message.toString());
@@ -597,10 +602,11 @@ export function ProductForm({
       }
 
       onSuccess();
+      toast.success(product ? 'Product updated successfully' : 'Product created successfully');
       onOpenChange(false);
     } catch (error: any) {
       console.error('Error saving product:', error);
-      alert(error.message || 'Failed to save product');
+      toast.error(error.message || 'Failed to save product');
     } finally {
       setIsSubmitting(false);
     }
@@ -609,6 +615,7 @@ export function ProductForm({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto bg-zinc-950/95 dark:backdrop-blur-xl border-white/10 shadow-2xl p-0 gap-0">
+
         <DialogHeader className="p-6 pb-4 border-b border-white/10 bg-white/5">
           <DialogTitle className="text-xl font-serif tracking-wide text-white">{product ? 'Edit Product' : 'Add Product'}</DialogTitle>
           <DialogDescription className="text-zinc-400">
@@ -619,7 +626,7 @@ export function ProductForm({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 p-6">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 p-6">
             {/* Multi-Image Upload */}
             <div className="space-y-3">
               <div className="flex flex-col gap-0.5">
@@ -808,31 +815,17 @@ export function ProductForm({
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
-                    name="flavor"
+                    name="category"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Flavor</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger className="bg-zinc-900/50 border-white/10 text-white h-11">
-                              <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className="bg-zinc-900 border-white/10 text-white">
-                            <SelectItem value="Vanilla">Vanilla</SelectItem>
-                            <SelectItem value="Chocolate">Chocolate</SelectItem>
-                            <SelectItem value="Anniversary">Anniversary</SelectItem>
-                            <SelectItem value="Rasmalai">Rasmalai</SelectItem>
-                            <SelectItem value="Photo Cake">Photo Cake</SelectItem>
-                            <SelectItem value="Customized Cake">Customized Cake</SelectItem>
-                            <SelectItem value="Red Velvet">Red Velvet</SelectItem>
-                            <SelectItem value="Mango">Mango</SelectItem>
-                            <SelectItem value="Gaye Holud">Gaye Holud</SelectItem>
-                            <SelectItem value="Makeup Cake">Makeup Cake</SelectItem>
-                            <SelectItem value="Baby Shower">Baby Shower</SelectItem>
-                            <SelectItem value="Custom">Custom</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Category</FormLabel>
+                        <FormControl>
+                          <CategoryCombobox 
+                            value={field.value || ""} 
+                            onChange={field.onChange} 
+                            placeholder="Select or type category..."
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -840,18 +833,53 @@ export function ProductForm({
 
                   <FormField
                     control={form.control}
-                    name="price_per_pound"
+                    name="flavor"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Price per Pound (৳)</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" placeholder="0.00" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11 font-mono" />
-                        </FormControl>
+                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Flavor</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || "Custom"}>
+                          <FormControl>
+                            <SelectTrigger className="bg-zinc-900/50 border-white/10 text-white h-11">
+                              <SelectValue placeholder="Select flavor" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent className="bg-zinc-900 border-white/10 text-white">
+                            <SelectItem value="Bakery Style Pound Cake">Bakery Style Pound Cake</SelectItem>
+                            <SelectItem value="Chocolate Brownies">Chocolate Brownies</SelectItem>
+                            <SelectItem value="Vanilla Cake">Vanilla Cake</SelectItem>
+                            <SelectItem value="Orange Cake">Orange Cake</SelectItem>
+                            <SelectItem value="Lemon Cake">Lemon Cake</SelectItem>
+                            <SelectItem value="Mango Cake">Mango Cake</SelectItem>
+                            <SelectItem value="Milk Cake">Milk Cake</SelectItem>
+                            <SelectItem value="Special Chocolate Cake">Special Chocolate Cake</SelectItem>
+                            <SelectItem value="Black Forest Cake">Black Forest Cake</SelectItem>
+                            <SelectItem value="Chocolate Fudge Delight Cake (Cooper's Style)">Chocolate Fudge Delight Cake (Cooper's Style)</SelectItem>
+                            <SelectItem value="Butter Scotch Cake">Butter Scotch Cake</SelectItem>
+                            <SelectItem value="Mocha Cake">Mocha Cake</SelectItem>
+                            <SelectItem value="Red Velvet Cake">Red Velvet Cake</SelectItem>
+                            <SelectItem value="Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze">Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze</SelectItem>
+                            <SelectItem value="Custom">Custom / Other</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="price_per_pound"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Price per Pound (৳)</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.01" placeholder="0.00" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11 font-mono" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
@@ -1710,8 +1738,8 @@ export function ProductForm({
                 {isSubmitting ? 'Saving...' : product ? 'Update Product' : 'Add Product'}
               </Button>
             </DialogFooter>
-          </form>
-        </Form>
+            </form>
+          </Form>
       </DialogContent>
     </Dialog>
   );

@@ -43,7 +43,7 @@ const searchProducts: ChatCompletionTool = {
         },
         cake_category: {
           type: 'string',
-          description: 'Filter by cake category (e.g., "Vanilla", "Chocolate", "Anniversary"). Optional.',
+          description: 'Filter by cake category (e.g., "Vanilla", "Chocolate", "Anniversary"). Optional. ALWAYS extract and pass this if the customer mentions a specific flavor or cake type.',
         },
         sendCard: {
           type: 'boolean',
@@ -112,7 +112,7 @@ const addToCart: ChatCompletionTool = {
           type: 'number',
           description: 'If a price was negotiated and customer agreed, pass the final agreed price here. This overrides the listed price.',
         },
-        order_description: {
+        customer_description: {
           type: 'string',
           description: "Detailed description of what the customer wants, in their own words. Example: '3 pound chocolate cake with red roses on top'.",
         },
@@ -160,7 +160,7 @@ const updateCustomerInfo: ChatCompletionTool = {
       'CALL WHEN: Customer provides their delivery details (any of: name, phone, address). ' +
       'CALL ONCE with all fields you have — do not call multiple times per turn. ' +
       'Phone validation is handled server-side — pass whatever the customer gave, the system will fix the format. ' +
-      'If this returns success: false, ask the customer for a corrected phone number. DO NOT flag_for_review for phone errors.',
+      'If this returns success: false, communicate the "message" from the tool result clearly to the customer. DO NOT flag_for_review for validation errors; just ask the customer for the corrected information. ',
     parameters: {
       type: 'object',
       properties: {
@@ -222,6 +222,10 @@ const saveOrder: ChatCompletionTool = {
           type: 'string',
           description: 'Required for food/cake businesses. The requested date for delivery. Format: DD/MM/YYYY. Do not pass for clothing businesses. Optional.',
         },
+        delivery_time: {
+          type: 'string',
+          description: 'Required for food/cake businesses. The requested time or slot for delivery (e.g., "before 3 PM", "Morning"). Optional.',
+        },
         flavor: {
           type: 'string',
           description: 'Required for food/cake businesses. The selected flavor (e.g. Chocolate, Vanilla, Red Velvet). Do not pass for clothing businesses. Optional.',
@@ -242,7 +246,7 @@ const saveOrder: ChatCompletionTool = {
           type: 'string',
           description: 'Optional delivery note.',
         },
-        order_description: {
+        customer_description: {
           type: 'string',
           description: "Detailed description of what the customer wants, in their own words. Example: '3 pound chocolate cake with red roses on top'.",
         },
@@ -355,6 +359,10 @@ const calculateDelivery: ChatCompletionTool = {
         address: {
           type: 'string',
           description: 'The delivery address to calculate shipping cost for.',
+        },
+        delivery_zone: {
+          type: 'string',
+          description: 'Optional: The selected delivery zone label (e.g., জেলা সদর, উপজেলা). Use this to ensure accuracy if the address is ambiguous.',
         },
       },
       required: ['address'],

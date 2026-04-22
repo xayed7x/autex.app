@@ -410,13 +410,17 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       
       // STRICT OVERRIDE: Mute the AI's output because LLMs invariably hallucinate their own confirmations.
       // We only want the exact, strict transactional templates from the business owner.
-      finalResponse = messages.orderConfirmed + 
-                      (messages.paymentInstructions ? '\n\n' + messages.paymentInstructions : '');
+      finalResponse = messages.orderConfirmed;
 
-      // Set the flag so the NEXT customer message (2 digits) is fast-pathed
-      // ON for food business, OFF for clothing as requested by owner
       const isFood = settings.businessCategory === 'food';
-      if (isFood && messages.paymentInstructions) {
+
+      // ON for clothing business, OFF for food business as requested by owner
+      // In the future, this will be controlled by a toggle in the AI Setup dashboard.
+      if (!isFood && messages.paymentInstructions) {
+        // Append payment instructions for non-food businesses (e.g. clothing)
+        finalResponse += '\n\n' + messages.paymentInstructions;
+
+        // Set the flag so the NEXT customer message (2 digits) is fast-pathed
         currentContext.metadata.awaitingPaymentDigits = true;
         currentContext.metadata.awaitingPaymentOrderId = currentContext.metadata.latestOrderId;
       }

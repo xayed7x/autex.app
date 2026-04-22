@@ -455,13 +455,13 @@ Delivery Time: ${settings.deliveryTime || '3-5 days'}
 - Payment Info: ${settings.fastLaneMessages?.paymentInfo || 'We accept bKash and Nagad.'}`;
 
   // --- CUSTOM FAQs ---
-  const faqs = (settings as any).custom_faqs;
+  const faqs = settings.customFaqs;
   const faqsBlock = Array.isArray(faqs) && faqs.length > 0
     ? `\n[CUSTOM FAQs - FREQUENTLY ASKED QUESTIONS]\n${faqs.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')}`
     : '';
 
   // --- CONVERSATION EXAMPLES (Few-Shot Learning) ---
-  const examples = (settings as any).conversation_examples;
+  const examples = settings.conversationExamples;
   const examplesBlock = Array.isArray(examples) && examples.length > 0
     ? `\n[CONVERSATION EXAMPLES - FOLLOW THIS STYLE]\n${examples.map((ex: any) => `Scenario: ${ex.scenario || 'General'}\nCustomer: ${ex.customer}\nAgent Response: ${ex.agent}`).join('\n\n')}`
     : '';
@@ -496,6 +496,14 @@ Delivery Time: ${settings.deliveryTime || '3-5 days'}
     block7Dynamic += `\n\n=== NEGOTIATION STATE ===\n${negotiationRules}`;
   }
 
+  // --- BLOCK 8: INFORMATION RETRIEVAL RULES ---
+  const block8InfoRetrieval = `
+[BLOCK 8 - INFORMATION RETRIEVAL RULES]
+- **DELIVERY QUESTIONS**: If a customer asks about delivery (e.g., "কবে পাব?", "delivery কিভাবে হবে?"), you MUST provide the info from \`[BUSINESS POLICIES] -> Delivery Info\` and \`[BLOCK 6] -> Delivery Time\`.
+- **PAYMENT QUESTIONS**: If a customer asks about payment (e.g., "কিভাবে টাকা দেব?", "payment method কি?"), you MUST provide the info from \`[BUSINESS POLICIES] -> Payment Info\` and \`[BLOCK 6] -> Available Payment Methods\`.
+- **STRICT GROUNDING**: Use the EXACT details from the AI Setup page. Do not invent policies.
+`.trim();
+
   const sections = [
     coreConstraints,
     businessContextBlock, // Priority 1: Ground Truth
@@ -508,6 +516,7 @@ Delivery Time: ${settings.deliveryTime || '3-5 days'}
     block6Settings,
     faqsBlock,
     examplesBlock,
+    block8InfoRetrieval,
     block7Dynamic
   ];
 

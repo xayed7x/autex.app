@@ -96,7 +96,6 @@ CREATE TABLE public.order_items (
   product_image_url text,
   created_at timestamp with time zone DEFAULT now(),
   selected_flavor text,
-  pounds numeric,
   CONSTRAINT order_items_pkey PRIMARY KEY (id),
   CONSTRAINT order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.orders(id),
   CONSTRAINT order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
@@ -129,14 +128,13 @@ CREATE TABLE public.orders (
   size_stock_id text,
   delivery_date text,
   flavor text,
-  weight text,
   custom_message text,
-  pounds_ordered numeric,
   cake_category text,
-  price_per_pound numeric,
   customer_description text,
   inspiration_image text,
   delivery_zone text,
+  delivery_time text,
+  staff_note text,
   CONSTRAINT orders_pkey PRIMARY KEY (id),
   CONSTRAINT orders_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT orders_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
@@ -193,11 +191,9 @@ CREATE TABLE public.products (
   media_images ARRAY,
   media_videos ARRAY,
   category text,
-  price_per_pound numeric,
   flavor text,
-  allows_custom_message boolean DEFAULT true,
-  min_pounds numeric DEFAULT 0.5,
-  max_pounds numeric DEFAULT 5.0,
+  flavors jsonb DEFAULT '[]'::jsonb,
+  food_category text,
   CONSTRAINT products_pkey PRIMARY KEY (id),
   CONSTRAINT products_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
@@ -266,6 +262,18 @@ Screenshot পাঠালে আমরা verify করব।'::text,
 নাম:
 ফোন:
 সম্পূর্ণ ঠিকানা:'::text,
+  quick_form_error text NOT NULL DEFAULT 'দুঃখিত, আমি আপনার তথ্যটি সঠিকভাবে বুঝতে পারিনি। 😔
+
+অনুগ্রহ করে নিচের ফর্ম্যাটে আবার দিন:
+
+নাম: আপনার নাম
+ফোন: 017XXXXXXXX
+ঠিকানা: আপনার সম্পূর্ণ ঠিকানা
+
+অথবা একটি লাইন করে দিতে পারেন:
+আপনার নাম
+017XXXXXXXX
+আপনার সম্পূর্ণ ঠিকানা'::text,
   out_of_stock_message text DEFAULT 'দুঃখিত! 😔 "{productName}" এখন স্টকে নেই।
 
 আপনি চাইলে অন্য পণ্যের নাম লিখুন বা স্ক্রিনশট পাঠান। আমরা সাহায্য করতে পারবো! 🛍️'::text,

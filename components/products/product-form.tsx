@@ -122,7 +122,6 @@ interface Product {
   media_images?: string[] | null;
   media_videos?: string[] | null;
   flavors?: string[] | null;
-  weights?: string[] | null;
   flavor?: string | null;
 }
 
@@ -165,7 +164,6 @@ export function ProductForm({
   
   // Food-specific states
   const [flavors, setFlavors] = useState<string[]>([]);
-  const [weights, setWeights] = useState<string[]>([]);
 
   const isFood = businessCategory === 'food';
   const isClothing = businessCategory !== 'food';
@@ -298,16 +296,6 @@ export function ProductForm({
       } else {
         setFlavors([]);
       }
-      
-      if (product.weights) {
-        if (Array.isArray(product.weights)) {
-          setWeights(product.weights);
-        } else if (typeof product.weights === 'string') {
-          setWeights((product.weights as string).split(',').map(w => w.trim()).filter(Boolean));
-        }
-      } else {
-        setWeights([]);
-      }
 
     } else {
       form.reset({
@@ -324,7 +312,6 @@ export function ProductForm({
       setSizeStock([]);
       setVariantStock([]);
       setFlavors([]);
-      setWeights([]);
       // Reset pricing policy
       setIsNegotiable(false);
       setMinPrice('');

@@ -67,7 +67,6 @@ export const createProductSchema = z.object({
   media_images: z.array(z.string()).optional(),
   media_videos: z.array(z.string()).optional(),
   flavors: z.array(z.string()).optional(),
-  weights: z.array(z.string()).optional(),
   flavor: z.string().optional().nullable(),
 });
 
@@ -162,9 +161,6 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
     flavors: formData.get('flavors')
       ? (formData.get('flavors') as string).split(',').map(s => s.trim()).filter(Boolean)
       : undefined,
-    weights: formData.get('weights')
-      ? (formData.get('weights') as string).split(',').map(s => s.trim()).filter(Boolean)
-      : undefined,
     flavor: (formData.get('flavor') as string) || undefined,
   };
 
@@ -233,9 +229,6 @@ export function validateProductUpdateFormData(formData: FormData): UpdateProduct
   }
   if (formData.has('flavors')) {
     data.flavors = (formData.get('flavors') as string).split(',').map((s: string) => s.trim()).filter(Boolean);
-  }
-  if (formData.has('weights')) {
-    data.weights = (formData.get('weights') as string).split(',').map((s: string) => s.trim()).filter(Boolean);
   }
   if (formData.has('flavor')) {
     data.flavor = formData.get('flavor') as string;

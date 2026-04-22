@@ -332,7 +332,6 @@ export async function PATCH(
         ...(updateData.pricing_policy && { pricing_policy: updateData.pricing_policy }),
         ...(updateData.product_attributes && { product_attributes: updateData.product_attributes }),
         ...(updateData.flavors && { flavors: updateData.flavors }),
-        ...(updateData.weights && { weights: updateData.weights }),
         ...(updateData.flavor !== undefined && { flavor: updateData.flavor }),
         media_images: finalMediaImages,
         media_videos: finalMediaVideos,

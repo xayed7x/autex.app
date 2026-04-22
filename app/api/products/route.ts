@@ -425,7 +425,6 @@ export async function POST(request: NextRequest) {
         media_images: finalMediaImages,
         media_videos: finalMediaVideos,
         flavors: productData.flavors || [],
-        weights: productData.weights || [],
         flavor: productData.flavor || null,
       })
       .select()

@@ -581,7 +581,6 @@ export type Database = {
           workspace_id: string
           category: string | null
           flavors: string[] | null
-          weights: string[] | null
           image_hash: string | null
           dominant_colors: string[] | null
           visual_features: Json | null
@@ -610,7 +609,6 @@ export type Database = {
           workspace_id: string
           category?: string | null
           flavors?: string[] | null
-          weights?: string[] | null
           image_hash?: string | null
           dominant_colors?: string[] | null
           visual_features?: Json | null
@@ -639,7 +637,6 @@ export type Database = {
           workspace_id?: string
           category?: string | null
           flavors?: string[] | null
-          weights?: string[] | null
           image_hash?: string | null
           dominant_colors?: string[] | null
           visual_features?: Json | null

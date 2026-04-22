@@ -14,13 +14,19 @@ interface SubscriptionActivatedEmailProps {
   planName: string;
   expiryDate: string;
   daysRemaining: number;
+  amount?: number;
+  paymentMethod?: string;
+  transactionId?: string;
 }
 
 export const SubscriptionActivatedEmail = ({ 
   businessName, 
   planName, 
   expiryDate,
-  daysRemaining 
+  daysRemaining,
+  amount,
+  paymentMethod,
+  transactionId
 }: SubscriptionActivatedEmailProps) => (
   <BaseTemplate preview={`Your ${planName} subscription is now active!`}>
     {/* Header Badge */}
@@ -35,16 +41,45 @@ export const SubscriptionActivatedEmail = ({
     </Text>
     
     <Text style={paragraph}>
-      Great news! Your <strong>{planName}</strong> subscription has been activated.
-      Your bot is now live and ready to serve your customers!
+      Great news! Your <strong>{planName}</strong> subscription has been successfully activated.
+      Your AI Assistant is now ready to handle your customers and orders without interruptions.
     </Text>
     
     {/* Success Box */}
     <Section style={successBox}>
       <Text style={successBoxText}>
-        ✅ <strong>Active until:</strong> {expiryDate} ({daysRemaining} days)
+        ✅ <strong>Plan:</strong> {planName}
+        <br />
+        📅 <strong>Active until:</strong> {expiryDate} ({daysRemaining} days)
       </Text>
     </Section>
+
+    {/* Payment Details (Optional) */}
+    {(amount || paymentMethod) && (
+      <Section style={detailsBox}>
+        <Text style={detailsTitle}>Payment Summary</Text>
+        <table width="100%" cellPadding="0" cellSpacing="0" role="presentation">
+          {amount && (
+            <tr>
+              <td style={detailLabel}>Amount Paid</td>
+              <td style={detailValue}>৳{amount}</td>
+            </tr>
+          )}
+          {paymentMethod && (
+            <tr>
+              <td style={detailLabel}>Method</td>
+              <td style={detailValue}>{paymentMethod.toUpperCase()}</td>
+            </tr>
+          )}
+          {transactionId && (
+            <tr>
+              <td style={detailLabel}>Transaction ID</td>
+              <td style={detailValue}>{transactionId}</td>
+            </tr>
+          )}
+        </table>
+      </Section>
+    )}
     
     <Hr style={divider} />
     
@@ -58,7 +93,7 @@ export const SubscriptionActivatedEmail = ({
     </Section>
     
     <Section style={buttonContainer}>
-      <Button style={primaryButton} href="https://app.autexai.com/dashboard">
+      <Button style={primaryButton} href="https://autexai.com/dashboard">
         Go to Dashboard →
       </Button>
     </Section>
@@ -122,6 +157,38 @@ const successBoxText = {
   color: '#166534', // green-800
   margin: '0',
   textAlign: 'center' as const,
+  lineHeight: '1.5',
+};
+
+const detailsBox = {
+  backgroundColor: '#f8fafc', // slate-50
+  padding: '20px',
+  borderRadius: '12px',
+  margin: '24px 0',
+  border: '1px solid #e2e8f0', // slate-200
+};
+
+const detailsTitle = {
+  fontSize: '12px',
+  fontWeight: '700' as const,
+  color: '#64748b', // slate-500
+  textTransform: 'uppercase' as const,
+  letterSpacing: '0.05em',
+  margin: '0 0 12px',
+};
+
+const detailLabel = {
+  fontSize: '13px',
+  color: '#64748b', // slate-500
+  padding: '4px 0',
+};
+
+const detailValue = {
+  fontSize: '13px',
+  fontWeight: '600' as const,
+  color: '#1e293b', // slate-800
+  padding: '4px 0',
+  textAlign: 'right' as const,
 };
 
 const divider = {

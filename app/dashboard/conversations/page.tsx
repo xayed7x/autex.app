@@ -45,6 +45,7 @@ interface Message {
   message_type: string
   created_at: string
   attachments?: any
+  image_url?: string | null
 }
 
 interface Conversation {
@@ -1031,32 +1032,61 @@ export default function ConversationsPage() {
                                   "bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-white/5 rounded-tl-sm backdrop-blur-md"
                               )}
                             >
-                              {/* Render image attachments */}
-                              {message.attachments && Array.isArray(message.attachments) && message.attachments.length > 0 && (
-                                <div className="space-y-2 mb-2">
-                                  {message.attachments
-                                    .filter((att: any) => att.type === 'image' && att.payload?.url)
-                                    .map((att: any, idx: number) => (
-                                      <a 
-                                        key={idx} 
-                                        href={att.payload.url} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="block group/img overflow-hidden rounded-lg"
-                                      >
-                                        <img 
-                                          src={att.payload.url} 
-                                          alt={`Attachment ${idx + 1}`}
-                                          className="max-w-full max-h-64 object-contain transition-transform duration-500 group-hover/img:scale-105"
-                                          onError={(e) => {
-                                            (e.target as HTMLImageElement).style.display = 'none'
-                                          }}
-                                        />
-                                      </a>
-                                    ))
-                                  }
-                                </div>
-                              )}
+                               {/* Render image from image_url column */}
+                               {(message as any).image_url && (
+                                 <div className="mb-2 overflow-hidden rounded-lg">
+                                   <a 
+                                      href={(message as any).image_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="block group/img"
+                                    >
+                                      <img 
+                                        src={(message as any).image_url} 
+                                        alt="Attachment"
+                                        className="max-w-full max-h-64 object-contain transition-transform duration-500 group-hover/img:scale-105"
+                                      />
+                                    </a>
+                                 </div>
+                               )}
+
+                               {/* Render image attachments */}
+                               {message.attachments && Array.isArray(message.attachments) && message.attachments.length > 0 && (
+                                 <div className="space-y-2 mb-2">
+                                   {message.attachments
+                                     .filter((att: any) => att.type === 'image' && att.payload?.url)
+                                     .map((att: any, idx: number) => (
+                                       <a 
+                                         key={idx} 
+                                         href={att.payload.url} 
+                                         target="_blank" 
+                                         rel="noopener noreferrer"
+                                         className="block group/img overflow-hidden rounded-lg"
+                                       >
+                                         <img 
+                                           src={att.payload.url} 
+                                           alt={`Attachment ${idx + 1}`}
+                                           className="max-w-full max-h-64 object-contain transition-transform duration-500 group-hover/img:scale-105"
+                                           onError={(e) => {
+                                             (e.target as HTMLImageElement).style.display = 'none'
+                                           }}
+                                         />
+                                       </a>
+                                     ))
+                                   }
+                                   
+                                   {/* Render audio attachments */}
+                                   {message.attachments
+                                     .filter((att: any) => att.type === 'audio' && att.payload?.url)
+                                     .map((att: any, idx: number) => (
+                                       <div key={idx} className="bg-black/5 dark:bg-white/5 p-2 rounded-lg flex flex-col gap-1">
+                                         <span className="text-[10px] font-bold opacity-60">🎤 VOICE MESSAGE</span>
+                                         <audio src={att.payload.url} controls className="h-8 w-full max-w-[240px]" />
+                                       </div>
+                                     ))
+                                   }
+                                 </div>
+                               )}
                               
                               {/* Render text message */}
                               {message.message_text && (

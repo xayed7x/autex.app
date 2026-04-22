@@ -175,7 +175,10 @@ export async function POST(
         workspace.name,
         SUBSCRIPTION_PLANS[body.plan].name,
         expiryDate,
-        durationDays
+        durationDays,
+        body.amount,
+        paymentMethod,
+        body.transaction_id
       ).catch(err => console.error('Error sending user activation email:', err))
     }
 

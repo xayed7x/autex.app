@@ -8,6 +8,7 @@
 import { Button, Heading, Text, Hr, Section } from '@react-email/components';
 import * as React from 'react';
 import { BaseTemplate } from './base-template';
+import { SUBSCRIPTION_PLANS } from '../../subscription/utils';
 
 interface TrialExpiredEmailProps {
   businessName: string;
@@ -55,7 +56,7 @@ export const TrialExpiredEmail = ({ businessName }: TrialExpiredEmailProps) => (
     </Section>
     
     <Text style={helpText}>
-      Plans start at <strong>৳1,499/mo</strong>. Pay via bKash to <strong>01915969330</strong>.
+      Plans start at <strong>৳{SUBSCRIPTION_PLANS.starter.price.toLocaleString()}/mo</strong>. Pay via bKash to <strong>01915969330</strong>.
       <br />We'll reactivate within 30 minutes!
     </Text>
   </BaseTemplate>

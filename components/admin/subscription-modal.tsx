@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -40,6 +40,7 @@ import {
   Calendar,
   Ban
 } from 'lucide-react'
+import { SUBSCRIPTION_PLANS, type SubscriptionPlan } from '@/lib/subscription/utils'
 
 interface WorkspaceSubscription {
   id: string
@@ -70,13 +71,35 @@ export function SubscriptionModal({
   const [activeTab, setActiveTab] = useState('activate')
 
   // Form states
-  const [plan, setPlan] = useState('growth')
+  const [plan, setPlan] = useState<SubscriptionPlan>('growth')
   const [duration, setDuration] = useState('30')
   const [amount, setAmount] = useState('2999')
   const [paymentMethod, setPaymentMethod] = useState('bkash')
   const [transactionId, setTransactionId] = useState('')
   const [notes, setNotes] = useState('')
   const [pauseReason, setPauseReason] = useState('')
+
+  // Initialize plan from workspace
+  useEffect(() => {
+    if (workspace && workspace.subscription_plan) {
+      setPlan(workspace.subscription_plan as SubscriptionPlan)
+    }
+  }, [workspace?.id])
+
+  // Auto-calculate amount when plan or duration changes
+  useEffect(() => {
+    const p = SUBSCRIPTION_PLANS[plan]
+    if (p) {
+      if (duration === '365') {
+        setAmount(p.yearlyPrice.toString())
+      } else {
+        // Multi-month calculation (simple linear for now, unless it's exactly 365)
+        const days = parseInt(duration) || 30
+        const months = Math.ceil(days / 30)
+        setAmount((p.price * months).toString())
+      }
+    }
+  }, [plan, duration])
 
   if (!workspace) return null
 
@@ -339,9 +362,11 @@ export function SubscriptionModal({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="starter">Starter (৳1,499)</SelectItem>
-                      <SelectItem value="growth">Growth (৳2,999)</SelectItem>
-                      <SelectItem value="pro">Pro (৳5,999)</SelectItem>
+                      {Object.entries(SUBSCRIPTION_PLANS).map(([key, p]) => (
+                        <SelectItem key={key} value={key}>
+                          {p.name} (৳{p.price.toLocaleString()})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

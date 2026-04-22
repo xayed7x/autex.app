@@ -241,8 +241,17 @@ export async function processMessagingEvent(
     // FILTER ECHOES & SYSTEM MESSAGES
     // ========================================
     if (message?.is_echo) {
-      console.log('🗣️ [ECHO] Ignoring bot\'s own message echo');
-      return;
+      const appId = (message as any).app_id;
+      const ourAppId = process.env.FACEBOOK_APP_ID;
+      
+      // If it's an echo from OUR bot, ignore it (we already saved it)
+      if (appId && String(appId) === String(ourAppId)) {
+        console.log('🗣️ [ECHO] Ignoring bot\'s own message echo');
+        return;
+      }
+      
+      // Otherwise, it's an owner message from Messenger app/Meta Suite - continue processing
+      console.log('👤 [ECHO] Detected manual reply echo from Messenger/Meta Suite');
     }
 
     
@@ -319,6 +328,23 @@ export async function processMessagingEvent(
     if (referral && referral.ref) {
       console.log(`🔗 [REFERRAL] Referral flow triggered. Ref: ${referral.ref}`);
       
+      // Ensure conversation exists for logging
+      const { data: conv } = await supabase.rpc('get_or_create_conversation', {
+        p_workspace_id: fbPageCheck.workspace_id,
+        p_fb_page_id: fbPageCheck.id,
+        p_customer_psid: customerPsid
+      });
+
+      if (conv) {
+        await supabase.from('messages').insert({
+          conversation_id: conv.id,
+          sender: customerPsid,
+          sender_type: 'customer',
+          message_text: `[Referral: ${referral.ref}]`,
+          message_type: 'referral'
+        });
+      }
+
       if (referral.ref.startsWith('product_')) {
         const productId = referral.ref.replace('product_', '');
         await sendReferralProductCard(
@@ -343,6 +369,24 @@ export async function processMessagingEvent(
       // Handle "Get Started" (new thread without product referral)
       if (payload === 'GET_STARTED') {
         console.log(`🚀 [GET_STARTED] Generic welcome for: ${customerPsid}`);
+        
+        // Ensure conversation exists for logging
+        const { data: conv } = await supabase.rpc('get_or_create_conversation', {
+          p_workspace_id: fbPageCheck.workspace_id,
+          p_fb_page_id: fbPageCheck.id,
+          p_customer_psid: customerPsid
+        });
+
+        if (conv) {
+          await supabase.from('messages').insert({
+            conversation_id: conv.id,
+            sender: customerPsid,
+            sender_type: 'customer',
+            message_text: '[Clicked Get Started]',
+            message_type: 'postback'
+          });
+        }
+
         const { sendMessage } = await import('@/lib/facebook/messenger');
         const settings = await getCachedSettings(fbPageCheck.workspace_id);
         
@@ -405,6 +449,15 @@ export async function processMessagingEvent(
             }
 
             if (conversation) {
+              // Log the postback action
+              await supabase.from('messages').insert({
+                conversation_id: conversation.id,
+                sender: customerPsid,
+                sender_type: 'customer',
+                message_text: `[Clicked Order Now: ${product.name}]`,
+                message_type: 'postback'
+              });
+
               const context = conversation.context as any || {};
               const metadata = context.metadata || {};
 
@@ -481,6 +534,7 @@ export async function processMessagingEvent(
             await supabase.from('messages').insert({
               conversation_id: convData.id,
               sender: 'customer',
+              sender_type: 'customer',
               message_text: `More Photos: ${product.name}`,
               message_type: 'postback',
             });
@@ -585,6 +639,7 @@ export async function processMessagingEvent(
               await supabase.from('messages').insert({
                 conversation_id: conversation.id,
                 sender: 'customer',
+                sender_type: 'customer',
                 message_text: `View Details: ${product.name}`,
                 message_type: 'postback',
               });

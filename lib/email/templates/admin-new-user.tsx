@@ -14,6 +14,8 @@ interface AdminNewUserEmailProps {
   businessName: string;
   signupDate: string;
   trialEndsAt: string;
+  workspaceId?: string;
+  phoneNumber?: string;
 }
 
 export const AdminNewUserEmail = ({ 
@@ -22,6 +24,8 @@ export const AdminNewUserEmail = ({
   businessName,
   signupDate,
   trialEndsAt,
+  workspaceId,
+  phoneNumber,
 }: AdminNewUserEmailProps) => (
   <BaseTemplate preview={`🆕 New User: ${businessName} just signed up!`}>
     {/* Header Badge */}
@@ -32,7 +36,7 @@ export const AdminNewUserEmail = ({
     <Heading style={heading}>New User Alert!</Heading>
     
     <Text style={paragraph}>
-      A new user just created an account on Autex AI. They might need help getting started!
+      A new user just created an account on Autex AI. Here are the details of the new business:
     </Text>
     
     {/* User Details Box */}
@@ -43,9 +47,19 @@ export const AdminNewUserEmail = ({
           <td style={detailValue}>{businessName}</td>
         </tr>
         <tr>
+          <td style={detailLabel}>Owner Name</td>
+          <td style={detailValue}>{userName}</td>
+        </tr>
+        <tr>
           <td style={detailLabel}>Email</td>
           <td style={detailValue}>{userEmail}</td>
         </tr>
+        {phoneNumber && (
+          <tr>
+            <td style={detailLabel}>Phone</td>
+            <td style={detailValue}>{phoneNumber}</td>
+          </tr>
+        )}
         <tr>
           <td style={detailLabel}>Signed Up</td>
           <td style={detailValue}>{signupDate}</td>
@@ -57,6 +71,14 @@ export const AdminNewUserEmail = ({
       </table>
     </Section>
     
+    {workspaceId && (
+      <Section style={buttonContainer}>
+        <Button style={primaryButton} href={`https://autexai.com/admin/workspaces/${workspaceId}`}>
+          Manage Workspace →
+        </Button>
+      </Section>
+    )}
+
     <Hr style={divider} />
     
     <Text style={sectionTitle}>Recommended Actions:</Text>
@@ -130,6 +152,23 @@ const detailValue = {
   fontWeight: '600' as const,
   color: '#18181b', // zinc-900
   padding: '6px 0',
+};
+
+const buttonContainer = {
+  textAlign: 'center' as const,
+  margin: '28px 0',
+};
+
+const primaryButton = {
+  backgroundColor: '#18181b', // zinc-900
+  borderRadius: '10px',
+  color: '#ffffff',
+  fontSize: '15px',
+  fontWeight: '600' as const,
+  textDecoration: 'none',
+  textAlign: 'center' as const,
+  display: 'inline-block',
+  padding: '14px 28px',
 };
 
 const divider = {

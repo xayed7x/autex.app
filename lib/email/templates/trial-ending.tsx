@@ -8,6 +8,7 @@
 import { Button, Heading, Text, Hr, Section } from '@react-email/components';
 import * as React from 'react';
 import { BaseTemplate } from './base-template';
+import { SUBSCRIPTION_PLANS } from '../../subscription/utils';
 
 interface TrialEndingEmailProps {
   businessName: string;
@@ -49,18 +50,21 @@ export const TrialEndingEmail = ({ businessName, expiryDate }: TrialEndingEmailP
         <tr>
           <td style={pricingCard}>
             <Text style={planName}>Starter</Text>
-            <Text style={planPrice}>৳1,499<span style={planPeriod}>/mo</span></Text>
+            <Text style={planPrice}>৳{SUBSCRIPTION_PLANS.starter.price.toLocaleString()}<span style={planPeriod}>/mo</span></Text>
+            <Text style={planFeature}>500 Customers</Text>
           </td>
           <td width="12"></td>
           <td style={pricingCardHighlight}>
             <Text style={planBadge}>Popular</Text>
             <Text style={planName}>Growth</Text>
-            <Text style={planPrice}>৳2,999<span style={planPeriod}>/mo</span></Text>
+            <Text style={planPrice}>৳{SUBSCRIPTION_PLANS.growth.price.toLocaleString()}<span style={planPeriod}>/mo</span></Text>
+            <Text style={planFeatureHighlight}>1,500 Customers</Text>
           </td>
           <td width="12"></td>
           <td style={pricingCard}>
             <Text style={planName}>Pro</Text>
-            <Text style={planPrice}>৳5,999<span style={planPeriod}>/mo</span></Text>
+            <Text style={planPrice}>৳{SUBSCRIPTION_PLANS.pro.price.toLocaleString()}<span style={planPeriod}>/mo</span></Text>
+            <Text style={planFeature}>3,500 Customers</Text>
           </td>
         </tr>
       </table>
@@ -191,6 +195,20 @@ const planPeriod = {
   fontSize: '12px',
   fontWeight: '400' as const,
   opacity: 0.7,
+};
+
+const planFeature = {
+  fontSize: '11px',
+  color: '#71717a', // zinc-500
+  margin: '8px 0 0',
+  fontWeight: '500' as const,
+};
+
+const planFeatureHighlight = {
+  fontSize: '11px',
+  color: '#a1a1aa', // zinc-400
+  margin: '8px 0 0',
+  fontWeight: '500' as const,
 };
 
 const buttonContainer = {

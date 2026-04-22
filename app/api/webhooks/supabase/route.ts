@@ -64,6 +64,13 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      // Try to get phone number from profiles if it exists
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('phone')
+        .eq('id', ownerId)
+        .single();
+
       // Send welcome email to user
       const result = await sendWelcomeEmail(
         user.email,
@@ -78,7 +85,9 @@ export async function POST(request: NextRequest) {
         user.user_metadata?.full_name || workspaceName,
         user.email,
         workspaceName,
-        new Date(trialEndsAt)
+        new Date(trialEndsAt),
+        workspaceId,
+        profile?.phone || undefined
       );
 
       console.log('[Webhook] Admin notification result:', adminResult);

@@ -38,6 +38,7 @@ export async function GET(
           message_text,
           message_type,
           attachments,
+          image_url,
           created_at
         )
       `)

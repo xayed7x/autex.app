@@ -123,6 +123,7 @@ export async function GET(
         senderType: msg.sender_type,
         text: msg.message_text,
         attachments: msg.attachments,
+        imageUrl: msg.image_url,
         createdAt: msg.created_at,
       })),
       order: order ? {

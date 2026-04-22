@@ -133,7 +133,10 @@ export async function sendSubscriptionActivatedEmail(
   businessName: string,
   planName: string,
   expiryDate: Date,
-  daysRemaining: number
+  daysRemaining: number,
+  amount?: number,
+  paymentMethod?: string,
+  transactionId?: string
 ): Promise<SendEmailResult> {
   try {
     const { data, error } = await resend.emails.send({
@@ -145,6 +148,9 @@ export async function sendSubscriptionActivatedEmail(
         planName,
         expiryDate: formatDate(expiryDate),
         daysRemaining,
+        amount,
+        paymentMethod,
+        transactionId,
       }),
     });
 
@@ -246,7 +252,9 @@ export async function sendAdminNewUserEmail(
   userName: string,
   userEmail: string,
   businessName: string,
-  trialEndsAt: Date
+  trialEndsAt: Date,
+  workspaceId?: string,
+  phoneNumber?: string
 ): Promise<SendEmailResult> {
   try {
     const { data, error } = await resend.emails.send({
@@ -259,6 +267,8 @@ export async function sendAdminNewUserEmail(
         businessName,
         signupDate: formatDate(new Date()),
         trialEndsAt: formatDate(trialEndsAt),
+        workspaceId,
+        phoneNumber,
       }),
     });
 

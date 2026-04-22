@@ -23,6 +23,7 @@ interface Message {
   senderType: 'customer' | 'bot' | 'owner'
   text: string | null
   attachments: any
+  imageUrl?: string | null
   createdAt: string
 }
 
@@ -232,13 +233,47 @@ export default function ConversationDetailPage() {
                           ? 'bg-muted text-left'
                           : 'bg-primary/10 text-left'
                       }`}>
-                        {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0 ? (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <ImageIcon className="h-4 w-4" />
-                            <span>Image attachment</span>
+                        {/* Images */}
+                        {msg.imageUrl && (
+                          <div className="mb-2 overflow-hidden rounded-lg">
+                            <img src={msg.imageUrl} alt="Attachment" className="max-w-full h-auto" />
                           </div>
-                        ) : (
-                          <p className="text-sm whitespace-pre-wrap">{msg.text || '(empty)'}</p>
+                        )}
+                        
+                        {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+                          <div className="space-y-2 mb-2">
+                            {msg.attachments
+                              .filter((att: any) => att.type === 'image' && att.payload?.url)
+                              .map((att: any, idx: number) => (
+                                <div key={idx} className="overflow-hidden rounded-lg">
+                                  <img 
+                                    src={att.payload.url} 
+                                    alt={`Attachment ${idx + 1}`}
+                                    className="max-w-full h-auto"
+                                  />
+                                </div>
+                              ))
+                            }
+                            {msg.attachments
+                              .filter((att: any) => att.type === 'audio' && att.payload?.url)
+                              .map((att: any, idx: number) => (
+                                <div key={idx} className="bg-black/5 p-2 rounded flex items-center gap-2">
+                                  <span className="text-xs">🎤 Voice Message</span>
+                                  <audio src={att.payload.url} controls className="h-8 max-w-[200px]" />
+                                </div>
+                              ))
+                            }
+                          </div>
+                        )}
+
+                        {/* Text */}
+                        {msg.text && (
+                          <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                        )}
+                        
+                        {/* If no content at all */}
+                        {!msg.text && !msg.imageUrl && (!msg.attachments || msg.attachments.length === 0) && (
+                          <p className="text-sm italic text-muted-foreground">(empty message)</p>
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">

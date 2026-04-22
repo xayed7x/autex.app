@@ -36,13 +36,10 @@ export interface ProductSearchResult {
   product_attributes: Record<string, any> | null;
   media_images: string[];
   media_videos: string[];
+  category: string | null;
   flavors?: string[];
   weights?: string[];
   flavor?: string | null;
-  price_per_pound?: number | null;
-  allows_custom_message?: boolean;
-  min_pounds?: number;
-  max_pounds?: number;
 }
 
 export interface SearchProductsOutput {
@@ -81,14 +78,6 @@ export async function searchProducts(
   flavor?: string
 ): Promise<SearchProductsOutput> {
   const trimmedQuery = query.trim();
-
-  if (!trimmedQuery && !flavor) {
-    return {
-      success: false,
-      products: [],
-      message: 'Empty search query.',
-    };
-  }
 
   if (!workspaceId) {
     return {
@@ -198,13 +187,10 @@ function toCompactProduct(row: Record<string, any>, requestedSize?: string, requ
     product_attributes: row.product_attributes || null,
     media_images: row.media_images || [],
     media_videos: row.media_videos || [],
+    category: row.category || null,
     flavors: Array.isArray(row.flavors) ? row.flavors : [],
     weights: Array.isArray(row.weights) ? row.weights : [],
     flavor: row.flavor ?? null,
-    price_per_pound: row.price_per_pound ?? null,
-    allows_custom_message: row.allows_custom_message ?? true,
-    min_pounds: row.min_pounds ?? 0.5,
-    max_pounds: row.max_pounds ?? 5.0,
   };
 }
 

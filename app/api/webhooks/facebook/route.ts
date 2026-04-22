@@ -6,6 +6,7 @@ import {
   MessagingEvent,
 } from '@/lib/facebook/utils';
 import { processMessage } from '@/lib/conversation/orchestrator';
+import { getCachedSettings } from '@/lib/workspace/settings-cache';
 import { processingLock } from '@/lib/conversation/processing-lock';
 import { logApiUsage } from '@/lib/ai/usage-tracker';
 import { transcribeVoiceMessage } from '@/lib/ai/voice-transcription';
@@ -174,6 +175,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// In-memory set to track processed event IDs within the current execution context
+// to prevent race conditions during parallel webhook processing.
+const processedEventIds = new Set<string>();
+
 /**
  * Process a single messaging event
  * 
@@ -188,7 +193,50 @@ export async function processMessagingEvent(
     const { sender, recipient, timestamp, message } = event;
     const senderId = sender.id;
     const recipientId = recipient.id;
+    const messageId = message?.mid || 'no-mid';
+    const messageText = message?.text || '';
     
+    // ========================================
+    // 0. ROBUST IDEMPOTENCY LOCK
+    // ========================================
+    const eventId = generateEventId(entryId, timestamp, messageId);
+    
+    // Check in-memory first (fastest)
+    if (processedEventIds.has(eventId)) {
+      console.log(`🛡️ [IDEMPOTENCY] Blocked in-memory duplicate: ${eventId}`);
+      return;
+    }
+    
+    // Check DB (source of truth)
+    const { data: existingEvent } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .eq('event_id', eventId)
+      .single();
+
+    if (existingEvent) {
+      console.log(`🛡️ [IDEMPOTENCY] Blocked database duplicate: ${eventId}`);
+      processedEventIds.add(eventId); // Sync memory
+      return;
+    }
+
+    // Immediate insertion to lock the event ID
+    try {
+      await supabase.from('webhook_events').insert({
+        event_id: eventId,
+        event_type: 'messaging',
+        payload: event,
+      });
+      processedEventIds.add(eventId);
+      // Auto-cleanup memory after 60 seconds
+      setTimeout(() => processedEventIds.delete(eventId), 60000);
+    } catch (dbError) {
+      // If insertion fails, it's likely a race condition where another thread just inserted it
+      console.log(`🛡️ [IDEMPOTENCY] Blocked concurrent duplicate (DB insertion failed): ${eventId}`);
+      processedEventIds.add(eventId);
+      return;
+    }
+
     // ========================================
     // FILTER ECHOES & SYSTEM MESSAGES
     // ========================================
@@ -235,16 +283,38 @@ export async function processMessagingEvent(
     
     console.log(`🔍 [SOURCE DETECTION] Workspace: ${fbPageCheck.workspace_id}, Is Owner: ${isOwnerMessage}, Customer: ${customerPsid}`);
 
-    // If it's a customer message and the bot is enabled, take thread control from Meta Business Suite
-    if (!isOwnerMessage && fbPageCheck.bot_enabled) {
-      console.log('🤖 [HANDOVER] Requesting thread control for customer assist');
-      const { takeThreadControl } = await import('@/lib/facebook/messenger');
-      await takeThreadControl(pageId, customerPsid);
+    // Immediate Sender Action: Mark as Seen
+    if (!isOwnerMessage) {
+      const { markSeen } = await import('@/lib/facebook/messenger');
+      await markSeen(actualPageId, customerPsid);
     }
 
+    // If it's a customer message and the bot is enabled, take thread control from Meta Business Suite
+    if (!isOwnerMessage && fbPageCheck.bot_enabled) {
+      try {
+        console.log('🤖 [HANDOVER] Requesting thread control for customer assist');
+        const { takeThreadControl } = await import('@/lib/facebook/messenger');
+        await takeThreadControl(pageId, customerPsid);
+      } catch (handoverError) {
+        console.warn('⚠️ [HANDOVER] Could not take thread control (non-fatal):', handoverError);
+        // Continue anyway - bot can still respond without thread control in many cases
+      }
+    }
 
-
+    // ========================================
+    // GLOBAL BOT TOGGLE CHECK
+    // ========================================
     const referral = event.referral || event.postback?.referral;
+    if (!isOwnerMessage && fbPageCheck.bot_enabled === false) {
+      console.log(`🛑 Bot disabled for page ${pageId} - skipping AI processing`);
+      // Standard messages will be logged later in the flow if we don't return here.
+      // But for postbacks and referrals, we should just halt.
+      if (event.postback || referral) {
+        return;
+      }
+      // For regular messages, we let it fall through to the message logging part 
+      // but we must ENSURE we don't hit the orchestrator or transcription.
+    }
     
     if (referral && referral.ref) {
       console.log(`🔗 [REFERRAL] Referral flow triggered. Ref: ${referral.ref}`);
@@ -274,10 +344,12 @@ export async function processMessagingEvent(
       if (payload === 'GET_STARTED') {
         console.log(`🚀 [GET_STARTED] Generic welcome for: ${customerPsid}`);
         const { sendMessage } = await import('@/lib/facebook/messenger');
+        const settings = await getCachedSettings(fbPageCheck.workspace_id);
+        
         await sendMessage(
           pageId,
           customerPsid,
-          "আসসালামু আলাইকুম! 😊 আমি Meem, এই shop এর sales team এ আছি। কীভাবে সাহায্য করতে পারি? 🛍️"
+          settings.greeting || "আসসালামু আলাইকুম! 😊 আমি Meem, এই shop এর sales team এ আছি। কীভাবে সাহায্য করতে পারি? 🛍️"
         );
         return; // Halt standard processing
       }
@@ -290,7 +362,7 @@ export async function processMessagingEvent(
         // Fetch product details
         const { data: product } = await supabase
           .from('products')
-          .select('id, name, price_per_pound, flavor, allows_custom_message')
+          .select('id, name, price, flavor')
           .eq('id', productId)
           .single();
 
@@ -298,7 +370,7 @@ export async function processMessagingEvent(
           // ENSURE CONVERSATION EXISTS
           const { data: fbPage } = await supabase
             .from('facebook_pages')
-            .select('id, workspace_id')
+            .select('id, workspace_id, bot_enabled')
             .eq('id', pageId)
             .single();
 
@@ -339,10 +411,8 @@ export async function processMessagingEvent(
               // Update conversation context
               metadata.activeProductId = product.id;
               metadata.activeProductName = product.name;
-              metadata.pricePerPound = product.price_per_pound;
               metadata.flavor = product.flavor;
-              metadata.allowsCustomMessage = product.allows_custom_message;
-              metadata.orderStage = 'COLLECTING_POUNDS';
+              metadata.orderStage = 'COLLECTING_INFO';
               context.metadata = metadata;
 
               // Save updated context to DB
@@ -352,14 +422,32 @@ export async function processMessagingEvent(
                 .eq('id', conversation.id);
 
               // Call processMessage with a system-injected message
+              // Trigger the Quick Form (Name, Phone, Address, Design, Flavor, Date)
+              const settings = await getCachedSettings(fbPage.workspace_id);
+              const quickForm = settings.quick_form_prompt || `🌸✨ কেক অর্ডার ফর্ম ✨🌸
+প্রিয় গ্রাহক, অনুগ্রহ করে অর্ডার কনফার্ম করার জন্য নিচের ফর্মটি একবারে সম্পূর্ণ কপি করে পূরণ করে পাঠান —
+
+⬇️ এই ফরম্যাটে লিখুন: ⬇️
+
+1️⃣ জেলা সদর / উপজেলা:
+2️⃣ সম্পূর্ণ ঠিকানা:
+3️⃣ মোবাইল নম্বর:
+4️⃣ কেকের ডিজাইন ও শুভেচ্ছা বার্তা:
+5️⃣ কেকের ফ্লেভার:
+6️⃣ ডেলিভারির তারিখ ও সময়:
+
+📌 বিশেষ অনুরোধ:
+👉 অনুগ্রহ করে সকল তথ্য একসাথে ও সঠিকভাবে পাঠাবেন। আলাদা আলাদা করে তথ্য দিলে অর্ডার প্রসেস করতে সমস্যা হয়।`;
+
               await processMessage({
                 workspaceId: fbPage.workspace_id,
                 fbPageId: Number(fbPage.id),
                 conversationId: conversation.id,
                 customerPsid,
                 pageId,
-                messageText: `[SYSTEM: Customer clicked Order Now for product: ${product.name} (${product.flavor}). Price: ৳${product.price_per_pound} per pound. Start order collection. First ask: কত pound এর cake চান Sir?]`,
+                messageText: `[SYSTEM: Customer clicked Order Now for product: ${product.name} (${product.flavor}). START ORDER COLLECTION using THIS QUICK FORM: \n\n${quickForm}]`,
                 isTestMode: false,
+                botEnabled: fbPage.bot_enabled,
               });
             }
           }
@@ -541,20 +629,14 @@ export async function processMessagingEvent(
     // HANDLE MESSAGES
     // ========================================
     
-    if (!message || !message.mid) {
-      console.log('Skipping non-message event');
-      return;
-    }
-
-    const messageText = message.text || '';
-    const messageId = message.mid;
-    const replyToMid = message.reply_to?.mid || null;
+    // All IDs and text already captured at top of function
+    const replyToMid = message?.reply_to?.mid || null;
 
     // Extract image URL if present
     let imageUrl: string | undefined;
-    let modifiedMessageText = message.text || '';
+    let modifiedMessageText = message?.text || '';
 
-    if (message.attachments && message.attachments.length > 0) {
+    if (message?.attachments && message.attachments.length > 0) {
       // Handle Images
       const imageAttachment = message.attachments.find(
         (att) => att.type === 'image'
@@ -572,7 +654,7 @@ export async function processMessagingEvent(
         console.log('🎙️ Audio attachment detected');
         
         // We only transcribe customer messages for the bot
-        if (!isOwnerMessage && fbPageCheck?.encrypted_access_token) {
+        if (!isOwnerMessage && fbPageCheck?.encrypted_access_token && fbPageCheck.bot_enabled) {
           try {
             const accessToken = decryptToken(fbPageCheck.encrypted_access_token);
             const transcript = await transcribeVoiceMessage(audioAttachment.payload.url, accessToken);
@@ -590,14 +672,14 @@ export async function processMessagingEvent(
             } else {
               // Transcription failed - send fallback and stop
               const { sendMessage } = await import('@/lib/facebook/messenger');
-              await sendMessage(pageId, customerPsid, "দুঃখিত, আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু টেক্সট এ লিখে জানাতেন তাহলে আমি আপনাকে দ্রুত সাহায্য করতে পারতাম। 😊");
+              await sendMessage(pageId, customerPsid, "আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু লিখে জানাতেন, তাহলে অনেক সুবিধা হতো। 😊");
               return;
             }
           } catch (error) {
             console.error('❌ Error transcribing voice message:', error);
             // Fallback
             const { sendMessage } = await import('@/lib/facebook/messenger');
-            await sendMessage(pageId, customerPsid, "দুঃখিত, আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু টেক্সট এ লিখে জানাতেন তাহলে আমি আপনাকে দ্রুত সাহায্য করতে পারতাম। 😊");
+            await sendMessage(pageId, customerPsid, "আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু লিখে জানাতেন, তাহলে অনেক সুবিধা হতো। 😊");
             return;
           }
         } else {
@@ -606,29 +688,6 @@ export async function processMessagingEvent(
       }
     }
 
-    // ========================================
-    // CHECK IDEMPOTENCY
-    // ========================================
-    
-    const eventId = generateEventId(entryId, timestamp, messageId);
-
-    const { data: existingEvent } = await supabase
-      .from('webhook_events')
-      .select('id')
-      .eq('event_id', eventId)
-      .single();
-
-    if (existingEvent) {
-      console.log(`Duplicate event detected: ${eventId}`);
-      return;
-    }
-
-    // Log event
-    await supabase.from('webhook_events').insert({
-      event_id: eventId,
-      event_type: 'messaging',
-      payload: event,
-    });
 
     // ========================================
     // FIND OR CREATE CONVERSATION
@@ -737,20 +796,24 @@ export async function processMessagingEvent(
       });
       
       // Update conversation to hybrid mode and track manual reply
-      const currentMode = conversation.control_mode || 'bot';
-      const newMode = currentMode === 'manual' ? 'manual' : 'hybrid';
+      // Always transition to hybrid — the owner replying IS handling the flagged request
+      const newMode = 'hybrid';
       
       await supabase
         .from('conversations')
         .update({
           control_mode: newMode,
           last_manual_reply_at: new Date().toISOString(),
-          last_manual_reply_by: 'owner', // Could be user ID if we track it
+          last_manual_reply_by: 'owner',
           last_message_at: new Date(timestamp).toISOString(),
+          // Clear manual flag — owner has handled it by replying
+          needs_manual_response: false,
+          manual_flag_reason: null,
+          manual_flagged_at: null,
         })
         .eq('id', conversation.id);
       
-      console.log(`✅ [OWNER MESSAGE] Saved message, control_mode set to: ${newMode}`);
+      console.log(`✅ [OWNER MESSAGE] Saved message, control_mode set to: ${newMode}, manual flag cleared`);
       console.log('⏭️ [OWNER MESSAGE] Skipping bot processing');
       
       // Skip bot processing entirely for owner messages
@@ -788,12 +851,12 @@ export async function processMessagingEvent(
     }
 
     // ========================================
-    // CHECK GLOBAL BOT TOGGLE
+    // CHECK GLOBAL BOT TOGGLE (Redundant check for regular messages)
     // ========================================
     
     // Check if bot is globally disabled for this page
     if (fbPage.bot_enabled === false) {
-      console.log(`🛑 Bot disabled for page ${pageId} - skipping processing`);
+      console.log(`🛑 Bot disabled for page ${pageId} - saving message only`);
       
       // Still save the customer message to database
       await supabase.from('messages').insert({
@@ -972,6 +1035,10 @@ export async function processMessagingEvent(
         }
       }
 
+      // Show typing indicator
+      const { typingOn } = await import('@/lib/facebook/messenger');
+      await typingOn(pageId, customerPsid);
+
       await processMessage({
         pageId,
         customerPsid,
@@ -982,6 +1049,7 @@ export async function processMessagingEvent(
         workspaceId: fbPage.workspace_id,
         fbPageId: fbPage.id,
         conversationId: conversation.id,
+        botEnabled: fbPage.bot_enabled,
       });
 
       console.log('✅ Message processed successfully');
@@ -1050,6 +1118,12 @@ export async function processInstagramMessagingEvent(
 
     console.log(`📸 [INSTAGRAM] Is Owner Message: ${isOwnerMessage}`);
     console.log(`📸 [INSTAGRAM] Customer IGSID: ${customerIgsid}`);
+
+    // Immediate Sender Action: Mark as Seen
+    if (!isOwnerMessage) {
+      const { markSeen } = await import('@/lib/facebook/messenger');
+      await markSeen(pageId, customerIgsid);
+    }
 
     // ========================================
     // HANDLE POSTBACKS (Instagram has limited support)
@@ -1414,6 +1488,7 @@ export async function processInstagramMessagingEvent(
         workspaceId: fbPage.workspace_id,
         fbPageId: fbPage.id,
         conversationId: conversation.id,
+        botEnabled: fbPage.ig_bot_enabled,
       });
 
       console.log('✅ [INSTAGRAM] Message processed successfully');

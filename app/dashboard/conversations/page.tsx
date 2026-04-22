@@ -170,12 +170,24 @@ export default function ConversationsPage() {
     scrollToBottom()
   }, [selectedConversation?.messages, detailLoading])
 
-  // Handle URL query params for filter
+  // Handle URL query params for filter and deep-linking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    
+    // Filter deep-linking
     if (params.get('filter') === 'needs_reply') {
       setNeedsReplyFilter(true)
       // Clean up URL
+      window.history.replaceState({}, '', '/dashboard/conversations')
+    }
+    
+    // Conversation deep-linking
+    const conversationId = params.get('id')
+    if (conversationId) {
+      console.log('🔗 Deep-linking to conversation:', conversationId)
+      setMobileView("chat")
+      fetchConversationDetail(conversationId)
+      // Clean up URL to prevent re-triggering if user refreshes
       window.history.replaceState({}, '', '/dashboard/conversations')
     }
   }, [])
@@ -351,6 +363,25 @@ export default function ConversationsPage() {
       if (!response.ok) throw new Error("Failed to fetch conversation detail")
       
       const data = await response.json()
+      
+      // If this conversation was flagged, the server already cleared it in DB.
+      // Locally reflect that immediately so the badge disappears.
+      if (data.needs_manual_response) {
+        data.needs_manual_response = false
+        data.manual_flag_reason = null
+        
+        // Update the item in the main list too so the sidebar badge disappears
+        setConversations(prev => prev.map(conv => {
+          if (conv.id === id) {
+            return { ...conv, needs_manual_response: false, manual_flag_reason: null }
+          }
+          return conv
+        }))
+        
+        // Notify TopBar to refresh its badge count
+        window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
+      }
+      
       setSelectedConversation(data)
     } catch (error) {
       console.error("Error fetching conversation detail:", error)
@@ -476,9 +507,13 @@ export default function ConversationsPage() {
         }
       })
 
-      // Show appropriate toast message
+      // Show appropriate toast message based on the actual new mode from server
       if (wasFlagged) {
-        toast.success('✅ Message sent! Conversation moved to Hybrid mode (bot paused for 30 min)')
+        if (data.control_mode === 'manual') {
+          toast.success('✅ Message sent! Staying in Manual mode')
+        } else {
+          toast.success('✅ Message sent! Conversation moved to Hybrid mode (bot paused for 30 min)')
+        }
         // Re-fetch conversations to update the local badge count
         fetchConversations()
         // Dispatch event to notify TopBar to refresh its badge
@@ -749,8 +784,8 @@ export default function ConversationsPage() {
                               </span>
                             </div>
 
-                            {/* Alert Indicators */}
-                            {(badge.needsAttention || conv.needs_manual_response) && (
+                            {/* Alert Indicators - Only show if not in Bot/Hybrid mode */}
+                            {conv.control_mode !== 'bot' && conv.control_mode !== 'hybrid' && (badge.needsAttention || conv.needs_manual_response) && (
                               <div className="flex items-center gap-1 mt-1.5 animate-pulse">
                                 <span className={cn("text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 border",
                                     isSelected 
@@ -913,11 +948,37 @@ export default function ConversationsPage() {
                 conversation={selectedConversation}
                 onModeChange={(mode) => {
                   // Update local state with new mode
-                  setSelectedConversation(prev => prev ? {
-                    ...prev,
-                    control_mode: mode,
-                    last_manual_reply_at: mode === 'bot' ? null : prev.last_manual_reply_at,
-                  } : prev)
+                  setSelectedConversation(prev => {
+                    if (!prev) return prev
+                    const isClearingFlag = mode === 'bot' || mode === 'hybrid'
+                    return {
+                      ...prev,
+                      control_mode: mode,
+                      last_manual_reply_at: mode === 'bot' ? null : prev.last_manual_reply_at,
+                      // Clear manual flag locally when switching modes
+                      needs_manual_response: isClearingFlag ? false : prev.needs_manual_response,
+                      manual_flag_reason: isClearingFlag ? null : prev.manual_flag_reason,
+                    }
+                  })
+
+                  // Also update the item in the conversations list so the sidebar badge disappears
+                  setConversations(prev => prev.map(conv => {
+                    if (conv.id === selectedConversation.id) {
+                      const isClearingFlag = mode === 'bot' || mode === 'hybrid'
+                      return {
+                        ...conv,
+                        control_mode: mode,
+                        needs_manual_response: isClearingFlag ? false : conv.needs_manual_response,
+                        manual_flag_reason: isClearingFlag ? null : conv.manual_flag_reason,
+                      }
+                    }
+                    return conv
+                  }))
+
+                  // Dispatch event to refresh notification badge in TopBar
+                  if (mode === 'bot' || mode === 'hybrid') {
+                    window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
+                  }
                 }}
               />
 

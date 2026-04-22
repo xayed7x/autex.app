@@ -84,8 +84,8 @@ export function renderOrderConfirmationMessages(
       .replace(/\{paymentNumber\}/g, paymentDetails)
       .replace(/\{\{PAYMENT_DETAILS\}\}/g, paymentDetails);
     
-    // Safety: remove any leftover {totalAmount} or {subtotal} placeholders 
-    // Payment instructions should ONLY show delivery charge, never total
+    // Safety Override: For payment instructions, we ALWAYS want to ask for the delivery charge 
+    // as an advance fee, even if the user accidentally uses {totalAmount} in their template.
     paymentInstructions = paymentInstructions
       .replace(/\{totalAmount\}/g, String(orderData.deliveryCharge))
       .replace(/\{subtotal\}/g, String(orderData.deliveryCharge));

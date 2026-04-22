@@ -28,7 +28,6 @@ interface Product {
   sizes?: string[] | null;
   size_stock?: SizeStockItem[] | null;
   flavors?: string[] | null;
-  weights?: string[] | null;
 }
 
 interface ProductDetailsModalProps {
@@ -50,14 +49,13 @@ export function ProductDetailsModal({ product, open, onClose }: ProductDetailsMo
   const images = product.image_urls || [];
   const selectedImage = images[selectedImageIndex] || images[0];
 
-  const isFood = product.category === 'food' || (product.flavors && product.flavors.length > 0) || (product.weights && product.weights.length > 0);
+  const isFood = product.category === 'food' || (product.flavors && product.flavors.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto bg-zinc-950/95 dark:backdrop-blur-xl border-white/10 shadow-2xl p-0 gap-0">
         <DialogHeader className="p-6 pb-4 border-b border-white/10 bg-white/5 flex flex-row items-center justify-between">
           <DialogTitle className="text-xl font-serif tracking-wide text-white">Product Overview</DialogTitle>
-          {/* Close button is handled by DialogPrimitive, strictly semantic header here */}
         </DialogHeader>
 
         <div className="grid grid-cols-1 md:grid-cols-2">
@@ -140,20 +138,6 @@ export function ProductDetailsModal({ product, open, onClose }: ProductDetailsMo
               </div>
             )}
 
-            {/* Weights / Sizes (Food Only) */}
-            {product.weights && product.weights.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Available Weights (Pound)</h4>
-                <div className="flex flex-wrap gap-2">
-                  {product.weights.map((weight) => (
-                    <div key={weight} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-zinc-300 font-mono">
-                      {weight}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Colors (Clothing Only) */}
             {!isFood && product.colors && product.colors.length > 0 && (
               <div className="space-y-2">
@@ -206,7 +190,7 @@ export function ProductDetailsModal({ product, open, onClose }: ProductDetailsMo
               </div>
             )}
             
-            {/* Footer Action (Optional, e.g. Close or Edit) */} 
+            {/* Footer Action */} 
             <div className="pt-4 mt-auto">
                <button 
                   onClick={onClose}

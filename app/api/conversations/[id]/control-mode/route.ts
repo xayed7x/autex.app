@@ -98,11 +98,21 @@ export async function PATCH(
       control_mode,
     }
 
-    // If switching to bot mode, clear manual reply tracking
+    // If switching to bot mode, clear manual reply tracking and manual flags
     if (control_mode === 'bot' || clear_pause) {
       updateData.last_manual_reply_at = null
       updateData.last_manual_reply_by = null
       updateData.bot_pause_until = null
+      updateData.needs_manual_response = false
+      updateData.manual_flag_reason = null
+      updateData.manual_flagged_at = null
+    }
+
+    // If switching to hybrid, clear manual flags (owner is taking over partially)
+    if (control_mode === 'hybrid') {
+      updateData.needs_manual_response = false
+      updateData.manual_flag_reason = null
+      updateData.manual_flagged_at = null
     }
 
     // If switching to manual, track when it was set

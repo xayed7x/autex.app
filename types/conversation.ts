@@ -66,6 +66,7 @@ export interface CheckoutInfo {
   paymentMethod?: 'cod' | 'bkash' | 'nagad' | 'bank';
   paymentLastTwoDigits?: string;
   deliveryDate?: string; // NEW: For food businesses
+  deliveryTime?: string; // NEW: For food businesses
   // Partial form data for Quick Form
   partialForm?: any;
 }
@@ -170,6 +171,14 @@ export interface PendingImage {
     media_videos?: string[];
     description?: string;
     product_attributes?: Record<string, any>;
+    aiAnalysis?: {
+      category?: string;
+      color?: string;
+      material?: string;
+      visual_description_keywords?: string[];
+      brand_text?: string;
+    };
+    isInspiration?: boolean;
   };
 }
 

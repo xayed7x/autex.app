@@ -58,13 +58,15 @@ interface Order {
   product_id?: string
   conversation_id?: string
   delivery_date?: string
+  delivery_time?: string
   flavor?: string
   weight?: string
   custom_message?: string
   pounds_ordered?: number
   delivery_zone?: string
-  order_description?: string
+  customer_description?: string
   inspiration_image?: string
+  staff_note?: string
   order_items?: OrderItem[]
   products?: { name: string; image_urls?: string[] }
 }
@@ -128,7 +130,15 @@ export default function OrdersPage() {
           }
         } else if (payload.eventType === 'UPDATE') {
           const updatedOrder = payload.new as Order
-          setOrders((prev) => prev.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)))
+          setOrders((prev) => prev.map((order) => {
+            if (order.id === updatedOrder.id) {
+              if (selectedOrder?.id === updatedOrder.id) {
+                setSelectedOrder(updatedOrder)
+              }
+              return updatedOrder
+            }
+            return order
+          }))
         } else if (payload.eventType === 'DELETE') {
            const deletedId = payload.old.id
            setOrders((prev) => prev.filter((order) => order.id !== deletedId))

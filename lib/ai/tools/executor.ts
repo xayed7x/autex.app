@@ -152,10 +152,10 @@ async function executeSearchProducts(
   const size = args.size ? String(args.size) : undefined;
   const color = args.color ? String(args.color) : undefined;
   const cakeCategory = args.cake_category ? String(args.cake_category) : undefined;
+  
   const searchResult = await searchProducts(query, ctx.workspaceId, size, color, cakeCategory);
 
   const sendCard = args.sendCard === true;
-  // Default false if not specified (to avoid spamming UI)
 
   return {
     result: {
@@ -203,15 +203,22 @@ async function executeAddToCart(
     }
   }
 
-  const quantity = Number(args.quantity) || 1;
+  let quantity = Number(args.quantity) || 1;
+  const isFood = ctx.settings.businessCategory === 'food';
+  
+  // SAFETY: If it's a cake business, AI often hallucinates quantity: 2 
+  // because of "(2 Pound)" in the name. Default to 1 unless it's a clear multiple-order.
+  if (isFood && quantity > 1 && !ctx.messageText.match(/\b(২|2|two|দুই)\s*(টা|টি|pcs|pieces|cakes)\b/i)) {
+    console.log(`⚠️ [FOOD SAFETY] Quantitiy ${quantity} looked like a hallucination. Normalizing to 1 for cake order.`);
+    quantity = 1;
+  }
   const selectedSize = args.selectedSize ? String(args.selectedSize) : undefined;
   const selectedColor = args.selectedColor ? String(args.selectedColor) : undefined;
   const negotiatedPrice = args.negotiatedPrice ? Number(args.negotiatedPrice) : undefined;
   const deliveryDate = args.delivery_date ? String(args.delivery_date) : undefined;
+  const deliveryTime = args.delivery_time ? String(args.delivery_time) : undefined;
   const flavor = args.flavor ? String(args.flavor) : undefined;
-  const weight = args.weight ? String(args.weight) : undefined;
   const customMessage = args.custom_message ? String(args.custom_message) : undefined;
-  const poundsOrdered = args.pounds_ordered ? Number(args.pounds_ordered) : undefined;
 
   if (!productId) {
     return {
@@ -232,7 +239,6 @@ async function executeAddToCart(
 
   const productAny = product as Record<string, any>;
   const stockQuantity = productAny.stock_quantity ?? 0;
-  const isFood = ctx.settings.businessCategory === 'food';
 
   if (!isFood && stockQuantity <= 0) {
     return {
@@ -294,13 +300,6 @@ async function executeAddToCart(
     ? negotiatedPrice 
     : productAny.price;
 
-  if (isFood && poundsOrdered && productAny.price_per_pound) {
-    // Total price = price_per_pound × pounds_ordered
-    // Round to nearest 10 (e.g., ৳1,550 not ৳1,553)
-    effectivePrice = Math.round((productAny.price_per_pound * poundsOrdered) / 10) * 10;
-    console.log(`🎂 [FOOD ORDER] Calculated price: ${productAny.price_per_pound} * ${poundsOrdered} = ${effectivePrice} (rounded to 10)`);
-  }
-
   const newItem: CartItem = {
     productId: productAny.id,
     productName: productAny.name,
@@ -315,9 +314,7 @@ async function executeAddToCart(
     selectedSize,
     selectedColor,
     selectedFlavor: flavor,
-    selectedWeight: weight,
     selectedCustomMessage: customMessage,
-    selectedPounds: poundsOrdered,
     pricing_policy: productAny.pricing_policy || { isNegotiable: false },
   };
 
@@ -355,7 +352,8 @@ async function executeAddToCart(
         cart: updatedCart,
         checkout: {
           ...ctx.conversationContext.checkout,
-          ...(deliveryDate && { deliveryDate })
+          ...(deliveryDate && { deliveryDate }),
+          ...(deliveryTime && { deliveryTime })
         },
         metadata: {
           ...ctx.conversationContext.metadata,
@@ -549,7 +547,7 @@ async function executeUpdateCustomerInfo(
              if (exactQuantity < reqQuantity) {
                 if (exactQuantity === 0) {
                    return {
-                      result: { success: false, data: { outOfStock: true }, message: `দুঃখিত, ${reqSize} সাইজে ${reqColor} কালার এখন স্টকে নেই। পাওয়া যাচ্ছে: ${availableCombos.join(', ')}` },
+                      result: { success: false, data: { outOfStock: true }, message: `Size: ${reqSize}, Color: ${reqColor} is currently out of stock. Available combinations: ${availableCombos.join(', ')}` },
                       sideEffects: {}
                    };
                 }
@@ -627,9 +625,7 @@ async function executeSaveOrder(
   const deliveryDate = args.delivery_date ? String(args.delivery_date) : undefined;
   const delivery_time = args.delivery_time ? String(args.delivery_time) : undefined;
   const flavor = (args.flavor || ctx.conversationContext.metadata?.flavor) ? String(args.flavor || ctx.conversationContext.metadata?.flavor) : undefined;
-  const weight = args.weight ? String(args.weight) : undefined;
   const custom_message = args.custom_message ? String(args.custom_message) : undefined;
-  const pounds_ordered = args.pounds_ordered ? Number(args.pounds_ordered) : undefined;
   const delivery_zone = args.delivery_zone ? String(args.delivery_zone) : undefined;
   const order_description = args.order_description ? String(args.order_description) : undefined;
   const inspiration_image = args.inspiration_image ? String(args.inspiration_image) : undefined;
@@ -647,9 +643,7 @@ async function executeSaveOrder(
         deliveryDate, 
         deliveryTime: delivery_time,
         flavor, 
-        weight, 
         custom_message, 
-        pounds_ordered,
         delivery_zone,
         customer_description: (args.customer_description || args.order_description) ? String(args.customer_description || args.order_description) : undefined,
         inspiration_image
@@ -807,20 +801,27 @@ async function executeFlagForReview(
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
+    const finalReason = reason;
+
     await supabase.from('conversations').update({
       control_mode: 'manual',
       needs_manual_response: true,
-      manual_flag_reason: reason,
+      manual_flag_reason: finalReason,
       manual_flagged_at: new Date().toISOString(),
     } as any).eq('id', ctx.conversationId);
 
-    console.log(`🚨 [MANUAL FLAG] Reason: ${reason} — Bot paused, owner notified`);
+    console.log(`🚨 [MANUAL FLAG] Reason: ${finalReason} — Bot paused, owner notified`);
 
     return {
       result: {
         success: true,
-        data: { reason },
-        message: 'Conversation flagged for manual review by the business owner.',
+        data: { 
+          reason,
+          // SYSTEM MESSAGE: This message is automatically delivered to the customer 
+          // when this tool is called, so the agent doesn't have to generate it.
+          autoResponse: "অসাধারণ ডিজাইন! আমি আমাদের কাস্টম ডিজাইন টিমের সাথে কথা বলে দেখছি আমরা করতে পারবো কি না এবং এর দাম কত হবে। একটু সময় দিন Sir 😊"
+        },
+        message: 'Conversation flagged for manual review. Professional Bengali message triggered.',
       },
       sideEffects: {},
     };
@@ -1088,7 +1089,10 @@ async function executeTrackOrder(
         data: { found: true, order },
         message: `Found order #${order.order_number}. Status: ${order.status}. Total: ৳${order.total_amount}. Date: ${new Date(order.created_at).toLocaleDateString()}.`,
       },
-      sideEffects: {},
+      sideEffects: {
+        shouldFlag: true,
+        flagReason: 'Post-order status inquiry',
+      },
     };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1114,7 +1118,18 @@ async function executeCalculateDelivery(
       data: { address, charge },
       message: `Delivery charge for "${address}": ৳${charge}.`,
     },
-    sideEffects: {},
+    sideEffects: {
+        updatedContext: {
+          checkout: {
+            ...ctx.conversationContext.checkout,
+            deliveryCharge: charge,
+          },
+          metadata: {
+            ...ctx.conversationContext.metadata,
+            delivery_zone: delivery_zone || ctx.conversationContext.metadata?.delivery_zone
+          }
+        }
+    },
   };
 }
 

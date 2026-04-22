@@ -1,12 +1,13 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-import { User, Package, CreditCard, FileText, MessageSquare, Printer, X, Check, Send } from "lucide-react"
+import { User, Package, CreditCard, FileText, MessageSquare, Printer, X, Check, Send, ExternalLink } from "lucide-react"
 import { toast } from "sonner"
 
 type OrderStatus = "pending" | "shipped" | "cancelled" | "processing" | "completed"
@@ -56,11 +57,10 @@ interface Order {
   delivery_date?: string
   delivery_time?: string
   flavor?: string
-  weight?: string
-  pounds_ordered?: number
   delivery_zone?: string
-  order_description?: string
+  customer_description?: string
   inspiration_image?: string
+  staff_note?: string
   // Legacy fields for backward compatibility
   customer?: {
     name: string
@@ -91,7 +91,15 @@ const statusConfig: Record<OrderStatus, { label: string; className: string }> = 
 
 export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalProps) {
   const router = useRouter()
-  
+  const [note, setNote] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    if (order) {
+      setNote(order.staff_note || "")
+    }
+  }, [order, open])
+
   if (!order) return null
 
   // Get product name from joined data
@@ -134,6 +142,28 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
   }
 
   const handleConfirmOrder = () => updateOrderStatus(order.id, 'completed')
+
+  const handleSaveNote = async () => {
+    if (!order) return
+    setIsSaving(true)
+    try {
+      const response = await fetch(`/api/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff_note: note }),
+      })
+      if (response.ok) {
+        toast.success("Internal note saved")
+      } else {
+        toast.error("Failed to save note")
+      }
+    } catch (error) {
+      console.error("Save note error:", error)
+      toast.error("Failed to save note")
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   // Handle both legacy and new data formats
   const customerName = order.customer_name || order.customer?.name || 'N/A'
@@ -275,7 +305,7 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                     )}
 
                     {/* Food Business Specific Fields: Cake Order Details Aesthetic */}
-                    {(order.delivery_date || order.flavor || order.weight || order.custom_message || order.pounds_ordered || order.delivery_zone || order.order_description || order.inspiration_image) && (
+                    {(order.delivery_date || order.flavor || order.custom_message || order.delivery_zone || order.customer_description || order.inspiration_image) && (
                         <div className="mt-6 pt-6 border-t border-white/10 space-y-6">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -283,8 +313,17 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                                     <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/80">Cake Specifications</span>
                                 </div>
                                 {order.delivery_date && (
-                                    <Badge variant="outline" className="text-[10px] font-mono border-primary/20 bg-primary/5 text-primary py-0.5">
-                                        📅 {order.delivery_date} {order.delivery_time ? `| ${order.delivery_time}` : ''}
+                                    <Badge variant="outline" className="text-[10px] font-mono border-primary/20 bg-primary/20 text-primary py-0.5 px-2 rounded-full backdrop-blur-sm">
+                                        📅 {(() => {
+                                            const parts = order.delivery_date.split('/');
+                                            if (parts.length === 3) {
+                                                const day = parts[0];
+                                                const monthIndex = parseInt(parts[1]) - 1;
+                                                const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                                                return `${day} ${months[monthIndex] || parts[1]}`;
+                                            }
+                                            return order.delivery_date;
+                                        })()} {order.delivery_time ? `| 🕒 ${order.delivery_time}` : ''}
                                     </Badge>
                                 )}
                             </div>
@@ -296,21 +335,28 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                                     <p className="text-sm font-semibold text-foreground">{order.flavor || productName}</p>
                                 </div>
                                 <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
-                                    <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Size / Weight</p>
-                                    <p className="text-sm font-semibold text-foreground font-mono">{order.pounds_ordered ? `${order.pounds_ordered} Lbs` : (order.weight || 'N/A')}</p>
-                                </div>
-                                <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
                                     <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Delivery Zone</p>
                                     <p className="text-sm font-semibold text-foreground">{order.delivery_zone || 'Not Specified'}</p>
                                 </div>
-                                <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
+                                <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1 group hover:border-primary/30 transition-colors cursor-default">
                                     <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Delivery Date</p>
-                                    <p className="text-sm font-semibold text-primary">{order.delivery_date || 'TBD'}</p>
+                                    <p className="text-sm font-bold text-primary flex items-center gap-1.5">
+                                        {(() => {
+                                            const parts = order.delivery_date?.split('/');
+                                            if (parts && parts.length === 3) {
+                                                const day = parts[0];
+                                                const monthIndex = parseInt(parts[1]) - 1;
+                                                const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                                                return `${day} ${months[monthIndex] || parts[1]}`;
+                                            }
+                                            return order.delivery_date || 'TBD';
+                                        })()}
+                                    </p>
                                 </div>
                                 {order.delivery_time && (
                                     <div className="bg-white/[0.03] rounded-xl border border-white/5 p-3 space-y-1">
                                         <p className="text-[9px] text-muted-foreground uppercase tracking-tight">Delivery Time</p>
-                                        <p className="text-sm font-semibold text-primary">{order.delivery_time}</p>
+                                        <p className="text-sm font-semibold text-primary/80">{order.delivery_time}</p>
                                     </div>
                                 )}
                             </div>
@@ -327,10 +373,10 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                                         </div>
                                         
                                         <div className="space-y-4">
-                                            {order.order_description && (
+                                            {order.customer_description && (
                                                 <div className="space-y-1">
                                                     <p className="text-[10px] text-primary/60 font-bold uppercase tracking-tighter">Design Vision</p>
-                                                    <p className="text-sm leading-relaxed text-zinc-300">{order.order_description}</p>
+                                                    <p className="text-sm leading-relaxed text-zinc-300">{order.customer_description}</p>
                                                 </div>
                                             )}
                                             
@@ -341,6 +387,45 @@ export function OrderDetailsModal({ order, open, onClose }: OrderDetailsModalPro
                                                 </p>
                                             </div>
                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+ 
+                            {/* Staff Note / Internal Memo - The NEW Feature */}
+                            <div className="space-y-3 pt-4 border-t border-white/10">
+                                <div className="flex items-center justify-between ml-1">
+                                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                                        <FileText className="h-3 w-3" />
+                                        Internal Memo (Private)
+                                    </p>
+                                    <Button 
+                                        size="sm" 
+                                        type="button"
+                                        className="h-8 px-4 text-[11px] font-bold bg-white text-zinc-950 hover:bg-white/90 shadow-[0_0_15px_rgba(255,255,255,0.15)] transition-all duration-200"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            handleSaveNote()
+                                        }}
+                                        disabled={isSaving}
+                                    >
+                                        {isSaving ? "Saving..." : "Save Note"}
+                                    </Button>
+                                </div>
+                                <div className="relative group">
+                                    <textarea
+                                        value={note}
+                                        onChange={(e) => {
+                                            setNote(e.target.value)
+                                            // Simple auto-expand logic
+                                            e.target.style.height = 'inherit'
+                                            e.target.style.height = `${e.target.scrollHeight}px`
+                                        }}
+                                        onBlur={handleSaveNote} // Auto-save on blur for better UX
+                                        placeholder="Add private notes here (e.g., 'Customer wants to change delivery time to 4pm')..."
+                                        className="w-full min-h-[120px] p-4 rounded-xl bg-white/[0.02] border border-white/10 text-sm leading-relaxed text-zinc-300 focus:outline-none focus:border-primary/50 focus:bg-primary/[0.02] transition-all resize-none shadow-inner"
+                                    />
+                                    <div className="absolute bottom-3 right-3 opacity-20 pointer-events-none">
+                                        <Send className="h-4 w-4" />
                                     </div>
                                 </div>
                             </div>

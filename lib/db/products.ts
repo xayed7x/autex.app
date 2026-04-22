@@ -157,7 +157,8 @@ export async function searchProductsByKeywordsWithScoring(
       .eq('workspace_id', workspaceId);
     
     if (flavor) {
-      queryBuilder = queryBuilder.ilike('flavor', `%${flavor}%`);
+      // Filter by flavor OR category matching the requested flavor
+      queryBuilder = queryBuilder.or(`flavor.ilike.%${flavor}%,category.ilike.%${flavor}%`);
     }
 
     const { data: allProducts, error } = await queryBuilder;
@@ -217,5 +218,41 @@ export async function searchProductsByKeywordsWithScoring(
   } catch (error) {
     console.error('Unexpected error in searchProductsByKeywordsWithScoring:', error);
     throw error;
+  }
+}
+
+/**
+ * Gets a summary of all unique categories and flavors available in a workspace.
+ * Used to give the AI agent dynamic context about the catalog.
+ */
+export async function getCatalogSummary(workspaceId: string) {
+  const supabase = createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('category, flavor')
+      .eq('workspace_id', workspaceId);
+
+    if (error) throw error;
+
+    const categories = new Set<string>();
+    const flavors = new Set<string>();
+
+    data.forEach(p => {
+      if (p.category) categories.add(p.category);
+      if (p.flavor) flavors.add(p.flavor);
+    });
+
+    return {
+      categories: Array.from(categories).filter(Boolean),
+      flavors: Array.from(flavors).filter(Boolean)
+    };
+  } catch (error) {
+    console.error('Error fetching catalog summary:', error);
+    return { categories: [], flavors: [] };
   }
 }

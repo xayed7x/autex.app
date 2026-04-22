@@ -70,7 +70,7 @@ export async function POST(
     
     const { data: conversation, error: conversationError } = await supabase
       .from('conversations')
-      .select('id, workspace_id, fb_page_id, customer_psid, control_mode, customer_name')
+      .select('id, workspace_id, fb_page_id, customer_psid, control_mode, customer_name, needs_manual_response')
       .eq('id', conversationId)
       .eq('workspace_id', workspace.id)
       .single()
@@ -207,7 +207,10 @@ export async function POST(
     // ========================================
     
     const currentMode = conversation.control_mode || 'bot'
-    const newMode = currentMode === 'manual' ? 'manual' : 'hybrid'
+    // STRICTOR MANUAL PRESERVATION: If the conversation is flagged for review 
+    // or already in manual mode, KEEP it in manual.
+    const isFlagged = (conversation as any).needs_manual_response === true
+    const newMode = (currentMode === 'manual' || isFlagged) ? 'manual' : 'hybrid'
     const now = new Date().toISOString()
 
     await adminSupabase

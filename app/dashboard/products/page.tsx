@@ -39,8 +39,6 @@ interface Product {
   sizes?: string[];
   size_stock?: { size: string; quantity: number }[];
   flavors?: string[];
-  weights?: string[];
-  price_per_pound?: number;
 }
 
 interface PaginationData {
@@ -332,7 +330,7 @@ export default function ProductsPage() {
                         {product.name}
                       </h3>
 
-                      {/* Food Badges (Flavors/Weights) */}
+                      {/* Food Badges (Flavors) */}
                       {businessCategory === 'food' && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {product.flavors && product.flavors.length > 0 && (
@@ -342,22 +340,13 @@ export default function ProductsPage() {
                               {product.flavors.length > 1 && ` +${product.flavors.length - 1}`}
                             </div>
                           )}
-                          {product.weights && product.weights.length > 0 && (
-                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-400/10 border border-blue-400/20 text-[9px] font-medium text-blue-400">
-                              {product.weights[0]}
-                              {product.weights.length > 1 && ` +${product.weights.length - 1}`}
-                            </div>
-                          )}
                         </div>
                       )}
                       
                       {/* Price */}
                       <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-0">
                          <p className="font-serif text-sm sm:text-lg font-semibold tracking-tight">
-                           {businessCategory === 'food' 
-                             ? `৳${(product.price_per_pound || 0).toLocaleString()}/pound`
-                             : `৳${product.price.toLocaleString()}`
-                           }
+                           ৳{product.price.toLocaleString()}
                          </p>
                          {businessCategory !== 'food' && (
                            <p className="text-[10px] sm:text-xs text-muted-foreground font-mono bg-muted/50 px-1.5 py-0.5 rounded w-fit">

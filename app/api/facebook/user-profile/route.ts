@@ -60,33 +60,55 @@ export async function GET(request: Request) {
     }
 
     // Decrypt access token
-    const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+    const { decryptToken, generateAppSecretProof } = await import('@/lib/facebook/crypto-utils');
     const accessToken = decryptToken(fbPage.encrypted_access_token);
+    
+    // Generate App Secret Proof for security
+    const appSecretProof = generateAppSecretProof(accessToken);
+    const proofParam = appSecretProof ? `&appsecret_proof=${appSecretProof}` : '';
 
-    // Fetch user profile from Facebook Messenger Platform API
-    // Using v21.0 and standard fields
-    const graphUrl = `https://graph.facebook.com/v21.0/${psid}?fields=name,picture&access_token=${accessToken}`;
+    // Fetch user profile from Facebook Messenger Platform API using v20.0
+    // Requesting a superset of fields for both Facebook (PSID) and Instagram (IGSID)
+    const fields = 'first_name,last_name,name,profile_pic,picture.type(large)';
+    const graphUrl = `https://graph.facebook.com/v20.0/${psid}?fields=${fields}&access_token=${accessToken}${proofParam}`;
     
     const response = await fetch(graphUrl);
     
     if (!response.ok) {
-      const error = await response.json();
-      console.error('Facebook Graph API error:', error);
+      const errorText = await response.text();
+      console.error('Facebook Graph API error:', errorText);
       
+      // Attempt to parse JSON error for better response
+      let errorMessage = 'Could not fetch profile';
+      try {
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.error?.message || errorMessage;
+      } catch (e) {}
+
       return NextResponse.json({
         name: null,
         profile_pic: null,
         psid: psid,
-        error: error.error?.message || 'Could not fetch profile',
+        error: errorMessage,
       });
     }
 
     const profileData = await response.json();
-    const fullName = profileData.name || null;
+    
+    // Robust name parsing: Prioritize first_name + last_name (Messenger) then name (Instagram/Generic)
+    let fullName = null;
+    if (profileData.first_name) {
+      fullName = `${profileData.first_name} ${profileData.last_name || ''}`.trim();
+    } else if (profileData.name) {
+      fullName = profileData.name;
+    }
+      
+    // Robust picture parsing: Prioritize profile_pic (Messenger) then picture.data.url (Instagram/Large)
+    const profilePic = profileData.profile_pic || profileData.picture?.data?.url || null;
 
     return NextResponse.json({
       name: fullName,
-      profile_pic: profileData.picture?.data?.url || null,
+      profile_pic: profilePic,
       psid: psid,
     });
 

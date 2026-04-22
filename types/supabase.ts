@@ -366,6 +366,16 @@ export type Database = {
           selected_size: string | null
           selected_color: string | null
           size_stock_id: string | null
+          delivery_date: string | null
+          delivery_time: string | null
+          flavor: string | null
+          weight: string | null
+          custom_message: string | null
+          pounds_ordered: number | null
+          delivery_zone: string | null
+          customer_description: string | null
+          inspiration_image: string | null
+          staff_note: string | null
         }
         Insert: {
           id?: string
@@ -393,6 +403,16 @@ export type Database = {
           selected_size?: string | null
           selected_color?: string | null
           size_stock_id?: string | null
+          delivery_date?: string | null
+          delivery_time?: string | null
+          flavor?: string | null
+          weight?: string | null
+          custom_message?: string | null
+          pounds_ordered?: number | null
+          delivery_zone?: string | null
+          customer_description?: string | null
+          inspiration_image?: string | null
+          staff_note?: string | null
         }
         Update: {
           id?: string
@@ -420,6 +440,16 @@ export type Database = {
           selected_size?: string | null
           selected_color?: string | null
           size_stock_id?: string | null
+          delivery_date?: string | null
+          delivery_time?: string | null
+          flavor?: string | null
+          weight?: string | null
+          custom_message?: string | null
+          pounds_ordered?: number | null
+          delivery_zone?: string | null
+          customer_description?: string | null
+          inspiration_image?: string | null
+          staff_note?: string | null
         }
         Relationships: [
           {

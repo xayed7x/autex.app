@@ -59,15 +59,18 @@ export async function extractVisualFeatures(
     try {
       // Get palette of 3 colors using dynamic require for Node compatibility
       const ColorThief = require('colorthief');
+      // ColorThief.getPalette expects a path or a buffer
       const palette = await ColorThief.getPalette(imageBuffer, 3);
       
-      // Convert to RGB objects
-      for (const color of palette) {
-        dominantColors.push({
-          r: color[0],
-          g: color[1],
-          b: color[2],
-        });
+      if (palette && Array.isArray(palette)) {
+        // Convert to RGB objects
+        for (const color of palette) {
+          dominantColors.push({
+            r: color[0],
+            g: color[1],
+            b: color[2],
+          });
+        }
       }
     } catch (colorError) {
       console.warn('ColorThief failed, using sharp stats as fallback:', colorError);
@@ -248,24 +251,23 @@ export async function findTier2Match(
         productFeatures.aspectRatio
       );
 
-      // PRIMARY COLOR PENALTY: If primary colors are very different, apply penalty
-      let primaryColorPenalty = 0;
+      // PRIMARY COLOR PENALTY: If primary colors are very different, reject match
       if (features.dominantColors.length > 0 && productFeatures.dominantColors.length > 0) {
         const primaryDistance = colorDistance(
           features.dominantColors[0],
           productFeatures.dominantColors[0]
         );
         
-        // If primary colors differ by more than 50 (out of ~441), apply 30% penalty
-        if (primaryDistance > 50) {
-          primaryColorPenalty = 30;
-          console.log(`  ⚠️ Primary color mismatch (distance: ${Math.round(primaryDistance)}), penalty: -30%`);
+        // If primary colors differ by more than 30 (out of ~441), REJECT MATCH
+        // This prevents white cakes matching chocolate cakes based on background
+        if (primaryDistance > 30) {
+          console.log(`  ❌ [REJECT] Primary color mismatch (distance: ${Math.round(primaryDistance)}). Skipping product: ${product.name}`);
+          continue; 
         }
       }
 
-      // Calculate weighted total score with penalty
-      let totalScore = colorScore * 0.6 + aspectRatioScore * 0.4 - primaryColorPenalty;
-      totalScore = Math.max(0, totalScore); // Ensure non-negative
+      // Calculate weighted total score
+      const totalScore = colorScore * 0.6 + aspectRatioScore * 0.4;
 
       // Update best match if this is better
       if (totalScore > bestScores.totalScore) {
@@ -278,8 +280,8 @@ export async function findTier2Match(
       }
     }
 
-    // Threshold: total score > 92% is considered a match (STRICT to prevent false positives)
-    const MATCH_THRESHOLD = 92;
+    // Threshold: total score > 96% is considered a match (HIGH PRECISION)
+    const MATCH_THRESHOLD = 96;
 
     if (bestMatch && bestScores.totalScore > MATCH_THRESHOLD) {
       return {

@@ -704,6 +704,59 @@ export async function sendPrivateReplyToInstagramComment(
 }
 
 /**
+ * Sends a sender action (mark_seen, typing_on, typing_off) to a Facebook user
+ * @param pageId - The Facebook Page ID
+ * @param psid - The recipient's Page-Scoped ID
+ * @param action - The action to send
+ */
+export async function sendSenderAction(
+  pageId: string,
+  psid: string,
+  action: 'mark_seen' | 'typing_on' | 'typing_off'
+): Promise<void> {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+    
+    const { data: fbPage } = await supabase
+      .from('facebook_pages')
+      .select('encrypted_access_token')
+      .eq('id', pageId)
+      .single();
+
+    if (!fbPage) return;
+
+    const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+    const accessToken = decryptToken(fbPage.encrypted_access_token);
+    
+    const apiUrl = `https://graph.facebook.com/v24.0/${pageId}/messages?access_token=${accessToken}`;
+    
+    await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: psid },
+        sender_action: action,
+      }),
+    });
+  } catch (error) {
+    console.warn(`⚠️ [SENDER_ACTION] Failed to send ${action}:`, error);
+  }
+}
+
+/** Helper to mark a message as seen */
+export const markSeen = (pageId: string, psid: string) => sendSenderAction(pageId, psid, 'mark_seen');
+
+/** Helper to turn on the typing indicator */
+export const typingOn = (pageId: string, psid: string) => sendSenderAction(pageId, psid, 'typing_on');
+
+/** Helper to turn off the typing indicator */
+export const typingOff = (pageId: string, psid: string) => sendSenderAction(pageId, psid, 'typing_off');
+
+/**
  * Takes control of a conversation thread from other apps (like Meta Business Suite)
  * @param pageId - The Facebook Page ID
  * @param psid - The recipient's Page-Scoped ID

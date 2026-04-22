@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase
       .from('products')
-      .select('id, name, price, category, stock_quantity, description, image_urls, colors, sizes, size_stock, variant_stock, pricing_policy, product_attributes, price_per_pound, flavor, allows_custom_message, min_pounds, max_pounds, created_at, updated_at', { count: 'exact' })
+      .select('id, name, price, category, stock_quantity, description, image_urls, colors, sizes, size_stock, variant_stock, pricing_policy, product_attributes, flavor, created_at, updated_at', { count: 'exact' })
       .eq('workspace_id', workspace.id);
 
     // Apply filters
@@ -408,7 +408,7 @@ export async function POST(request: NextRequest) {
       .insert({
         workspace_id: workspace.id,
         name: productData.name,
-        price: isFood ? 0 : (productData.price || 0), // Use 0 for food to satisfy NOT NULL constraint
+        price: productData.price || 0,
         description: productData.description || null,
         stock_quantity: isFood ? 99999 : (productData.stock_quantity || 0),
         variations: productData.variations || null,
@@ -426,11 +426,7 @@ export async function POST(request: NextRequest) {
         media_videos: finalMediaVideos,
         flavors: productData.flavors || [],
         weights: productData.weights || [],
-        price_per_pound: productData.price_per_pound || null,
         flavor: productData.flavor || null,
-        allows_custom_message: productData.allows_custom_message ?? true,
-        min_pounds: productData.min_pounds || 0.5,
-        max_pounds: productData.max_pounds || 5.0,
       })
       .select()
       .single();

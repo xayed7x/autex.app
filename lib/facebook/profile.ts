@@ -46,10 +46,13 @@ export async function fetchFacebookProfile(
     const appSecretProof = generateAppSecretProof(accessToken);
     const proofParam = appSecretProof ? `&appsecret_proof=${appSecretProof}` : '';
 
-    // Use v21.0 with name and picture
-    const profileUrl = `https://graph.facebook.com/v21.0/${psid}?fields=name,picture&access_token=${accessToken}${proofParam}`;
+    // Use minimal fields as suggested by Meta AI to avoid conflicts for Messenger PSIDs
+    // first_name, last_name, profile_pic are the standard for Messenger
+    // We also include name and picture for Instagram (IGSID) compatibility
+    const fields = 'first_name,last_name,profile_pic,name,picture.type(large)';
+    const profileUrl = `https://graph.facebook.com/v20.0/${psid}?fields=${fields}&access_token=${accessToken}${proofParam}`;
     
-    console.log(`🔍 [PROFILE FETCH] Calling Facebook Graph API...`);
+    console.log(`🔍 [PROFILE FETCH] Calling Facebook Graph API v20.0 with minimal fields...`);
     
     const response = await fetch(profileUrl);
     
@@ -58,13 +61,14 @@ export async function fetchFacebookProfile(
       console.error(`❌ [PROFILE FETCH] API Error: ${response.status}`);
       console.error(`❌ [PROFILE FETCH] Error body: ${errorText}`);
       
-      // Specific handling for "Object does not exist" (Code 100, Subcode 33)
-      // This is common for users who have strict privacy settings or during Dev Mode testing
-      if (errorText.includes('"code":100') && errorText.includes('"subcode":33')) {
-        console.log(`ℹ️ [PROFILE FETCH] User ${psid} has privacy settings restricting access. Using default profile.`);
+      const isPrivacyError = errorText.includes('"code":100') && 
+                            (errorText.includes('"subcode":33') || errorText.includes('"error_subcode":33'));
+
+      if (isPrivacyError) {
+        console.log(`ℹ️ [PROFILE FETCH] Access denied (100/33). Action required: Enable 'Advanced Access' for 'pages_messaging' in Meta Developer Dashboard.`);
         return {
           name: 'Facebook User',
-          profile_pic: undefined // UI will show default avatar
+          profile_pic: undefined 
         };
       }
       
@@ -72,11 +76,20 @@ export async function fetchFacebookProfile(
     }
 
     const data = await response.json();
-    const fullName = data.name || 'Facebook User';
-    const profilePic = data.picture?.data?.url;
+    
+    // Robust name parsing logic from Meta AI's advice
+    let fullName = 'Facebook User';
+    if (data.first_name) {
+      fullName = `${data.first_name} ${data.last_name || ''}`.trim();
+    } else if (data.name) {
+      fullName = data.name;
+    }
+      
+    // Robust picture parsing: Prioritize profile_pic (Messenger) then picture.data.url (Instagram/Large)
+    const profilePic = data.profile_pic || data.picture?.data?.url;
     
     console.log(`✅ [PROFILE FETCH] SUCCESS!`);
-    console.log(`✅ [PROFILE FETCH] Name from Facebook: "${fullName}"`);
+    console.log(`✅ [PROFILE FETCH] Name: "${fullName}"`);
     console.log(`✅ [PROFILE FETCH] Profile pic: ${profilePic ? 'yes' : 'no'}`);
     console.log('========================================\n');
 

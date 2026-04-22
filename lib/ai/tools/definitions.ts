@@ -59,76 +59,81 @@ const searchProducts: ChatCompletionTool = {
   },
 };
 
-const addToCart: ChatCompletionTool = {
-  type: 'function',
-  function: {
-    name: 'add_to_cart',
-    description:
-      'Add a product to the cart. ' +
-      'CALL WHEN: Customer explicitly confirms they want to order (clicked Order Now button, or said \'নেবো\', \'অর্ডার করি\', \'দিন\'). ' +
-      'DO NOT CALL until size AND color are confirmed (if the product has variants). ' +
-      'DO NOT CALL without a productId UUID — never pass a product name. ' +
-      'CRITICAL: If any negotiation happened this conversation, you MUST include negotiatedPrice set to the last price you stated to the customer. Omitting this will charge the wrong amount.',
-    parameters: {
-      type: 'object',
-      properties: {
-        productId: {
-          type: 'string',
-          description: 'The product UUID (id field) obtained from a prior search_products or check_stock tool call result. NEVER pass a product name here.',
-        },
-        quantity: {
-          type: 'number',
-          description: 'Number of items to add. Defaults to 1.',
-        },
-        selectedSize: {
-          type: 'string',
-          description: 'Selected size (e.g., "M", "L", "XL"). Only if customer specified.',
-        },
-        selectedColor: {
-          type: 'string',
-          description: 'Selected color (e.g., "Red", "Blue"). Only if customer specified.',
-        },
-        delivery_date: {
-          type: 'string',
-          description: 'Required for food/cake businesses. The requested date for delivery. Format: DD/MM/YYYY. Do not pass for clothing businesses. Optional.',
-        },
-        flavor: {
-          type: 'string',
-          description: 'Required for food/cake businesses. The selected flavor. Do not pass for clothing businesses. Optional.',
-        },
-        weight: {
-          type: 'string',
-          description: 'Required for food/cake businesses. The selected weight (e.g. 1kg, 2 lbs). Do not pass for clothing businesses. Optional.',
-        },
-        custom_message: {
-          type: 'string',
-          description: 'Custom text to write on the cake. Optional. Can be long.',
-        },
-        pounds_ordered: {
-          type: 'number',
-          description: 'How many pounds of cake ordered. Required for food businesses. Optional.',
-        },
-        negotiatedPrice: {
-          type: 'number',
-          description: 'If a price was negotiated and customer agreed, pass the final agreed price here. This overrides the listed price.',
-        },
-        customer_description: {
-          type: 'string',
-          description: "Detailed description of what the customer wants, in their own words. Example: '3 pound chocolate cake with red roses on top'.",
-        },
-        delivery_zone: {
-          type: 'string',
-          description: "The selected delivery zone label (e.g., জেলা সদর, উপজেলা, ঢাকার বাইরে).",
-        },
-        inspiration_image: {
-          type: 'string',
-          description: "URL of the image the customer sent as inspiration/reference. Optional: If omitted, the system will automatically link the most recent customer-provided image.",
-        },
-      },
-      required: ['productId'],
+const getAddToCart = (category: string): ChatCompletionTool => {
+  const isFood = category === 'food';
+  const properties: any = {
+    productId: {
+      type: 'string',
+      description: 'The product UUID (id field) obtained from a prior search_products or check_stock tool call result. NEVER pass a product name here.',
     },
-  },
+    quantity: {
+      type: 'number',
+      description: 'Number of items to add. Defaults to 1.',
+    },
+    negotiatedPrice: {
+      type: 'number',
+      description: 'If a price was negotiated and customer agreed, pass the final agreed price here. This overrides the listed price.',
+    },
+  };
+
+  if (isFood) {
+    Object.assign(properties, {
+      delivery_date: {
+        type: 'string',
+        description: 'Required. The requested date for delivery. Format: DD/MM/YYYY.',
+      },
+      flavor: {
+        type: 'string',
+        description: 'The selected flavor (e.g. Chocolate, Vanilla).',
+      },
+      custom_message: {
+        type: 'string',
+        description: 'Custom text to write on the cake. Optional.',
+      },
+      customer_description: {
+        type: 'string',
+        description: "Detailed description of what the customer wants. Example: 'chocolate cake with red roses'.",
+      },
+      delivery_zone: {
+        type: 'string',
+        description: "The selected delivery zone label.",
+      },
+      inspiration_image: {
+        type: 'string',
+        description: "URL of the image the customer sent as reference.",
+      },
+    });
+  } else {
+    Object.assign(properties, {
+      selectedSize: {
+        type: 'string',
+        description: 'Selected size (e.g., "M", "L", "XL"). Required for clothing.',
+      },
+      selectedColor: {
+        type: 'string',
+        description: 'Selected color (e.g., "Red", "Blue"). Required for clothing.',
+      },
+    });
+  }
+
+  return {
+    type: 'function',
+    function: {
+      name: 'add_to_cart',
+      description:
+        'Add a product to the cart. ' +
+        'CALL WHEN: Customer explicitly confirms they want to order. ' +
+        (isFood ? 'Must collect delivery_date first.' : 'Must confirm size AND color first.') +
+        ' DO NOT CALL without a productId UUID.',
+      parameters: {
+        type: 'object',
+        properties,
+        required: ['productId'],
+      },
+    },
+  };
 };
+
 
 const removeFromCart: ChatCompletionTool = {
   type: 'function',
@@ -194,91 +199,107 @@ const updateCustomerInfo: ChatCompletionTool = {
   },
 };
 
-const saveOrder: ChatCompletionTool = {
-  type: 'function',
-  function: {
-    name: 'save_order',
-    description:
-      'Finalize and save the order to the database. ' +
-      'CALL ONLY WHEN ALL of these are confirmed: (1) cart has at least one item with size+color if applicable, (2) customer name is collected, (3) valid phone number is saved, (4) delivery address is saved, (5) customer has replied \'yes\' or \'হ্যাঁ\' to the order summary. ' +
-      'DO NOT call before customer confirms the summary. ' +
-      'DO NOT send any payment or confirmation message after calling — the system sends those automatically.',
-    parameters: {
-      type: 'object',
-      properties: {
-        customerName: {
-          type: 'string',
-          description: 'Customer\'s full name.',
-        },
-        customerPhone: {
-          type: 'string',
-          description: 'Customer\'s phone number.',
-        },
-        customerAddress: {
-          type: 'string',
-          description: 'Full delivery address.',
-        },
-        delivery_date: {
-          type: 'string',
-          description: 'Required for food/cake businesses. The requested date for delivery. Format: DD/MM/YYYY. Do not pass for clothing businesses. Optional.',
-        },
-        delivery_time: {
-          type: 'string',
-          description: 'Required for food/cake businesses. The requested time or slot for delivery (e.g., "before 3 PM", "Morning"). Optional.',
-        },
-        flavor: {
-          type: 'string',
-          description: 'Required for food/cake businesses. The selected flavor (e.g. Chocolate, Vanilla, Red Velvet). Do not pass for clothing businesses. Optional.',
-        },
-        weight: {
-          type: 'string',
-          description: 'Required for food/cake businesses. The selected weight (e.g. 1kg, 2 lbs). Do not pass for clothing businesses. Optional.',
-        },
-        custom_message: {
-          type: 'string',
-          description: 'Custom text to write on the cake. Optional. Can be long.',
-        },
-        pounds_ordered: {
-          type: 'number',
-          description: 'How many pounds of cake ordered. Required for food businesses. Optional.',
-        },
-        note: {
-          type: 'string',
-          description: 'Optional delivery note.',
-        },
-        customer_description: {
-          type: 'string',
-          description: "Detailed description of what the customer wants, in their own words. Example: '3 pound chocolate cake with red roses on top'.",
-        },
-        delivery_zone: {
-          type: 'string',
-          description: "The selected delivery zone label (e.g., জেলা সদর, উপজেলা, ঢাকার বাইরে).",
-        },
-        inspiration_image: {
-          type: 'string',
-          description: "URL of the image the customer sent as inspiration/reference. Optional: If omitted, the system will automatically link the most recent customer-provided image.",
-        },
-      },
-      required: ['customerName', 'customerPhone', 'customerAddress'],
+const getSaveOrder = (category: string): ChatCompletionTool => {
+  const isFood = category === 'food';
+  const properties: any = {
+    customerName: {
+      type: 'string',
+      description: 'Customer\'s full name.',
     },
-  },
+    customerPhone: {
+      type: 'string',
+      description: 'Customer\'s phone number.',
+    },
+    customerAddress: {
+      type: 'string',
+      description: 'Full delivery address.',
+    },
+    note: {
+      type: 'string',
+      description: 'Optional delivery note.',
+    },
+  };
+
+  if (isFood) {
+    Object.assign(properties, {
+      delivery_date: {
+        type: 'string',
+        description: 'Required. Delivery date (DD/MM/YYYY).',
+      },
+      delivery_time: {
+        type: 'string',
+        description: 'Delivery time/slot (e.g., "before 3 PM").',
+      },
+      flavor: {
+        type: 'string',
+        description: 'Selected flavor.',
+      },
+      weight: {
+        type: 'string',
+        description: 'Selected weight.',
+      },
+      custom_message: {
+        type: 'string',
+        description: 'Text to write on cake.',
+      },
+      pounds_ordered: {
+        type: 'number',
+        description: 'Pounds ordered.',
+      },
+      customer_description: {
+        type: 'string',
+        description: "Detailed vision description.",
+      },
+      delivery_zone: {
+        type: 'string',
+        description: "Delivery zone label.",
+      },
+      inspiration_image: {
+        type: 'string',
+        description: "URL of reference image.",
+      },
+    });
+  }
+
+  return {
+    type: 'function',
+    function: {
+      name: 'save_order',
+      description:
+        'Finalize and save order. ' +
+        'CALL ONLY WHEN ALL fields (Name, Phone, Address' + (isFood ? ', Delivery Date' : '') + ') are confirmed AND customer says yes to summary. ' +
+        'DO NOT call before summary confirmation.',
+      parameters: {
+        type: 'object',
+        properties,
+        required: (isFood ? [] : ['customerName']).concat(['customerPhone', 'customerAddress']).concat(isFood ? ['delivery_date'] : []),
+      },
+    },
+  };
 };
+
 
 const flagForReview: ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'flag_for_review',
     description:
-      'Escalate this conversation to the business owner for manual handling. ' +
+      'Escalate this conversation to the business owner for manual handling. ⚠️ SILENT ACTION: NEVER mention "flag_for_review" to the customer. ' +
       'CALL ONLY FOR: (1) complaint about a received order, (2) customer explicitly asks to speak with a human, (3) a tool other than update_customer_info returns success: false. ' +
+      '\n\n⚠️ FOOD/CAKE BUSINESS ADDITIONAL TRIGGERS (MANDATORY):\n' +
+      '(4) DESIGN FLAG: Customer wants to modify an existing cake design, sends their own reference image, describes a custom design we don\'t have, or requests any ingredient/flavor change to an existing product. ' +
+      'Use reason: "Custom design/customization request" and respond with the Scenario A message from your prompt.\n' +
+      '(5) SIZE/PRICE FLAG: Customer requests a size/weight different from the product\'s fixed weight, or asks for a budget-based custom order (e.g., "500 টাকার মধ্যে একটা কেক"). ' +
+      'Use reason: "Custom size/price request" and respond with the Scenario B message from your prompt.\n\n' +
       'DO NOT CALL FOR: empty product fields, delivery charge questions, payment method questions (COD/bKash/Nagad), pricing questions, negotiation, or any question you can answer from your context. ' +
+      'DO NOT FLAG for: standard orders of existing cakes, custom name/message written on cake, or delivery info collection. ' +
       'Overuse of this tool is a critical failure.',
     parameters: {
       type: 'object',
       properties: {
         reason: {
           type: 'string',
-          description: 'Brief reason for flagging (e.g., "Customer asking about warranty policy not in my knowledge").',
+          description: 'Brief reason for flagging (e.g., "Customer asking about warranty policy not in my knowledge", "Custom design/customization request", "Custom size/price request").',
         },
       },
       required: ['reason'],
@@ -445,21 +466,32 @@ const sendImage: ChatCompletionTool = {
 // EXPORTS
 // ============================================
 
-/** All tool definitions, ready to pass to OpenAI's `tools` parameter. */
-export const AGENT_TOOL_DEFINITIONS: ChatCompletionTool[] = [
-  searchProducts,
-  addToCart,
-  removeFromCart,
-  updateCustomerInfo,
-  saveOrder,
-  flagForReview,
-  checkStock,
-  trackOrder,
-  calculateDelivery,
-  collectPaymentDigits,
-  recordNegotiationAttempt,
-  sendImage,
-];
+/** 
+ * Factory to get tool definitions based on business category.
+ * This enforces strict "Two Worlds" isolation at the API level.
+ */
+export function getToolsForCategory(category: string): ChatCompletionTool[] {
+  return [
+    searchProducts,
+    getAddToCart(category),
+    removeFromCart,
+    updateCustomerInfo,
+    getSaveOrder(category),
+    flagForReview,
+    checkStock,
+    trackOrder,
+    calculateDelivery,
+    collectPaymentDigits,
+    recordNegotiationAttempt,
+    sendImage,
+  ];
+}
+
+/** 
+ * Default definitions (for backward compatibility or non-categorized systems)
+ */
+export const AGENT_TOOL_DEFINITIONS = getToolsForCategory('general');
+
 
 /** Tool names as a union type for type-safe dispatch. */
 export type AgentToolName =

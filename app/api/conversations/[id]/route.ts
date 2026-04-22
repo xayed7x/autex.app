@@ -81,6 +81,10 @@ export async function GET(
       conversation.messages = deduplicatedMessages
     }
 
+    // NOTE: Manual flags are now cleared only when an actual reply is sent 
+    // or when the owner explicitly dismisses them. Simply viewing the 
+    // conversation no longer clears the flag to prevent state leakage.
+
     return NextResponse.json(conversation)
   } catch (error) {
     console.error('Conversation detail API error:', error)

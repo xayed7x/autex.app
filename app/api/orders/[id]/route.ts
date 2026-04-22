@@ -50,7 +50,7 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { status, payment_status } = body
+    const { status, payment_status, staff_note } = body
 
     // 1. Fetch existing order to check if status actually changed
     // We also need conversation_id, fb_page_id, workspace_id, customer_name, order_number
@@ -70,6 +70,7 @@ export async function PATCH(
 
     if (status) updateData.status = status
     if (payment_status) updateData.payment_status = payment_status
+    if (staff_note !== undefined) updateData.staff_note = staff_note
 
     // 2. Perform the update
     const { data: order, error } = await supabase
@@ -84,82 +85,26 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update order' }, { status: 500 })
     }
 
-    // 3. Automated Notification Logic
-    if (status && status !== existingOrder.status && existingOrder.conversation_id && existingOrder.fb_page_id) {
-      // Get the customer PSID from the joined conversation data
-      // Supabase returns relations as array or object. `conversations` is the relation name.
-      const conversationData = Array.isArray(existingOrder.conversations) 
-        ? existingOrder.conversations[0] 
-        : existingOrder.conversations;
-        
-      const customerPsid = conversationData?.customer_psid;
-
-      if (customerPsid) {
-        // Load Workspace Settings to get templates
-        const settings = await loadWorkspaceSettings(existingOrder.workspace_id)
-        
-        // Determine which template to send
-        let messageTemplate = '';
-        if (status === 'completed') {
-          messageTemplate = settings.fastLaneMessages.orderConfirmed;
+    // 3. Stock Deduction Logic (Preserved)
+    if (status === 'completed' && existingOrder.status !== 'completed') {
+      const settings = await loadWorkspaceSettings(existingOrder.workspace_id)
+      
+      if (settings.businessCategory !== 'food') {
+        const { data: orderItemsData, error: itemsError } = await supabase
+          .from('order_items')
+          .select('product_id, quantity, selected_size, selected_color')
+          .eq('order_id', existingOrder.id);
           
-          // Deduct stock when the order is confirmed (Unless food business)
-          if (settings.businessCategory !== 'food') {
-            const { data: orderItemsData, error: itemsError } = await supabase
-              .from('order_items')
-              .select('product_id, quantity, selected_size, selected_color')
-              .eq('order_id', existingOrder.id);
-              
-            if (!itemsError && orderItemsData && orderItemsData.length > 0) {
-              // Map selected_size/color to size/color for the stock utility
-              const orderItems = orderItemsData.map(item => ({
-                product_id: item.product_id,
-                quantity: item.quantity,
-                size: item.selected_size,
-                color: item.selected_color
-              }));
-              await deductStockFromOrderItems(supabase, orderItems);
-            } else if (itemsError) {
-              console.error('[Order API] Could not fetch order_items for stock deduction:', itemsError);
-            }
-          }
-        } else if (status === 'cancelled') {
-          messageTemplate = settings.fastLaneMessages.orderCancelled;
-          
-          // Note: If order transitions from 'completed' to 'cancelled', we should ideally restock.
-          // But for now, we just implement deduct on confirm.
-        }
-
-        if (messageTemplate) {
-          // Replace dynamic variables
-          const finalMessage = messageTemplate
-            .replace(/\{name\}/g, existingOrder.customer_name || 'Customer')
-            .replace(/\{orderNumber\}/g, existingOrder.order_number || '')
-            .replace(/\{deliveryDays\}/g, settings.deliveryTime || '3-5');
-
-          // Send message
-          try {
-            await sendMessage(
-              existingOrder.fb_page_id,
-              customerPsid,
-              finalMessage
-            );
-
-            // Save to messages table with sender_type: 'automated'
-            await supabase.from('messages').insert({
-              conversation_id: existingOrder.conversation_id,
-              sender: 'bot',
-              sender_type: 'automated', // IMPORTANT: Does not trigger bot pause
-              message_type: 'text',
-              message_text: finalMessage,
-              created_at: new Date().toISOString()
-            });
-
-            console.log(`[Order API] Automated status notification sent to PSID ${customerPsid} for order ${existingOrder.id}`);
-          } catch (msgError) {
-            console.error('[Order API] Failed to send automated status message:', msgError);
-            // Don't fail the API request if message sending fails
-          }
+        if (!itemsError && orderItemsData && orderItemsData.length > 0) {
+          const orderItems = orderItemsData.map(item => ({
+            product_id: item.product_id,
+            quantity: item.quantity,
+            size: item.selected_size,
+            color: item.selected_color
+          }));
+          await deductStockFromOrderItems(supabase, orderItems);
+        } else if (itemsError) {
+          console.error('[Order API] Could not fetch order_items for stock deduction:', itemsError);
         }
       }
     }

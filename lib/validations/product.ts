@@ -53,7 +53,7 @@ const productAttributesSchema = z.object({
  */
 export const createProductSchema = z.object({
   name: z.string().min(1, 'Product name is required').max(255),
-  price: z.number().min(0, 'Price cannot be negative').optional(),
+  price: z.number().min(0, 'Price cannot be negative'),
   description: z.string().optional(),
   category: z.string().optional(),
   stock_quantity: z.number().int().min(0, 'Stock quantity cannot be negative').optional(),
@@ -68,11 +68,7 @@ export const createProductSchema = z.object({
   media_videos: z.array(z.string()).optional(),
   flavors: z.array(z.string()).optional(),
   weights: z.array(z.string()).optional(),
-  price_per_pound: z.number().min(0).optional().nullable(),
   flavor: z.string().optional().nullable(),
-  allows_custom_message: z.boolean().default(true),
-  min_pounds: z.number().min(0).default(0.5),
-  max_pounds: z.number().min(0).default(5.0),
 });
 
 /**
@@ -169,17 +165,7 @@ export function validateProductFormData(formData: FormData): CreateProductInput 
     weights: formData.get('weights')
       ? (formData.get('weights') as string).split(',').map(s => s.trim()).filter(Boolean)
       : undefined,
-    price_per_pound: formData.get('price_per_pound') 
-      ? parseFloat(formData.get('price_per_pound') as string) 
-      : undefined,
     flavor: (formData.get('flavor') as string) || undefined,
-    allows_custom_message: formData.get('allows_custom_message') === 'true',
-    min_pounds: formData.get('min_pounds') 
-      ? parseFloat(formData.get('min_pounds') as string) 
-      : undefined,
-    max_pounds: formData.get('max_pounds') 
-      ? parseFloat(formData.get('max_pounds') as string) 
-      : undefined,
   };
 
   return createProductSchema.parse(data);
@@ -251,20 +237,8 @@ export function validateProductUpdateFormData(formData: FormData): UpdateProduct
   if (formData.has('weights')) {
     data.weights = (formData.get('weights') as string).split(',').map((s: string) => s.trim()).filter(Boolean);
   }
-  if (formData.has('price_per_pound')) {
-    data.price_per_pound = parseFloat(formData.get('price_per_pound') as string);
-  }
   if (formData.has('flavor')) {
     data.flavor = formData.get('flavor') as string;
-  }
-  if (formData.has('allows_custom_message')) {
-    data.allows_custom_message = formData.get('allows_custom_message') === 'true';
-  }
-  if (formData.has('min_pounds')) {
-    data.min_pounds = parseFloat(formData.get('min_pounds') as string);
-  }
-  if (formData.has('max_pounds')) {
-    data.max_pounds = parseFloat(formData.get('max_pounds') as string);
   }
 
   return updateProductSchema.parse(data);

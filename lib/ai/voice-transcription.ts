@@ -45,8 +45,9 @@ async function processAudioResponse(response: Response): Promise<string | null> 
   const file = new File([audioBlob], 'audio.m4a', { type: 'audio/m4a' });
   formData.append('file', file);
   formData.append('model', 'whisper-1');
-  // Removing explicit language 'bn' as it was reported as unsupported by the API
-  // OpenAI will now auto-detect the language from the audio
+  // Note: OpenAI reported 'bn' as unsupported in the language parameter.
+  // We use the prompt to nudge Whisper toward Bengali while allowing auto-detection.
+  formData.append('prompt', 'Bengali conversation about cake ordering, flavors, and delivery details. এই কথোপকথনটি কেক অর্ডার, ফ্লেভার এবং ডেলিভারি সম্পর্কে।');
 
   // 3. Call OpenAI Transcription API
   const openaiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {

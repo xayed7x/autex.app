@@ -30,6 +30,7 @@ export interface ProcessMessageInput {
   fbPageId: number;
   conversationId: string;
   isTestMode?: boolean;
+  botEnabled?: boolean;
 }
 
 export interface ProductCard {
@@ -133,6 +134,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const isExactDigits = PAYMENT_DIGIT_REGEX.test(messageText);
     const digitsToProcess = isExactDigits ? messageText : extractedDigits;
 
+    // Handle incoming payment digits (either exact 2-digit message or extracted from natural text)
     if (currentContext.metadata?.awaitingPaymentDigits && digitsToProcess) {
       console.log(`💳 [FAST PATH] Payment digits received: ${digitsToProcess}`);
       
@@ -196,60 +198,28 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       };
     }
 
-    // ========================================
-    // FAST PATH: Pound Collection for Cake Orders
-    // ========================================
-    if (currentContext.metadata?.orderStage === 'COLLECTING_POUNDS' && messageText && !messageText.startsWith('[SYSTEM:')) {
-      // Try to extract a number from customer message
-      const text = messageText.toLowerCase();
-      const numberMatch = text.match(/([0-9\.\u09E6-\u09EF]+)\s*(pound|পাউন্ড|kg|কেজি)?/i) || 
-                          text.match(/half|হাফ|অর্ধেক/i) ||
-                          text.match(/এক|দুই|তিন|চার|পাঁচ/i);
-
-      if (numberMatch) {
-        let extractedNumber = 0;
-
-        // Parse different formats
-        if (text.includes('half') || text.includes('হাফ') || text.includes('অর্ধেক') || text.includes('.5') || text.includes('০.৫')) {
-          extractedNumber = 0.5;
-        } else if (text.includes('এক') || text.includes('১ পাউন্ড')) {
-          extractedNumber = 1;
-        } else if (text.includes('দুই') || text.includes('২ পাউন্ড')) {
-          extractedNumber = 2;
-        } else if (text.includes('তিন') || text.includes('৩ পাউন্ড')) {
-          extractedNumber = 3;
-        } else if (text.includes('চার') || text.includes('৪ পাউন্ড')) {
-          extractedNumber = 4;
-        } else if (text.includes('পাঁচ') || text.includes('৫ পাউন্ড')) {
-          extractedNumber = 5;
-        } else if (numberMatch[1]) {
-           // Parse English digits and Bengali digits
-           const engOrBngDigit = numberMatch[1]
-              .replace(/০/g, "0").replace(/১/g, "1").replace(/২/g, "2")
-              .replace(/৩/g, "3").replace(/৪/g, "4").replace(/৫/g, "5")
-              .replace(/৬/g, "6").replace(/৭/g, "7").replace(/৮/g, "8")
-              .replace(/৯/g, "9");
-           extractedNumber = parseFloat(engOrBngDigit);
-        }
-
-        if (extractedNumber > 0) {
-          if (text.includes('kg') || text.includes('কেজি')) {
-            extractedNumber = extractedNumber * 2.2; // roughly convert kg to pounds
-          }
-
-          console.log(`✅ [FAST PATH] Pounds extracted: ${extractedNumber}`);
-          
-          currentContext.metadata.selectedPounds = extractedNumber;
-          
-          // Calculate price: price_per_pound * pounds (round to nearest 10)
-          const pricePerPound = currentContext.metadata.pricePerPound || 0;
-          const calculatedPrice = Math.round((pricePerPound * extractedNumber) / 10) * 10;
-          currentContext.metadata.calculatedPrice = calculatedPrice;
-
-          // Advance to custom message collection
-          currentContext.metadata.orderStage = 'COLLECTING_CUSTOM_MESSAGE';
-        }
+    // Handle invalid digits if we were expecting them
+    if (currentContext.metadata?.awaitingPaymentDigits && messageText && !isExactDigits && !extractedDigits && !messageText.startsWith('[SYSTEM:')) {
+      const invalidMsg = settings.fastLaneMessages?.invalidPaymentDigits || '⚠️ দুঃখিত! শুধু ২টা digit দিতে হবে।\n\nExample: 78 বা 45\n\nআবার চেষ্টা করুন। 🔢';
+      
+      if (!input.isTestMode) {
+        await sendMessage(input.pageId, input.customerPsid, invalidMsg);
       }
+
+      // Log bot message
+      await supabase.from('messages').insert({
+        conversation_id: input.conversationId,
+        sender: 'bot',
+        sender_type: 'bot',
+        message_text: invalidMsg,
+        message_type: 'text',
+      });
+
+      return {
+        response: invalidMsg,
+        newState: 'IDLE',
+        updatedContext: currentContext,
+      };
     }
 
     // Load ALL messages for this conversation to feed the memory manager
@@ -304,7 +274,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // STEP 2: HANDLE IMAGES (UNTOUCHED RECOGNITION API)
     // ========================================
     let imageContext: PendingImage | null = null;
-    if (input.imageUrl) {
+    if (input.imageUrl && (input.botEnabled !== false || input.isTestMode)) {
       console.log('🖼️ Running Image Recognition...');
       const formData = new FormData();
       formData.append('imageUrl', input.imageUrl);
@@ -314,9 +284,20 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         method: 'POST',
         body: formData,
       });
-      
+
       const result = await response.json();
       
+      // === FOOD BUSINESS: INSPIRATION DETECTION ===
+      const isFood = settings.businessCategory === 'food';
+      const confidence = result.match?.confidence || 0;
+      const isInspiration = isFood && (!result.success || confidence < 85);
+      
+      if (isInspiration) {
+        console.log('✨ [INSPIRATION DETECTED] Low confidence or no match found for food item.');
+        if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
+        currentContext.metadata.lastInspirationUrl = input.imageUrl;
+      }
+
       imageContext = {
         url: input.imageUrl,
         timestamp: Date.now(),
@@ -335,6 +316,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           media_videos: result.match?.product?.media_videos,
           description: result.match?.product?.description,
           product_attributes: result.match?.product?.product_attributes,
+          aiAnalysis: result.aiAnalysis,
+          isInspiration, // Pass flag to AI
         },
       };
 
@@ -343,7 +326,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       currentContext.pendingImages.push(imageContext);
 
       // Add to identifiedProducts for Generic Template rendering
-      if (result.success && result.match?.product) {
+      // ONLY if it's NOT an inspiration (to avoid random cards)
+      if (result.success && result.match?.product && !isInspiration) {
         if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
         if (!currentContext.metadata.identifiedProducts) currentContext.metadata.identifiedProducts = [];
         
@@ -363,11 +347,25 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     );
 
     // ========================================
-    // STEP 4: CALL NEW SINGLE AGENT
+    // STEP 4: FETCH LAST ORDER DATA (For Lifecycle awareness)
+    // ========================================
+    const { data: lastOrders } = await supabase
+      .from('orders')
+      .select('created_at')
+      .eq('workspace_id', input.workspaceId)
+      .eq('fb_page_id', input.fbPageId)
+      .ilike('customer_phone', `%${currentContext.checkout?.customerPhone || ''}%`)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    const lastOrderDate = lastOrders && lastOrders.length > 0 ? lastOrders[0].created_at : null;
+
+    // ========================================
+    // STEP 5: CALL NEW SINGLE AGENT
     // ========================================
     const agentInput: AgentInput = {
       workspaceId: input.workspaceId,
-      fbPageId: input.fbPageId.toString(), // Passing as string for tool executor compatibility
+      fbPageId: input.fbPageId.toString(),
       conversationId: input.conversationId,
       messageText: input.messageText || '',
       isTest: !!convData.is_test,
@@ -375,9 +373,11 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       imageRecognitionResult: imageContext,
       conversationHistory: recentMessages,
       memorySummary,
-      context: currentContext, // Agent tools will directly mutate properties of this object
+      context: currentContext, 
       settings,
       customerPsid: input.customerPsid,
+      currentTime: new Date().toISOString(),
+      lastOrderDate,
     };
 
     console.log(`🤖 Calling Agent... [Memory Summary: ${!!memorySummary}] [Messages Passed: ${recentMessages.length}]`);
@@ -414,13 +414,42 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                       (messages.paymentInstructions ? '\n\n' + messages.paymentInstructions : '');
 
       // Set the flag so the NEXT customer message (2 digits) is fast-pathed
-      currentContext.metadata.awaitingPaymentDigits = true;
-      currentContext.metadata.awaitingPaymentOrderId = currentContext.metadata.latestOrderId;
+      // ON for food business, OFF for clothing as requested by owner
+      const isFood = settings.businessCategory === 'food';
+      if (isFood && messages.paymentInstructions) {
+        currentContext.metadata.awaitingPaymentDigits = true;
+        currentContext.metadata.awaitingPaymentOrderId = currentContext.metadata.latestOrderId;
+      }
                       
       // Clear the volatile order metadata now that we've used it
       currentContext.metadata.latestOrderId = undefined;
       currentContext.metadata.latestOrderNumber = undefined;
       currentContext.metadata.latestOrderData = undefined;
+    }
+
+    // STEP 5.5: UNIVERSAL DISCOVERY PROTOCOL INTERCEPTION
+    // interception rules:
+    // 1. Only intercept if products were identified this turn (via search_products/check_stock)
+    // 2. AND no flow-locking order tools were called (add_to_cart, save_order, calculate_delivery)
+    // 3. AND an order was not just created
+    const flowLockingTools = ['add_to_cart', 'save_order', 'calculate_delivery', 'update_customer_info'];
+    const flowLocked = agentResult.toolsCalled?.some(toolName => {
+      // Handle toolName being either a string or a more complex object if that ever happens
+      const name = typeof toolName === 'string' ? toolName.split('(')[0] : '';
+      return flowLockingTools.includes(name);
+    }) || false;
+    
+    const hasProducts = currentContext.metadata?.identifiedProducts && currentContext.metadata.identifiedProducts.length > 0;
+    
+    if (hasProducts && !orderCreated && !flowLocked) {
+      const productCount = currentContext.metadata.identifiedProducts.length;
+      if (settings.businessCategory === 'food') {
+        finalResponse = productCount === 1
+          ? `নিচের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👇`
+          : `নিচের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👇`;
+      } else {
+        finalResponse = `অর্ডার করতে চাইলে নিচের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊`;
+      }
     }
 
     // ========================================
@@ -468,20 +497,24 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // STEP 6.5: SEND PRODUCT CARDS (Generic Templates)
     // ========================================
     const pendingProducts = currentContext.metadata?.identifiedProducts;
+    
+    // Check if we arrived here via Discovery Interception (high confidence match)
+    const isDiscoveryTurn = hasProducts && !orderCreated && !flowLocked;
+
     let productCard: ProductCard | undefined;
     if (pendingProducts && pendingProducts.length > 0) {
       // Filter out products that are already in the cart to avoid redundancy
+      // EXCEPT on a Discovery Turn where the customer explicitly sent an image and we acknowledged it with "Click button below"
       const cartProductIds = (currentContext.cart || []).map(item => item.productId);
-      const uniquePendingProducts = pendingProducts.filter((p: any) => !cartProductIds.includes(p.id));
+      const uniquePendingProducts = isDiscoveryTurn 
+        ? pendingProducts 
+        : pendingProducts.filter((p: any) => !cartProductIds.includes(p.id));
 
       // SAFETY VALVE: Suppress cards during checkout, summary display, or after order creation
-      if (isShowingSummary || isCollectingInfo || isConfirmationMsg || orderCreated || uniquePendingProducts.length === 0) {
-        console.log('🚫 [CARD SUPPRESSION] Suppressing product card');
+      if (!isDiscoveryTurn && (isShowingSummary || isCollectingInfo || isConfirmationMsg || orderCreated || uniquePendingProducts.length === 0)) {
         currentContext.metadata.identifiedProducts = undefined;
         await updateContextInDb(supabase, input.conversationId, finalStateToSave, currentContext);
       } else {
-        console.log(`📦 Formatting ${uniquePendingProducts.length} identified products as Facebook Generic Templates...`);
-        
         const mappedProducts = uniquePendingProducts.map((p: any) => {
           let availableColors = Array.isArray(p.colors) ? [...p.colors] : [];
           if (p.variant_stock && Array.isArray(p.variant_stock) && p.variant_stock.length > 0) {
@@ -520,14 +553,6 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         });
 
         if (!input.isTestMode) {
-          // Add text prefix for food businesses
-          if (settings.businessCategory === 'food') {
-            const prefixText = mappedProducts.length === 1
-              ? `এই design চাই 🎂 বাটনে ক্লিক করে আপনি সরাসরি order করতে পারবেন Sir! 👇`
-              : `নিচের যে design-টি আপনার পছন্দ হয় সেটার 'এই design চাই 🎂' বাটনে ক্লিক করুন Sir! 👇`;
-            await sendMessage(input.pageId, input.customerPsid, prefixText);
-          }
-
           if (mappedProducts.length === 1) {
              const result = await sendProductCard(input.pageId, input.customerPsid, mappedProducts[0] as any, settings.businessCategory);
              productCard = mappedProducts[0];
@@ -623,7 +648,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     }
 
     if (agentResult.shouldFlag) {
-      await flagForManualResponse(supabase, input.conversationId, "Agent self-flagged or encountered hallucination risk.");
+      await flagForManualResponse(supabase, input.conversationId, agentResult.flagReason || 'Agent self-flagged or encountered hallucination risk.');
     }
 
     const duration = Date.now() - startTime;
@@ -709,6 +734,7 @@ export async function flagForManualResponse(
   await supabase
     .from('conversations')
     .update({
+      control_mode: 'manual',
       needs_manual_response: true,
       manual_flag_reason: reason,
       manual_flagged_at: new Date().toISOString(),

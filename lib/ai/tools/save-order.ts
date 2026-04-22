@@ -69,9 +69,7 @@ export async function saveOrder(
     deliveryDate?: string;
     deliveryTime?: string;
     flavor?: string;
-    weight?: string;
     custom_message?: string;
-    pounds_ordered?: number;
     delivery_zone?: string;
     customer_description?: string;
     inspiration_image?: string;
@@ -156,8 +154,15 @@ export async function saveOrder(
   // ========================================
 
   const subtotal = calculateSubtotal(cart, negotiation);
-  const deliveryCharge = checkout.deliveryCharge
-    ?? getDeliveryCharge(checkout.customerAddress!, settings, overrides?.delivery_zone);
+  
+  // Reprioritize delivery charge: Explicit overrides matching a zone should take precedence over stale context values
+  let deliveryCharge = getDeliveryCharge(checkout.customerAddress!, settings, overrides?.delivery_zone);
+  
+  // Safeguard: Only keep the existing checkout.deliveryCharge if no fresh zone/address recalculation was possible
+  if (deliveryCharge === settings.deliveryCharges.outsideDhaka && checkout.deliveryCharge !== undefined) {
+    deliveryCharge = checkout.deliveryCharge;
+  }
+  
   const totalAmount = subtotal + deliveryCharge;
 
   // ========================================
@@ -238,9 +243,7 @@ export async function saveOrder(
         delivery_date: checkout.deliveryDate || null,
         delivery_time: checkout.deliveryTime || null,
         flavor: cart.length === 1 ? (firstItemAny.selectedFlavor || null) : null,
-        weight: cart.length === 1 ? (firstItemAny.selectedWeight || null) : null,
         custom_message: cart.length === 1 ? (firstItemAny.selectedCustomMessage || overrides?.custom_message || null) : null,
-        pounds_ordered: cart.length === 1 ? (firstItemAny.selectedPounds || overrides?.pounds_ordered || null) : null,
         delivery_zone: overrides?.delivery_zone || null,
         customer_description: overrides?.customer_description || null,
         inspiration_image: detectedInspirationImage,
@@ -375,7 +378,7 @@ function validateOrderData(
     });
   }
 
-  if (!checkout.customerName?.trim()) {
+  if (businessCategory !== 'food' && !checkout.customerName?.trim()) {
     missing.push('name');
   }
 

@@ -86,11 +86,13 @@ export async function GET(request: Request) {
     )
 
     // Get count of conversations needing manual response (for badge)
+    // Only count if they are NOT in bot or hybrid mode
     const { count: manualCount } = await supabase
       .from('conversations')
       .select('id', { count: 'exact', head: true })
       .eq('workspace_id', workspace.id)
       .eq('needs_manual_response', true)
+      .not('control_mode', 'in', '("bot","hybrid")')
 
     return NextResponse.json({
       conversations: conversationsWithCounts,

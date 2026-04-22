@@ -72,7 +72,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           .from('conversations')
           .select('id', { count: 'exact', head: true })
           .eq('workspace_id', workspace.id)
-          .eq('needs_manual_response', true),
+          .eq('needs_manual_response', true)
+          .not('control_mode', 'in', '("bot","hybrid")'),
         supabase
           .from('orders')
           .select('id', { count: 'exact', head: true })
@@ -118,6 +119,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     const supabase = createClient()
 
+    const refreshNeedsReplyCount = () => {
+      supabase
+        .from('conversations')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .eq('needs_manual_response', true)
+        .not('control_mode', 'in', '("bot","hybrid")')
+        .then(({ count }) => setNeedsReplyCount(count || 0))
+    }
+
     const ordersChannel = supabase
       .channel(`orders-${workspaceId}`)
       .on('postgres_changes', { 
@@ -143,18 +154,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         table: 'conversations',
         filter: `workspace_id=eq.${workspaceId}`
       }, () => {
-        supabase
-          .from('conversations')
-          .select('id', { count: 'exact', head: true })
-          .eq('workspace_id', workspaceId)
-          .eq('needs_manual_response', true)
-          .then(({ count }) => setNeedsReplyCount(count || 0))
+        refreshNeedsReplyCount()
       })
       .subscribe()
+
+    // Listen for manual flag clears from conversations page for immediate UI update
+    window.addEventListener('needsReplyCountChanged', refreshNeedsReplyCount)
 
     return () => {
       supabase.removeChannel(ordersChannel)
       supabase.removeChannel(convChannel)
+      window.removeEventListener('needsReplyCountChanged', refreshNeedsReplyCount)
     }
   }, [workspaceId]) // Only re-runs when workspaceId changes
 

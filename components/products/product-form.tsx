@@ -4,15 +4,12 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Upload, X, Plus, Trash2, ImagePlus, ChevronDown } from 'lucide-react';
+import { Loader2, X, Plus, ImagePlus, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import { toast } from 'sonner';
-import { PremiumButton } from '@/components/ui/premium/premium-button';
-import { SmartCard } from '@/components/ui/premium/smart-card';
 import { VariantStockMatrix, VariantStockItem } from './variant-stock-matrix';
 import { CategoryCombobox } from './category-combobox';
 
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -100,15 +97,11 @@ const OCCASION_OPTIONS = ['Casual', 'Formal', 'Party', 'Office', 'Sports'];
 
 const productFormSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
-  price: z.string().optional(), // Required for clothing, optional for food
+  price: z.string().min(1, 'Price is required'),
   description: z.string().optional(),
   category: z.string().optional(),
   colors: z.string().optional(),
-  price_per_pound: z.string().optional(), // Required for food
   flavor: z.string().optional(),
-  allows_custom_message: z.boolean().default(true),
-  min_pounds: z.string().default('0.5'),
-  max_pounds: z.string().default('5.0'),
 });
 
 type ProductFormValues = z.infer<typeof productFormSchema>;
@@ -130,11 +123,7 @@ interface Product {
   media_videos?: string[] | null;
   flavors?: string[] | null;
   weights?: string[] | null;
-  price_per_pound?: number | null;
   flavor?: string | null;
-  allows_custom_message?: boolean;
-  min_pounds?: number;
-  max_pounds?: number;
 }
 
 interface ProductFormProps {
@@ -177,8 +166,6 @@ export function ProductForm({
   // Food-specific states
   const [flavors, setFlavors] = useState<string[]>([]);
   const [weights, setWeights] = useState<string[]>([]);
-  const [newFlavor, setNewFlavor] = useState('');
-  const [newWeight, setNewWeight] = useState('');
 
   const isFood = businessCategory === 'food';
   const isClothing = businessCategory !== 'food';
@@ -204,6 +191,7 @@ export function ProductForm({
       description: '',
       category: '',
       colors: '',
+      flavor: '',
     },
   });
 
@@ -216,11 +204,7 @@ export function ProductForm({
         description: product.description || '',
         category: product.category || '',
         colors: product.colors?.join(', ') || '',
-        price_per_pound: product.price_per_pound?.toString() || '',
         flavor: product.flavor || '',
-        allows_custom_message: product.allows_custom_message ?? true,
-        min_pounds: (product.min_pounds ?? 0.5).toString(),
-        max_pounds: (product.max_pounds ?? 5.0).toString(),
       });
       
       // Load existing images as ImageSlots
@@ -330,9 +314,9 @@ export function ProductForm({
         name: '',
         price: '',
         description: '',
+        category: '',
         colors: '',
-        media_images: '',
-        media_videos: '',
+        flavor: '',
       });
       setImageSlots([]);
       setMediaImageSlots([]);
@@ -351,8 +335,6 @@ export function ProductForm({
     }
     setNewSize('');
     setNewQuantity('10');
-    setNewFlavor('');
-    setNewWeight('');
   }, [product, open, form]);
 
   // Handle adding new image
@@ -464,13 +446,6 @@ export function ProductForm({
     setVariantStock(variantStock.filter(v => v.size !== sizeToRemove));
   };
 
-  // Update quantity for a size
-  const updateQuantity = (index: number, quantity: number) => {
-    const updated = [...sizeStock];
-    updated[index].quantity = quantity;
-    setSizeStock(updated);
-  };
-
   const onSubmit = async (values: ProductFormValues) => {
     try {
       setIsSubmitting(true);
@@ -487,14 +462,10 @@ export function ProductForm({
       const isVariantMode = activeColors.length > 0;
       
       // Filter variant stock to only include active sizes and colors
-      // If no colors defined, map to 'Standard'
       const finalVariantStock = variantStock.filter(v => 
         sizeStock.some(s => s.size === v.size) && 
         (isVariantMode ? activeColors.includes(v.color) : v.color === 'Standard')
       );
-      
-      // If we have sizes but no variant stock (fresh add), try to populate from sizeStock quantities?
-      // Actually Matrix handles inputs.
       
       // Recalculate size_stock totals from variants
       const finalSizeStock = sizeStock.map(s => {
@@ -536,11 +507,7 @@ export function ProductForm({
       // Send food-specific fields if applicable
       if (isFood) {
         if (values.category) formData.append('category', values.category);
-        if (values.price_per_pound) formData.append('price_per_pound', values.price_per_pound);
         if (values.flavor) formData.append('flavor', values.flavor);
-        formData.append('allows_custom_message', values.allows_custom_message.toString());
-        if (values.min_pounds) formData.append('min_pounds', values.min_pounds);
-        if (values.max_pounds) formData.append('max_pounds', values.max_pounds);
       }
 
       // Handle raw media images
@@ -809,132 +776,74 @@ export function ProductForm({
               )}
             />
 
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="price"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Price (৳)</FormLabel>
+                    <FormControl>
+                      <Input type="number" step="0.01" placeholder="0.00" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11 font-mono" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Category</FormLabel>
+                    <FormControl>
+                      <CategoryCombobox 
+                        value={field.value || ""} 
+                        onChange={field.onChange} 
+                        placeholder="Select or type category..."
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             {/* Food Fields */}
             {isFood && (
               <>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="category"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Category</FormLabel>
-                        <FormControl>
-                          <CategoryCombobox 
-                            value={field.value || ""} 
-                            onChange={field.onChange} 
-                            placeholder="Select or type category..."
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="flavor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Flavor</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value || "Custom"}>
-                          <FormControl>
-                            <SelectTrigger className="bg-zinc-900/50 border-white/10 text-white h-11">
-                              <SelectValue placeholder="Select flavor" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className="bg-zinc-900 border-white/10 text-white">
-                            <SelectItem value="Bakery Style Pound Cake">Bakery Style Pound Cake</SelectItem>
-                            <SelectItem value="Chocolate Brownies">Chocolate Brownies</SelectItem>
-                            <SelectItem value="Vanilla Cake">Vanilla Cake</SelectItem>
-                            <SelectItem value="Orange Cake">Orange Cake</SelectItem>
-                            <SelectItem value="Lemon Cake">Lemon Cake</SelectItem>
-                            <SelectItem value="Mango Cake">Mango Cake</SelectItem>
-                            <SelectItem value="Milk Cake">Milk Cake</SelectItem>
-                            <SelectItem value="Special Chocolate Cake">Special Chocolate Cake</SelectItem>
-                            <SelectItem value="Black Forest Cake">Black Forest Cake</SelectItem>
-                            <SelectItem value="Chocolate Fudge Delight Cake (Cooper's Style)">Chocolate Fudge Delight Cake (Cooper's Style)</SelectItem>
-                            <SelectItem value="Butter Scotch Cake">Butter Scotch Cake</SelectItem>
-                            <SelectItem value="Mocha Cake">Mocha Cake</SelectItem>
-                            <SelectItem value="Red Velvet Cake">Red Velvet Cake</SelectItem>
-                            <SelectItem value="Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze">Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze</SelectItem>
-                            <SelectItem value="Custom">Custom / Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
                 <FormField
                   control={form.control}
-                  name="price_per_pound"
+                  name="flavor"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Price per Pound (৳)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" placeholder="0.00" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11 font-mono" />
-                      </FormControl>
+                      <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Flavor</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value || "Custom"}>
+                        <FormControl>
+                          <SelectTrigger className="bg-zinc-900/50 border-white/10 text-white h-11">
+                            <SelectValue placeholder="Select flavor" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="bg-zinc-900 border-white/10 text-white">
+                          <SelectItem value="Bakery Style Pound Cake">Bakery Style Pound Cake</SelectItem>
+                          <SelectItem value="Chocolate Brownies">Chocolate Brownies</SelectItem>
+                          <SelectItem value="Vanilla Cake">Vanilla Cake</SelectItem>
+                          <SelectItem value="Orange Cake">Orange Cake</SelectItem>
+                          <SelectItem value="Lemon Cake">Lemon Cake</SelectItem>
+                          <SelectItem value="Mango Cake">Mango Cake</SelectItem>
+                          <SelectItem value="Milk Cake">Milk Cake</SelectItem>
+                          <SelectItem value="Special Chocolate Cake">Special Chocolate Cake</SelectItem>
+                          <SelectItem value="Black Forest Cake">Black Forest Cake</SelectItem>
+                          <SelectItem value="Chocolate Fudge Delight Cake (Cooper's Style)">Chocolate Fudge Delight Cake (Cooper's Style)</SelectItem>
+                          <SelectItem value="Butter Scotch Cake">Butter Scotch Cake</SelectItem>
+                          <SelectItem value="Mocha Cake">Mocha Cake</SelectItem>
+                          <SelectItem value="Red Velvet Cake">Red Velvet Cake</SelectItem>
+                          <SelectItem value="Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze">Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze</SelectItem>
+                          <SelectItem value="Custom">Custom / Other</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="min_pounds"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Min Pounds</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.1" {...field} className="bg-zinc-900/50 border-white/10 text-white h-11" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="max_pounds"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Max Pounds</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.1" {...field} className="bg-zinc-900/50 border-white/10 text-white h-11" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="allows_custom_message"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
-                      <div>
-                        <FormLabel className="text-sm font-medium text-white">Custom Message</FormLabel>
-                        <p className="text-xs text-zinc-500">Allow customers to write text on the cake</p>
-                      </div>
-                      <FormControl>
-                        <button
-                          type="button"
-                          onClick={() => field.onChange(!field.value)}
-                          className={`relative w-11 h-6 rounded-full transition-colors ${
-                            field.value ? 'bg-green-500' : 'bg-zinc-700'
-                          }`}
-                        >
-                          <span
-                            className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                              field.value ? 'translate-x-5' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </FormControl>
                     </FormItem>
                   )}
                 />
@@ -944,35 +853,19 @@ export function ProductForm({
             {/* Clothing Fields */}
             {isClothing && (
               <>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="price"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Base Price (৳)</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" placeholder="0.00" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11 font-mono" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="colors"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Colors (Optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Red, Blue, Green" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <FormField
+                  control={form.control}
+                  name="colors"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Colors (Optional)</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Red, Blue, Green" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 {/* Size & Stock Section */}
                 <div className="space-y-4 pt-2 border-t border-white/5">
@@ -1051,326 +944,6 @@ export function ProductForm({
                              .reduce((sum, item) => sum + item.quantity, 0)
                          } pcs
                        </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Pricing Policy Section */}
-                <div className="space-y-4 border border-white/10 rounded-xl p-4 bg-white/5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-medium text-white flex items-center gap-2">
-                        💰 Pricing Policy
-                      </h4>
-                      <p className="text-xs text-zinc-500">Configure negotiation and bulk discounts</p>
-                    </div>
-                  </div>
-                  
-                  {/* Negotiable Toggle */}
-                  <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-900/50">
-                    <div>
-                      <p className="text-sm text-white">Price is negotiable</p>
-                      <p className="text-xs text-zinc-500">Allow customers to make offers</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsNegotiable(!isNegotiable)}
-                      className={`relative w-11 h-6 rounded-full transition-colors ${
-                        isNegotiable ? 'bg-green-500' : 'bg-zinc-700'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                          isNegotiable ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  
-                  {/* Min Price (when negotiable) */}
-                  {isNegotiable && (
-                    <div className="pl-3 border-l-2 border-green-500/30">
-                      <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">
-                        Minimum Acceptable Price (৳)
-                      </label>
-                      <Input
-                        type="number"
-                        value={minPrice}
-                        onChange={(e) => setMinPrice(e.target.value)}
-                        placeholder="Lowest price you'll accept"
-                        className="mt-1 bg-zinc-900/50 border-white/10 h-10"
-                      />
-                      <p className="text-xs text-zinc-500 mt-1">
-                        AI will accept offers at or above this price
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Bulk Discounts */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">
-                        Bulk Discounts
-                      </label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBulkDiscounts([...bulkDiscounts, { minQty: 3, discountPercent: 5 }])}
-                        className="h-7 text-xs"
-                      >
-                        + Add Tier
-                      </Button>
-                    </div>
-                    
-                    {bulkDiscounts.length === 0 ? (
-                      <p className="text-xs text-zinc-500 py-2">No bulk discounts configured</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {bulkDiscounts.map((discount, index) => (
-                          <div key={index} className="flex items-center gap-2 bg-zinc-900/50 p-2 rounded-lg">
-                            <Input
-                              type="number"
-                              value={discount.minQty}
-                              onChange={(e) => {
-                                const updated = [...bulkDiscounts];
-                                updated[index].minQty = parseInt(e.target.value) || 0;
-                                setBulkDiscounts(updated);
-                              }}
-                              className="w-16 h-8 text-center bg-transparent border-white/10"
-                              min={2}
-                            />
-                            <span className="text-xs text-zinc-500">+ items →</span>
-                            <Input
-                              type="number"
-                              value={discount.discountPercent}
-                              onChange={(e) => {
-                                const updated = [...bulkDiscounts];
-                                updated[index].discountPercent = parseInt(e.target.value) || 0;
-                                setBulkDiscounts(updated);
-                              }}
-                              className="w-16 h-8 text-center bg-transparent border-white/10"
-                              min={1}
-                              max={100}
-                            />
-                            <span className="text-xs text-zinc-500">% off</span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setBulkDiscounts(bulkDiscounts.filter((_, i) => i !== index))}
-                              className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Product Details Section (Collapsible) */}
-                <div className="border border-white/10 rounded-xl overflow-hidden bg-white/5">
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors"
-                    onClick={() => setDetailsOpen(!detailsOpen)}
-                  >
-                    <div>
-                      <h4 className="text-sm font-medium text-white flex items-center gap-2">
-                        📋 Product Details
-                      </h4>
-                      <p className="text-xs text-zinc-500">Fabric, fit type, care instructions, size chart & more</p>
-                    </div>
-                    <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform duration-200 ${detailsOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {detailsOpen && (
-                    <div className="p-4 pt-0 space-y-4 border-t border-white/5 animate-in fade-in slide-in-from-top-2 duration-200">
-                      {/* Row 1: Fabric + Fit Type */}
-                      <div className="grid grid-cols-2 gap-4 pt-3">
-                        <div className="space-y-1.5">
-                          <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Fabric / Material</label>
-                          <Input
-                            value={productAttributes.fabric}
-                            onChange={(e) => setProductAttributes({ ...productAttributes, fabric: e.target.value })}
-                            placeholder="e.g. 100% Cotton"
-                            className="bg-zinc-900/50 border-white/10 h-9 text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Fit Type</label>
-                          <Select
-                            value={productAttributes.fitType || undefined}
-                            onValueChange={(v) => setProductAttributes({ ...productAttributes, fitType: v })}
-                          >
-                            <SelectTrigger className="bg-zinc-900/50 border-white/10 h-9 text-sm">
-                              <SelectValue placeholder="Select fit" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {FIT_TYPES.map(f => (
-                                <SelectItem key={f} value={f} className="capitalize">{f}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      {/* Care Instructions */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Care Instructions</label>
-                        <Textarea
-                          value={productAttributes.careInstructions}
-                          onChange={(e) => setProductAttributes({ ...productAttributes, careInstructions: e.target.value })}
-                          placeholder="e.g. Machine wash cold, do not bleach"
-                          rows={2}
-                          className="bg-zinc-900/50 border-white/10 text-sm resize-none"
-                        />
-                      </div>
-
-                      {/* Occasion (multi-select badges) */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Occasion</label>
-                        <div className="flex flex-wrap gap-2">
-                          {OCCASION_OPTIONS.map(occ => {
-                            const selected = productAttributes.occasion.split(',').map(s => s.trim()).filter(Boolean);
-                            const isActive = selected.includes(occ);
-                            return (
-                              <button
-                                key={occ}
-                                type="button"
-                                className={`
-                                  h-7 px-3 rounded-md text-xs font-medium transition-all duration-200 border
-                                  ${isActive
-                                    ? 'bg-white text-black border-white shadow-[0_0_8px_rgba(255,255,255,0.2)]'
-                                    : 'bg-transparent text-zinc-400 border-white/10 hover:border-white/30 hover:text-white'
-                                  }
-                                `}
-                                onClick={() => {
-                                  const current = productAttributes.occasion.split(',').map(s => s.trim()).filter(Boolean);
-                                  const updated = isActive
-                                    ? current.filter(o => o !== occ)
-                                    : [...current, occ];
-                                  setProductAttributes({ ...productAttributes, occasion: updated.join(', ') });
-                                }}
-                              >
-                                {occ}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Size Chart */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Size Chart (inches)</label>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setProductAttributes({
-                              ...productAttributes,
-                              sizeChart: [...productAttributes.sizeChart, { size: '', chest: '', length: '' }]
-                            })}
-                            className="h-7 text-xs"
-                          >
-                            + Add Row
-                          </Button>
-                        </div>
-                        {productAttributes.sizeChart.length > 0 && (
-                          <div className="space-y-1">
-                            <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-[10px] text-zinc-500 uppercase font-bold tracking-wider px-1">
-                              <span>Size</span>
-                              <span>Chest</span>
-                              <span>Length</span>
-                              <span></span>
-                            </div>
-                            {productAttributes.sizeChart.map((row, idx) => (
-                              <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
-                                <Input
-                                  value={row.size}
-                                  onChange={(e) => {
-                                    const updated = [...productAttributes.sizeChart];
-                                    updated[idx] = { ...updated[idx], size: e.target.value };
-                                    setProductAttributes({ ...productAttributes, sizeChart: updated });
-                                  }}
-                                  placeholder="S"
-                                  className="bg-zinc-900/50 border-white/10 h-8 text-xs"
-                                />
-                                <Input
-                                  value={row.chest}
-                                  onChange={(e) => {
-                                    const updated = [...productAttributes.sizeChart];
-                                    updated[idx] = { ...updated[idx], chest: e.target.value };
-                                    setProductAttributes({ ...productAttributes, sizeChart: updated });
-                                  }}
-                                  placeholder="36"
-                                  className="bg-zinc-900/50 border-white/10 h-8 text-xs"
-                                />
-                                <Input
-                                  value={row.length}
-                                  onChange={(e) => {
-                                    const updated = [...productAttributes.sizeChart];
-                                    updated[idx] = { ...updated[idx], length: e.target.value };
-                                    setProductAttributes({ ...productAttributes, sizeChart: updated });
-                                  }}
-                                  placeholder="27"
-                                  className="bg-zinc-900/50 border-white/10 h-8 text-xs"
-                                />
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setProductAttributes({
-                                      ...productAttributes,
-                                      sizeChart: productAttributes.sizeChart.filter((_, i) => i !== idx)
-                                    });
-                                  }}
-                                  className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Row: Brand + Return Eligible */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Brand (Optional)</label>
-                          <Input
-                            value={productAttributes.brand}
-                            onChange={(e) => setProductAttributes({ ...productAttributes, brand: e.target.value })}
-                            placeholder="e.g. Nike, Local Brand"
-                            className="bg-zinc-900/50 border-white/10 h-9 text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Return Eligible</label>
-                          <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-900/50 h-9">
-                            <span className="text-xs text-zinc-400">{productAttributes.returnEligible ? 'Yes' : 'No'}</span>
-                            <button
-                              type="button"
-                              onClick={() => setProductAttributes({ ...productAttributes, returnEligible: !productAttributes.returnEligible })}
-                              className={`relative w-9 h-5 rounded-full transition-colors ${
-                                productAttributes.returnEligible ? 'bg-green-500' : 'bg-zinc-700'
-                              }`}
-                            >
-                              <span
-                                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                                  productAttributes.returnEligible ? 'translate-x-4' : 'translate-x-0'
-                                }`}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
                     </div>
                   )}
                 </div>
@@ -1656,7 +1229,7 @@ export function ProductForm({
                                 }}
                                 className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
                               >
-                                <X className="h-3 w-3" />
+                                <X className="h-4 w-4" />
                               </Button>
                             </div>
                           ))}

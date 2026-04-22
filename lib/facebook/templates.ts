@@ -51,13 +51,12 @@ export function createProductCard(
   let buttons = [];
 
   if (isFood) {
-    const pricePerPound = product.price_per_pound || product.price;
-    subtitle = `৳${pricePerPound.toLocaleString()} per pound`;
+    subtitle = `Price: ${formattedPrice}`;
     
     buttons = [
       {
         type: 'postback' as const,
-        title: 'এই design চাই 🎂',
+        title: 'এটা "order" করব',
         payload: `ORDER_NOW_${product.id}`,
       },
     ];
@@ -89,7 +88,7 @@ export function createProductCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: `${product.name}${!isFood ? ` — ${formattedPrice}` : ''}`,
+            title: `${product.name} — ${formattedPrice}`,
             subtitle: subtitle,
             image_url: imageUrl,
             buttons: buttons,
@@ -118,16 +117,12 @@ export function createProductCarousel(
     let buttons = [];
 
     if (isFood) {
-      const flavor = product.flavor || 'Cake';
-      const pricePerPound = product.price_per_pound || product.price;
-      const minP = product.min_pounds || 0.5;
-      const maxP = product.max_pounds || 5.0;
-      subtitle = `🎂 ${flavor} | ৳${pricePerPound.toLocaleString()}/lb | ${minP}-${maxP} lb`;
+      subtitle = `Price: ${formattedPrice}`;
       
       buttons = [
         {
           type: 'postback' as const,
-          title: 'এই design চাই 🎂',
+          title: 'এটা "order" করব',
           payload: `ORDER_NOW_${product.id}`,
         },
       ];
@@ -152,7 +147,7 @@ export function createProductCarousel(
     const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
     
     return {
-      title: `${product.name}${!isFood ? ` — ${formattedPrice}` : ''}`,
+      title: `${product.name} — ${formattedPrice}`,
       subtitle: subtitle,
       image_url: imageUrl,
       buttons: buttons,
@@ -183,9 +178,7 @@ export function createProductDetailsCard(
   const isFood = businessCategory === 'food';
   const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
   
-  let subtitle = isFood 
-    ? `Price: ৳${(product.price_per_pound || product.price).toLocaleString()} per pound`
-    : `Price: ${formattedPrice}`;
+  let subtitle = `Price: ${formattedPrice}`;
   
   if (product.description) {
     const truncatedDesc = product.description.length > 80
@@ -210,7 +203,7 @@ export function createProductDetailsCard(
             buttons: [
               {
                 type: 'postback' as const,
-                title: isFood ? 'এই design চাই 🎂' : '🛒 Order Now',
+                title: isFood ? 'এটা "order" করব' : '🛒 Order Now',
                 payload: `ORDER_NOW_${product.id}`,
               },
               {

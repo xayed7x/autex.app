@@ -247,10 +247,6 @@ export async function POST(request: NextRequest) {
       console.error('❌ Error during webhook subscription:', error);
     }
 
-    } catch (subError) {
-      console.error('❌ Webhook subscription error:', subError);
-    }
-
     
     // Step 5: Clear temporary pages cookie
     const cookieStore = await cookies();

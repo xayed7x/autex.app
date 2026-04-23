@@ -146,7 +146,6 @@ export async function POST(request: NextRequest) {
           // Handle Standby events (messages sent while our app is not the primary receiver)
           if (entry.standby) {
             for (const event of entry.standby) {
-              console.log('👀 [STANDBY] Detected message while in standby mode');
               await processMessagingEvent(supabase, entry.id, event);
             }
           }
@@ -246,12 +245,8 @@ export async function processMessagingEvent(
       
       // If it's an echo from OUR bot, ignore it (we already saved it)
       if (appId && String(appId) === String(ourAppId)) {
-        console.log('🗣️ [ECHO] Ignoring bot\'s own message echo');
         return;
       }
-      
-      // Otherwise, it's an owner message from Messenger app/Meta Suite - continue processing
-      console.log('👤 [ECHO] Detected manual reply echo from Messenger/Meta Suite');
     }
 
     
@@ -261,7 +256,6 @@ export async function processMessagingEvent(
     
     // In Facebook webhooks, entry.id is ALWAYS the Page ID.
     // This is the most robust way to find the workspace.
-    console.log(`🔍 [WEBHOOK_DEBUG] Entry ID: ${entryId}, Sender: ${senderId}, Recipient: ${recipientId}`);
     
     // Fetch the page using entries.id (Page ID)
     const { data: fbPageCheck, error: lookupError } = await supabase
@@ -286,11 +280,9 @@ export async function processMessagingEvent(
     }
 
     const actualPageId = String(fbPageCheck.id);
-    const isOwnerMessage = senderId === actualPageId;
+    const isOwnerMessage = String(senderId) === actualPageId;
     const customerPsid = isOwnerMessage ? recipientId : senderId;
     const pageId = actualPageId;
-    
-    console.log(`🔍 [SOURCE DETECTION] Workspace: ${fbPageCheck.workspace_id}, Is Owner: ${isOwnerMessage}, Customer: ${customerPsid}`);
 
     // Immediate Sender Action: Mark as Seen
     if (!isOwnerMessage) {
@@ -1168,11 +1160,15 @@ export async function processInstagramMessagingEvent(
     // For Instagram: 
     // - Customer to Business: sender.id = customer IGSID, recipient.id = IG Business Account ID
     // - Business to Customer: sender.id = IG Business Account ID, recipient.id = customer IGSID
-    const isOwnerMessage = senderId === igAccountId;
+    const isOwnerMessage = String(senderId) === String(igAccountId);
     const customerIgsid = isOwnerMessage ? recipientId : senderId;
 
+    console.log(`📸 [INSTAGRAM] Resolved Page ID: ${pageId}`);
+    console.log(`📸 [INSTAGRAM] IG Account ID: ${igAccountId}`);
+    console.log(`📸 [INSTAGRAM] Sender ID: ${senderId}`);
+    console.log(`📸 [INSTAGRAM] Recipient ID: ${recipientId}`);
     console.log(`📸 [INSTAGRAM] Is Owner Message: ${isOwnerMessage}`);
-    console.log(`📸 [INSTAGRAM] Customer IGSID: ${customerIgsid}`);
+    console.log(`📸 [INSTAGRAM] Resolved Customer IGSID: ${customerIgsid}`);
 
     // Immediate Sender Action: Mark as Seen
     if (!isOwnerMessage) {
@@ -1203,6 +1199,22 @@ export async function processInstagramMessagingEvent(
     const messageText = message.text || '';
     const messageId = message.mid;
     const replyToMid = message.reply_to?.mid || null;
+
+    // ========================================
+    // IG ECHO FILTER
+    // ========================================
+    if (message?.is_echo) {
+      const appId = (message as any).app_id;
+      const ourAppId = process.env.FACEBOOK_APP_ID;
+      
+      console.log(`📸🗣️ [IG ECHO] Received echo event. App ID: ${appId}, Our App ID: ${ourAppId}`);
+
+      if (appId && String(appId) === String(ourAppId)) {
+        console.log('📸🗣️ [IG ECHO] Ignoring bot\'s own message echo');
+        return;
+      }
+      console.log('📸👤 [IG ECHO] Detected manual reply echo from Instagram app/Business Suite');
+    }
 
     // Extract image URL if present
     let imageUrl: string | undefined;
@@ -1354,6 +1366,10 @@ export async function processInstagramMessagingEvent(
           last_manual_reply_at: new Date().toISOString(),
           last_manual_reply_by: 'owner',
           last_message_at: new Date(timestamp).toISOString(),
+          // Clear manual flag — owner has handled it by replying
+          needs_manual_response: false,
+          manual_flag_reason: null,
+          manual_flagged_at: null,
         })
         .eq('id', conversation.id);
 

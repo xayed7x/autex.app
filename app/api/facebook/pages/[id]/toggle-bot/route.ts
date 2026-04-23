@@ -14,6 +14,10 @@ export async function PATCH(
 ) {
   try {
     const { id: pageId } = await params
+    console.log('\n' + '🔄'.repeat(20));
+    console.log(`🛠️ [TOGGLE_BOT_API] Attempting toggle for Page ID: ${pageId}`);
+    console.log('🔄'.repeat(20) + '\n');
+    
     const supabase = await createClient()
 
     // ========================================

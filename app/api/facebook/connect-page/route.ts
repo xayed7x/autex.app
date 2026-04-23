@@ -217,8 +217,8 @@ export async function POST(request: NextRequest) {
       // Non-fatal — page connection still succeeds without Instagram
     }
     
-    // Step 4: Subscribe page to webhook (Split into Messenger and Feed)
-    console.log('🔔 Subscribing to Messenger webhooks...');
+    // Step 4: Subscribe page to webhook (Split into Core and Advanced)
+    console.log('🔔 Subscribing to Core Messenger webhooks (messages, postbacks)...');
     try {
       const messengerUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
       messengerUrl.searchParams.set('access_token', longLivedToken);

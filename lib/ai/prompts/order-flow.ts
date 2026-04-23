@@ -31,7 +31,7 @@ export function buildOrderCollectionInstruction(settings: WorkspaceSettings): st
    📍 ঠিকানা: [ঠিকানা]`;
 
   if (isFood) {
-    sharedValidationRules += `\n   📅 ডেলিভারি তারিখ ও সময়: [date] [time]\n   🎂 ফ্লেভার: [flavor]\n   ⚖️ পাউন্ড/ওজন: [weight]`;
+    sharedValidationRules += `\n   📅 ডেলিভারি তারিখ ও সময়: [date] [time]\n   🎂 ফ্লেভার: [flavor]\n   ⚖️ পাউন্ড/ওজন: [weight]\n   🎨 ডিজাইন নোট: [design_notes]\n   ✍️ কেকের লেখা: [inscription]`;
   } else {
     sharedValidationRules += `\n   🎨 সাইজ: (ওমিট করুন যদি সাইজ না থাকে)\n   🎨 কালার: (ওমিট করুন যদি কালার না থাকে)`;
   }

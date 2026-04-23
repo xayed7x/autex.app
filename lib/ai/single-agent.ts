@@ -243,10 +243,16 @@ Rules for this turn:
       
       if (thinkMatch) {
          const reasoningLog = thinkMatch[0].replace(/\[\/?THINK\]/gi, '').trim();
-         console.log(`\n║ 🧠 AI REASONING (loop ${toolLoops}):\n${reasoningLog.split('\n').map(l => `║ ${l}`).join('\n')}\n`);
+         console.log(`\n==========================================`);
+         console.log(`🧠 AI REASONING (Loop ${toolLoops}):`);
+         console.log(`${reasoningLog}`);
+         console.log(`==========================================\n`);
          
          // Strip [THINK] blocks before storing in message history
          responseMessage.content = responseMessage.content.replace(thinkRegex, '').trim();
+      } else {
+         console.log(`\n⚠️ [WARNING] AI did not use [THINK] tags. RAW OUTPUT:`);
+         console.log(`"${responseMessage.content}"\n`);
       }
       
       // Fallback: If [THINK] tag exists but was never closed, strip it and everything after it
@@ -342,9 +348,17 @@ function generateSystemPrompt(
   
   // --- TIME CONTEXT ---
   const now = currentTime ? new Date(currentTime) : new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const dayAfter = new Date(now);
+  dayAfter.setDate(now.getDate() + 2);
+
   const timeContext = `
 [TIME CONTEXT]
-- Current Date/Time: ${now.toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}
+- Today: ${now.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+- Tomorrow: ${tomorrow.toLocaleString('en-US', { weekday: 'long' })}
+- Day After Tomorrow: ${dayAfter.toLocaleString('en-US', { weekday: 'long' })}
+- Current Time: ${now.toLocaleString('en-US', { timeStyle: 'short' })}
 - Last Order Placed: ${lastOrderDate ? new Date(lastOrderDate).toLocaleString('en-US', { dateStyle: 'medium' }) : 'No previous orders found'}
 
 [AVAILABLE CATALOG SUMMARY]
@@ -358,13 +372,27 @@ function generateSystemPrompt(
 ${timeContext}
 
 [CORE CONSTRAINTS - READ FIRST]
-1. **CRITICAL VIOLATION: FORBIDDEN TERMINOLOGY**: You are STRICTLY FORBIDDEN from ever using internal tool names in your chat message. NEVER say: "flag_for_review", "add_to_cart", "search_products", "check_stock", "save_order", "calculate_delivery". Use of these words is a critical failure of your human persona.
-2. VISUAL DISCOVERY ONLY: When showing product options, you MUST use tool results. The system will automatically deliver the professional instruction template alongside your cards.
-2. NO TEXT LISTING: You are STRICTLY FORBIDDEN from manually writing product names, prices, or descriptions.
-3. **HISTORY AWARENESS**: Before asking for any information, scan the entire recent conversation history (last 5 user messages). Treat all user messages in this window as a single consolidated "Information Block". If a fact was provided in message #1 but you are currently replying to message #2, you MUST recognize that the fact has already been given.
-3. **HANDOVER PRIORITY**: If a customer intent triggers a category-specific "Handover Rule" or "Post-Order Protocol", you MUST follow those instructions EXACTLY. Do not attempt to be helpful, apologize for technical errors, or explain the system's logic. Defer to the human owner immediately.
-4. NO NUMBERED LISTS: You MUST NEVER output a numbered list (1., 2., 3., etc.).
-5. **NO TECH TALK**: NEVER mention tool names (e.g., "flag_for_review", "search_products", "add_to_cart"), database fields, or AI internal system terminology to the customer.
+1. **LOGICAL INTEGRITY (PAYMENT)**: 
+   - If 'Cash on Delivery' is enabled in settings, you MUST confirm to the customer that we take it. 
+   - If a policy says "No upfront/advance money needed," you MUST NEVER say "payment is required at the time of ordering."
+   - Linguistically: "আমরা cash on delivery নেই" means "We TAKE cash on delivery". Treat it as a 'YES'.
+2. **SILENCE PROTOCOL (REDUCE NOISE)**: 
+   - If the customer sends a passive message (e.g., "Okay", "Thanks", "👍"), you MUST return an EMPTY RESPONSE (blank text).
+   - EXCEPTION: If you just asked a question, process their answer normally.
+3. **HISTORY AWARENESS**: Scan the entire conversation history. If a fact was provided previously, DO NOT ask for it again.
+4. **THINKING PROTOCOL & CHECKLIST**: 
+   - Before answering any "Yes" to a request, you MUST perform:
+     - **STEP 1 — CATEGORY IDENTIFICATION**: Identify if the user is asking about Food/Cakes, Retail, or General Info.
+     - **STEP 2 — CONSTRAINT CHECK (MANDATORY)**: Before saying "Yes" to any delivery or product request, you MUST check:
+       1. **Closing Hours**: Is the requested time after the closing time in \`[BUSINESS CONTEXT]\` (e.g., 10 PM)?
+       2. **Notice Period**: Does the product need advanced notice (e.g., 48h for Gluten-free, 3 days for Theme Cakes)?
+       3. **Availability Rules**: Is the item/flavor restricted to a specific day?
+       - If ANY check fails, you MUST say "No" and explain the specific reason. 
+       - **STRICT RULE**: Do NOT let the customer "talk you into" a Yes if a rule is violated.
+     - **STEP 3 — HISTORY SCOUTING**: Check if the customer already provided Phone, Address, or Flavor earlier in the chat.
+     - **STEP 4 — RESPONSE DRAFTING**: Draft a response that follows the "No Numbered Lists" and "Bangla/English" rules.
+5. **FORBIDDEN TERMINOLOGY**: NEVER use internal tool names like "flag_for_review", "add_to_cart", etc. Use of these words is a critical failure.
+6. **NO NUMBERED LISTS**: NEVER output a numbered list (1., 2., 3., etc.).
 `.trim();
 
   // --- BLOCK 1: IDENTITY ---
@@ -408,12 +436,19 @@ Language Ratio: ${bengaliRatio}% Bengali/Banglish, rest English.`.trim();
   // --- BLOCK 2: THINKING PROTOCOL ---
   const block2Thinking = `
 [BLOCK 2 - THINKING PROTOCOL]
-Before EVERY response, you MUST analyze the request inside [THINK]...[/THINK] tags:
-1. INTENTS: (List intents)
-2. TOOL REQUIRED? (search_products, check_stock, calculate_delivery, etc.)
-3. CART STATE: (Current items)
-4. MEMORY: (Collected Info)
-5. DECISION: (Next action)
+Before EVERY response, you MUST perform this internal cognitive process inside [THINK]...[/THINK] tags. 
+CRITICAL: If you fail to wrap your thoughts in [THINK] tags, the system will crash.
+1. **INTENT ANALYSIS**: What is the customer specifically asking for or trying to do? (e.g., requesting a specific delivery time, asking about a location, ordering a specific flavor).
+2. **CONTEXT RETRIEVAL**: Carefully scan the \`[BUSINESS CONTEXT]\` and \`[BUSINESS POLICIES]\` for ANY rules that apply to this specific intent.
+3. **CONSTRAINT EVALUATION**:
+   - Compare the customer's request against the retrieved rules.
+   - **TIME LOGIC (CRITICAL)**: If a rule is an "Ordering Deadline" (e.g., "Orders after 8 PM"), you MUST compare that deadline to the CURRENT TIME in \`[TIME CONTEXT]\`. If the current time is BEFORE the deadline, that rule DOES NOT APPLY and cannot be used as an excuse.
+   - Does the request violate ANY rule? (e.g., delivery time is past closing, insufficient notice given, location not served).
+   - *If a rule is violated, you MUST politely refuse the request ("No") and explain the exact reason based on the context. NEVER let the customer "argue" you into breaking a rule.*
+4. **HISTORY SCOUTING**: Scan the entire history. What do we ALREADY know? (Phone, Address, Flavor, etc.)
+5. **MISSING INFO**: What do we still need to collect to complete the order?
+6. **DECISION**: What is the most natural next step toward the goal?
+   - *STRICT RULE*: Do not ask for info already provided in the history.
 `.trim();
 
   // --- BLOCK 3: ABSOLUTE RULES ---
@@ -451,8 +486,8 @@ Delivery Time: ${settings.deliveryTime || '3-5 days'}
 [BUSINESS POLICIES]
 - Delivery Charges: Inside Dhaka: ৳${settings.deliveryCharges?.insideDhaka || 60}, Outside Dhaka: ৳${settings.deliveryCharges?.outsideDhaka || 120}
 - Delivery Info: ${settings.fastLaneMessages?.deliveryInfo || 'Standard delivery fees apply.'}
-- Return Policy: ${settings.fastLaneMessages?.returnPolicy || 'Items can be returned if damaged.'}
-- Payment Info: ${settings.fastLaneMessages?.paymentInfo || 'We accept bKash and Nagad.'}`;
+- Return Policy: ${settings.returnPolicy || settings.fastLaneMessages?.returnPolicy || 'Items can be returned if damaged.'}
+- Payment Instructions: ${settings.paymentMessage || settings.fastLaneMessages?.paymentInfo || 'We accept bKash and Nagad.'}`;
 
   // --- CUSTOM FAQs ---
   const faqs = settings.customFaqs;
@@ -499,16 +534,22 @@ Delivery Time: ${settings.deliveryTime || '3-5 days'}
   // --- BLOCK 8: INFORMATION RETRIEVAL RULES ---
   const block8InfoRetrieval = `
 [BLOCK 8 - INFORMATION RETRIEVAL RULES]
-- **DELIVERY QUESTIONS**: If a customer asks about delivery (e.g., "কবে পাব?", "delivery কিভাবে হবে?"), you MUST provide the info from \`[BUSINESS POLICIES] -> Delivery Info\` and \`[BLOCK 6] -> Delivery Time\`.
-- **PAYMENT QUESTIONS**: If a customer asks about payment (e.g., "কিভাবে টাকা দেব?", "payment method কি?"), you MUST provide the info from \`[BUSINESS POLICIES] -> Payment Info\` and \`[BLOCK 6] -> Available Payment Methods\`.
-- **STRICT GROUNDING**: Use the EXACT details from the AI Setup page. Do not invent policies.
+- **SUPREME GROUND TRUTH**: The [BUSINESS CONTEXT] contains SPECIFIC EXCEPTIONS and CUSTOM RULES. 
+- **PRIORITY RULE**: If a rule in [BUSINESS CONTEXT] contradicts a general setting (e.g., Delivery Time or Payment), you MUST follow the [BUSINESS CONTEXT] rule.
+- **FLAVOR RULES**: If a specific flavor rule exists in [BUSINESS CONTEXT] (e.g., Gluten-Free), you are allowed to discuss it even if it is not in the standard catalog.
+- **PAYMENT POLICY**:
+  - If "Cash on Delivery" is listed in [BLOCK 6] -> Available Payment Methods, it IS available. 
+  - If the customer asks "Do you take COD?", and it's enabled in Block 6, your answer is always "YES". 
+  - Ignore any text in "Payment Instructions" that contradicts the "Available Payment Methods" list.
+- **DELIVERY QUESTIONS**: Use info from [BUSINESS POLICIES] -> Delivery Info, [BLOCK 6] -> Delivery Time, and check for exceptions in [BUSINESS CONTEXT].
+- **PAYMENT QUESTIONS**: Use info from [BUSINESS POLICIES] -> Payment Instructions, [BLOCK 6] -> Available Payment Methods, and check for exceptions in [BUSINESS CONTEXT].
 `.trim();
 
   const sections = [
-    coreConstraints,
-    businessContextBlock, // Priority 1: Ground Truth
-    deliveryZonesBlock,   // Priority 2: Delivery Fees
-    block1Identity,       // Priority 3: Persona
+    businessContextBlock, // Priority 1: Specific Exceptions & Ground Truth
+    coreConstraints,      // Priority 2: Universal Logic
+    deliveryZonesBlock,   // Priority 3: Delivery Fees
+    block1Identity,       // Priority 4: Persona
     block2Thinking,
     block3Rules,
     block4Tools,

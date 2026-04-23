@@ -75,7 +75,10 @@ export async function searchProducts(
   workspaceId: string,
   requestedSize?: string,
   requestedColor?: string,
-  flavor?: string
+  flavor?: string,
+  category?: string,
+  limit: number = 20,
+  offset: number = 0
 ): Promise<SearchProductsOutput> {
   const trimmedQuery = query.trim();
 
@@ -91,8 +94,10 @@ export async function searchProducts(
     const rawProducts = await searchProductsByKeywordsWithScoring(
       trimmedQuery,
       workspaceId,
-      MAX_RESULTS,
-      flavor
+      limit,
+      offset,
+      flavor,
+      category
     );
 
       if (rawProducts.length === 0) {

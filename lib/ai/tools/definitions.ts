@@ -33,6 +33,10 @@ const searchProducts: ChatCompletionTool = {
           type: 'string',
           description: 'Natural language search query. Examples: "red saree", "polo t-shirt", "shoes".',
         },
+        category: {
+          type: 'string',
+          description: 'Filter by category (e.g., "Birthday", "Anniversary", "Couple / Love"). Optional. ALWAYS extract and pass this if the customer mentions a specific purpose or cake type.',
+        },
         size: {
           type: 'string',
           description: 'Specific size requested by customer (e.g., "M", "XL"). Optional.',
@@ -41,9 +45,13 @@ const searchProducts: ChatCompletionTool = {
           type: 'string',
           description: 'Specific color requested by customer (e.g., "Red", "Blue"). Optional.',
         },
-        cake_category: {
-          type: 'string',
-          description: 'Filter by cake category (e.g., "Vanilla", "Chocolate", "Anniversary"). Optional. ALWAYS extract and pass this if the customer mentions a specific flavor or cake type.',
+        limit: {
+          type: 'number',
+          description: 'Number of products to return. Default: 20.',
+        },
+        offset: {
+          type: 'number',
+          description: 'Offset for pagination. For the next 20 products, use offset: 20. Default: 0.',
         },
         sendCard: {
           type: 'boolean',

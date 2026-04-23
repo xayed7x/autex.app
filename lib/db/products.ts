@@ -139,8 +139,10 @@ export async function searchProductsByKeywords(
 export async function searchProductsByKeywordsWithScoring(
   query: string,
   workspaceId: string,
-  limit: number = 5,
-  flavor?: string
+  limit: number = 20,
+  offset: number = 0,
+  flavor?: string,
+  category?: string
 ): Promise<Product[]> {
   const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -150,15 +152,20 @@ export async function searchProductsByKeywordsWithScoring(
   try {
     const normalizedQuery = query.trim();
     
-    // Fetch products for the workspace, optionally filtering by cake_category
+    // Fetch products for the workspace, optionally filtering by flavor or category
     let queryBuilder = supabase
       .from('products')
       .select('*')
       .eq('workspace_id', workspaceId);
     
     if (flavor) {
-      // Filter by flavor OR category matching the requested flavor
-      queryBuilder = queryBuilder.or(`flavor.ilike.%${flavor}%,category.ilike.%${flavor}%`);
+      // Filter by flavor specifically
+      queryBuilder = queryBuilder.ilike('flavor', `%${flavor}%`);
+    }
+
+    if (category && category !== 'all') {
+      // Filter by category specifically
+      queryBuilder = queryBuilder.ilike('category', `%${category}%`);
     }
 
     const { data: allProducts, error } = await queryBuilder;
@@ -173,8 +180,8 @@ export async function searchProductsByKeywordsWithScoring(
     }
 
     if (!normalizedQuery) {
-      // If no query but category provided, return top products in category
-      return (allProducts as Product[]).slice(0, limit);
+      // If no query but category/flavor provided, return paginated products
+      return (allProducts as Product[]).slice(offset, offset + limit);
     }
 
     const keywords = normalizedQuery.toLowerCase().split(/\s+/);
@@ -209,7 +216,7 @@ export async function searchProductsByKeywordsWithScoring(
     const matchedProducts = scoredProducts
       .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
+      .slice(offset, offset + limit)
       .map(({ product }) => product);
 
     console.log(`✓ Found ${matchedProducts.length} product(s) with scoring for query: "${query}"${flavor ? ` with flavor: "${flavor}"` : ''}`);

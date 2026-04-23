@@ -51,7 +51,7 @@ export function createProductCard(
   let buttons = [];
 
   if (isFood) {
-    subtitle = `Price: ${formattedPrice}`;
+    subtitle = formattedPrice;
     
     buttons = [
       {
@@ -88,7 +88,7 @@ export function createProductCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: `${product.name} — ${formattedPrice}`,
+            title: product.name,
             subtitle: subtitle,
             image_url: imageUrl,
             buttons: buttons,
@@ -117,7 +117,7 @@ export function createProductCarousel(
     let buttons = [];
 
     if (isFood) {
-      subtitle = `Price: ${formattedPrice}`;
+      subtitle = formattedPrice;
       
       buttons = [
         {
@@ -147,7 +147,7 @@ export function createProductCarousel(
     const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
     
     return {
-      title: `${product.name} — ${formattedPrice}`,
+      title: product.name,
       subtitle: subtitle,
       image_url: imageUrl,
       buttons: buttons,
@@ -178,7 +178,7 @@ export function createProductDetailsCard(
   const isFood = businessCategory === 'food';
   const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
   
-  let subtitle = `Price: ${formattedPrice}`;
+  let subtitle = formattedPrice;
   
   if (product.description) {
     const truncatedDesc = product.description.length > 80

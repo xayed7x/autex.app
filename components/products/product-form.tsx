@@ -785,11 +785,30 @@ export function ProductForm({
                   <FormItem>
                     <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Category</FormLabel>
                     <FormControl>
-                      <CategoryCombobox 
-                        value={field.value || ""} 
-                        onChange={field.onChange} 
-                        placeholder="Select or type category..."
-                      />
+                      {isFood ? (
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                          <SelectTrigger className="bg-zinc-900/50 border-white/10 text-white h-11">
+                            <SelectValue placeholder="Select purpose/category" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-zinc-900 border-white/10 text-white">
+                            <SelectItem value="Birthday">Birthday</SelectItem>
+                            <SelectItem value="Anniversary">Anniversary</SelectItem>
+                            <SelectItem value="Couple / Love">Couple / Love</SelectItem>
+                            <SelectItem value="Baby Shower / Newborn">Baby Shower / Newborn</SelectItem>
+                            <SelectItem value="Graduation / Celebration">Graduation / Celebration</SelectItem>
+                            <SelectItem value="Religious Event">Religious Event</SelectItem>
+                            <SelectItem value="Party / Corporate">Party / Corporate</SelectItem>
+                            <SelectItem value="Surprise / Gift">Surprise / Gift</SelectItem>
+                            <SelectItem value="Customized Cake">Customized Cake</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <CategoryCombobox 
+                          value={field.value || ""} 
+                          onChange={field.onChange} 
+                          placeholder="Select or type category..."
+                        />
+                      )}
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -806,28 +825,27 @@ export function ProductForm({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Flavor</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value || "Custom"}>
+                      <Select onValueChange={field.onChange} value={field.value || "Vanilla"}>
                         <FormControl>
                           <SelectTrigger className="bg-zinc-900/50 border-white/10 text-white h-11">
                             <SelectValue placeholder="Select flavor" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent className="bg-zinc-900 border-white/10 text-white">
-                          <SelectItem value="Bakery Style Pound Cake">Bakery Style Pound Cake</SelectItem>
-                          <SelectItem value="Chocolate Brownies">Chocolate Brownies</SelectItem>
-                          <SelectItem value="Vanilla Cake">Vanilla Cake</SelectItem>
-                          <SelectItem value="Orange Cake">Orange Cake</SelectItem>
-                          <SelectItem value="Lemon Cake">Lemon Cake</SelectItem>
-                          <SelectItem value="Mango Cake">Mango Cake</SelectItem>
-                          <SelectItem value="Milk Cake">Milk Cake</SelectItem>
-                          <SelectItem value="Special Chocolate Cake">Special Chocolate Cake</SelectItem>
-                          <SelectItem value="Black Forest Cake">Black Forest Cake</SelectItem>
-                          <SelectItem value="Chocolate Fudge Delight Cake (Cooper's Style)">Chocolate Fudge Delight Cake (Cooper's Style)</SelectItem>
-                          <SelectItem value="Butter Scotch Cake">Butter Scotch Cake</SelectItem>
-                          <SelectItem value="Mocha Cake">Mocha Cake</SelectItem>
-                          <SelectItem value="Red Velvet Cake">Red Velvet Cake</SelectItem>
-                          <SelectItem value="Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze">Chocolate Fudge Delight Cake with Tiger Print Mirror Glaze</SelectItem>
-                          <SelectItem value="Custom">Custom / Other</SelectItem>
+                          <SelectItem value="Vanilla">Vanilla</SelectItem>
+                          <SelectItem value="Chocolate">Chocolate</SelectItem>
+                          <SelectItem value="Black Forest">Black Forest</SelectItem>
+                          <SelectItem value="Strawberry">Strawberry</SelectItem>
+                          <SelectItem value="Mango">Mango</SelectItem>
+                          <SelectItem value="Pineapple">Pineapple</SelectItem>
+                          <SelectItem value="Red Velvet">Red Velvet</SelectItem>
+                          <SelectItem value="Chocolate Special">Chocolate Special</SelectItem>
+                          <SelectItem value="Oreo">Oreo</SelectItem>
+                          <SelectItem value="KitKat">KitKat</SelectItem>
+                          <SelectItem value="Rasmalai">Rasmalai</SelectItem>
+                          <SelectItem value="Butterscotch">Butterscotch</SelectItem>
+                          <SelectItem value="Lemon">Lemon</SelectItem>
+                          <SelectItem value="Orange">Orange</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

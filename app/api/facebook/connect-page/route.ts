@@ -217,38 +217,36 @@ export async function POST(request: NextRequest) {
       // Non-fatal — page connection still succeeds without Instagram
     }
     
-    // Step 4: Subscribe page to webhook (Split into Core and Advanced)
-    console.log('🔔 Subscribing to Core Messenger webhooks (messages, postbacks)...');
+    // Step 4: Subscribe page to webhook (Combine Messenger and Feed)
+    console.log('🔔 Subscribing to webhooks (Messenger + Feed)...');
     try {
-      const messengerUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
-      messengerUrl.searchParams.set('access_token', longLivedToken);
-      messengerUrl.searchParams.set('subscribed_fields', 'messages,messaging_postbacks,messaging_optins');
+      // Combine all fields into one request to prevent overwriting
+      const allFields = 'messages,messaging_postbacks,messaging_optins,feed';
+      const subscribeUrl = new URL(`https://graph.facebook.com/v24.0/${pageId}/subscribed_apps`);
+      subscribeUrl.searchParams.set('access_token', longLivedToken);
+      subscribeUrl.searchParams.set('subscribed_fields', allFields);
       
-      const messengerResponse = await fetch(messengerUrl.toString(), { method: 'POST' });
-      if (messengerResponse.ok) {
-        console.log('✅ Messenger webhooks subscribed successfully');
-      } else {
-        const errorData = await messengerResponse.json();
-        console.error('⚠️ Messenger subscription failed:', errorData);
-      }
+      const response = await fetch(subscribeUrl.toString(), { method: 'POST' });
+      const result = await response.json();
 
-      // Optional: Subscribe to Feed (requires pages_manage_metadata)
-      console.log('🔔 Attempting to subscribe to Feed webhooks...');
-      const feedUrl = new URL(`https://graph.facebook.com/v21.0/${pageId}/subscribed_apps`);
-      feedUrl.searchParams.set('access_token', longLivedToken);
-      feedUrl.searchParams.set('subscribed_fields', 'feed');
-      
-      const feedResponse = await fetch(feedUrl.toString(), { method: 'POST' });
-      if (feedResponse.ok) {
-        console.log('✅ Feed webhooks subscribed successfully');
+      if (response.ok) {
+        console.log('✅ All webhooks (Messenger + Feed) subscribed successfully');
       } else {
-        const errorData = await feedResponse.json();
-        if (errorData.error?.code === 200) {
-          console.warn('ℹ️ Feed subscription skipped: Missing "pages_manage_metadata" permission. Comment automation will be disabled.');
+        // If it fails with all fields, try just the core Messenger fields as a fallback
+        console.warn('⚠️ Combined subscription failed, trying Core Messenger only:', result);
+        const coreFields = 'messages,messaging_postbacks,messaging_optins';
+        subscribeUrl.searchParams.set('subscribed_fields', coreFields);
+        const coreResponse = await fetch(subscribeUrl.toString(), { method: 'POST' });
+        if (coreResponse.ok) {
+          console.log('✅ Core Messenger webhooks subscribed (Feed skipped)');
         } else {
-          console.error('⚠️ Feed subscription failed:', errorData);
+          console.error('❌ CRITICAL: Webhook subscription failed completely:', await coreResponse.json());
         }
       }
+    } catch (error) {
+      console.error('❌ Error during webhook subscription:', error);
+    }
+
     } catch (subError) {
       console.error('❌ Webhook subscription error:', subError);
     }

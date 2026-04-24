@@ -8,7 +8,6 @@ import {
 import { processMessage } from '@/lib/conversation/orchestrator';
 import { getCachedSettings } from '@/lib/workspace/settings-cache';
 import { processingLock } from '@/lib/conversation/processing-lock';
-import { messageDebouncer } from '@/lib/conversation/message-debouncer';
 import { logApiUsage } from '@/lib/ai/usage-tracker';
 import { transcribeVoiceMessage } from '@/lib/ai/voice-transcription';
 import { decryptToken } from '@/lib/facebook/crypto-utils';
@@ -832,9 +831,6 @@ export async function processMessagingEvent(
     if (isOwnerMessage) {
       console.log('👤 [OWNER MESSAGE] Detected owner reply from Messenger app');
       
-      // Cancel any pending debounce — owner is handling this conversation
-      messageDebouncer.cancelProcessing(conversation.id);
-      
       // Save the owner's message with sender_type = 'owner'
       await supabase.from('messages').insert({
         conversation_id: conversation.id,
@@ -1039,152 +1035,76 @@ export async function processMessagingEvent(
     }
 
     // ========================================
-    // CALL ORCHESTRATOR (Bot Processing) — DEBOUNCED
+    // CALL ORCHESTRATOR (Bot Processing)
     // ========================================
     
-    // Show typing indicator immediately so customer knows we're "listening"
-    const { typingOn } = await import('@/lib/facebook/messenger');
-    await typingOn(pageId, customerPsid);
-
-    // Capture variables needed by the debounce callback closure
-    const capturedPageId = pageId;
-    const capturedPsid = customerPsid;
-    const capturedConvId = conversation.id;
-    const capturedWorkspaceId = fbPage.workspace_id;
-    const capturedFbPageId = fbPage.id;
-    const capturedBotEnabled = fbPage.bot_enabled;
-
-    messageDebouncer.scheduleProcessing(
-      capturedConvId,
-      async () => {
-        // --- DEBOUNCE CALLBACK: runs after customer goes silent ---
-        console.log('🎭 [DEBOUNCE] Silence detected — starting batch processing...');
-
-        // Re-check conversation state (owner may have replied during window)
-        const { data: freshConv } = await supabase
-          .from('conversations')
-          .select('control_mode, last_manual_reply_at, workspace_id, fb_page_id')
-          .eq('id', capturedConvId)
-          .single();
-
-        if (!freshConv) {
-          console.error('❌ [DEBOUNCE] Conversation not found, aborting');
+    console.log('🎭 Calling Orchestrator...');
+    
+    // Try to acquire lock for bot processing
+    const lockAcquired = processingLock.acquireLock(conversation.id, 'bot_processing', 15000);
+    
+    if (!lockAcquired) {
+      // Check if owner is currently sending
+      const currentLock = processingLock.isLocked(conversation.id);
+      if (currentLock?.lock_type === 'owner_sending') {
+        console.log('⏸️ [BOT] Owner is sending message, waiting...');
+        const released = await processingLock.waitForLock(conversation.id, 3000);
+        if (!released) {
+          console.log('⏭️ [BOT] Owner still sending, skipping bot response to avoid duplicate');
           return;
         }
-
-        // Abort if owner replied during the debounce window
-        if (freshConv.control_mode === 'hybrid' || freshConv.control_mode === 'manual') {
-          const lastReply = freshConv.last_manual_reply_at;
-          if (lastReply) {
-            const elapsed = Date.now() - new Date(lastReply).getTime();
-            if (elapsed < 30 * 60 * 1000) {
-              console.log(`⏭️ [DEBOUNCE] Owner replied ${(elapsed / 1000).toFixed(0)}s ago, aborting bot`);
-              return;
-            }
-          }
-        }
-
-        // Acquire lock
-        const lockAcquired = processingLock.acquireLock(capturedConvId, 'bot_processing', 20000);
-        if (!lockAcquired) {
-          console.log('⏭️ [DEBOUNCE] Could not acquire lock, aborting');
+        // Try to acquire again
+        if (!processingLock.acquireLock(conversation.id, 'bot_processing', 15000)) {
+          console.log('⏭️ [BOT] Could not acquire lock after waiting, skipping');
           return;
         }
+      } else {
+        console.log('⏭️ [BOT] Could not acquire lock, skipping processing');
+        return;
+      }
+    }
 
-        try {
-          // Fetch all unprocessed customer messages from this burst
-          const { data: lastBotMsg } = await supabase
-            .from('messages')
-            .select('created_at')
-            .eq('conversation_id', capturedConvId)
-            .in('sender_type', ['bot', 'system'])
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-
-          let burstQuery = supabase
-            .from('messages')
-            .select('message_text, image_url')
-            .eq('conversation_id', capturedConvId)
-            .eq('sender_type', 'customer')
-            .order('created_at', { ascending: true });
-
-          if (lastBotMsg) {
-            burstQuery = burstQuery.gt('created_at', lastBotMsg.created_at);
-          }
-
-          const { data: burstMessages } = await burstQuery;
-
-          if (!burstMessages || burstMessages.length === 0) {
-            console.log('⚠️ [DEBOUNCE] No burst messages found, aborting');
+    try {
+      // Check one more time if owner replied while we were waiting
+      const { data: freshConv } = await supabase
+        .from('conversations')
+        .select('control_mode, last_manual_reply_at')
+        .eq('id', conversation.id)
+        .single();
+      
+      if (freshConv?.control_mode === 'hybrid' || freshConv?.control_mode === 'manual') {
+        const lastManualReply = freshConv.last_manual_reply_at;
+        if (lastManualReply) {
+          const timeSinceReply = Date.now() - new Date(lastManualReply).getTime();
+          if (timeSinceReply < 5000) { // Owner replied in last 5 seconds
+            console.log('⏭️ [BOT] Owner just replied, aborting bot response');
             return;
           }
-
-          // Collect texts and images
-          const texts: string[] = [];
-          const imageUrls: string[] = [];
-
-          for (const msg of burstMessages) {
-            if (msg.message_text) {
-              // Strip [Voice: ...] wrapper for AI processing
-              const cleaned = (msg.message_text || '').replace(/^\[Voice: (.*)\]$/i, '$1').trim();
-              if (cleaned) texts.push(cleaned);
-            }
-            if (msg.image_url) {
-              imageUrls.push(msg.image_url);
-            }
-          }
-
-          // Deduplicate images
-          const uniqueImages = [...new Set(imageUrls)];
-
-          console.log(`📦 [DEBOUNCE] Batch: ${texts.length} text(s), ${uniqueImages.length} image(s)`);
-
-          // Handle multi-image burst: ask customer which one
-          if (uniqueImages.length > 1) {
-            const { sendMessage: sendMsg } = await import('@/lib/facebook/messenger');
-            await sendMsg(
-              capturedPageId,
-              capturedPsid,
-              'আপনি একাধিক ছবি পাঠিয়েছেন। কোন ডিজাইনটি আপনার পছন্দ? দয়া করে একটি ছবি আলাদা করে পাঠান 😊'
-            );
-            // Save bot message to DB
-            await supabase.from('messages').insert({
-              conversation_id: capturedConvId,
-              sender: 'bot',
-              sender_type: 'bot',
-              message_text: 'আপনি একাধিক ছবি পাঠিয়েছেন। কোন ডিজাইনটি আপনার পছন্দ? দয়া করে একটি ছবি আলাদা করে পাঠান 😊',
-              message_type: 'text',
-            });
-            console.log('📸 [DEBOUNCE] Multi-image burst — asked customer to pick one');
-            return;
-          }
-
-          // Show typing indicator again before heavy processing
-          await typingOn(capturedPageId, capturedPsid);
-
-          const batchedText = texts.join('\n');
-
-          await processMessage({
-            pageId: capturedPageId,
-            customerPsid: capturedPsid,
-            messageText: batchedText || undefined,
-            imageUrl: uniqueImages[0] || undefined,
-            mid: null,
-            replyToMid: null,
-            workspaceId: capturedWorkspaceId,
-            fbPageId: capturedFbPageId,
-            conversationId: capturedConvId,
-            botEnabled: capturedBotEnabled,
-          });
-
-          console.log('✅ [DEBOUNCE] Batch processing complete');
-        } finally {
-          processingLock.releaseLock(capturedConvId);
         }
-      },
-      10000 // 10-second debounce window
-    );
+      }
+
+      // Show typing indicator
+      const { typingOn } = await import('@/lib/facebook/messenger');
+      await typingOn(pageId, customerPsid);
+
+      await processMessage({
+        pageId,
+        customerPsid,
+        messageText: (modifiedMessageText || '').replace(/^\[Voice: (.*)\]$/i, '$1') || undefined,
+        imageUrl,
+        mid: messageId,
+        replyToMid,
+        workspaceId: fbPage.workspace_id,
+        fbPageId: fbPage.id,
+        conversationId: conversation.id,
+        botEnabled: fbPage.bot_enabled,
+      });
+
+      console.log('✅ Message processed successfully');
+    } finally {
+      // Always release lock
+      processingLock.releaseLock(conversation.id);
+    }
   } catch (error) {
     console.error('❌ Error processing messaging event:', error);
   }

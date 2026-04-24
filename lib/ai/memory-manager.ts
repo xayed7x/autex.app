@@ -23,8 +23,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const MAX_MESSAGES_BEFORE_SUMMARY = 10;
-const MESSAGES_TO_KEEP = 5;
+const MAX_MESSAGES_BEFORE_SUMMARY = 20;
+const MESSAGES_TO_KEEP = 10;
 
 // ============================================
 // TYPES

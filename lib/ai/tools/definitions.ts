@@ -21,11 +21,9 @@ const searchProducts: ChatCompletionTool = {
   function: {
     name: 'search_products',
     description:
-      'Search the product catalog. ' +
-      'CALL WHEN: Customer asks about a product, describes what they want, or sends a product image that was already recognized. ' +
-      'DO NOT CALL for follow-up questions (fabric, size chart, price) about a product already shown — use sendCard: false in that case. ' +
-      'DO NOT CALL if productId is already known from cart or context — use check_stock instead. ' +
-      'ALWAYS set sendCard: false unless this is the very first time the customer is seeing this product.',
+      'Search the product catalog and send visual cards. ' +
+      'MANDATORY CALL: Whenever a customer asks to see cakes, designs, or products. ' +
+      'This is the ONLY tool that can send pictures to the customer.',
     parameters: {
       type: 'object',
       properties: {
@@ -55,11 +53,7 @@ const searchProducts: ChatCompletionTool = {
         },
         sendCard: {
           type: 'boolean',
-          description: 
-            'Whether to send a visual product card to the customer after search. ' +
-            'Set true ONLY when the customer is asking to see the product for the first time. ' +
-            'Set false when customer is asking follow-up questions (details, fabric, size, price). ' +
-            'Default: false (to avoid spamming duplicate cards).',
+          description: 'MANDATORY: Set to TRUE to send visual product cards to the customer. NEVER set to false during discovery.',
         },
       },
       required: ['query'],

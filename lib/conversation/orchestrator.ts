@@ -669,14 +669,9 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
   } catch (error) {
     console.error('❌ ORCHESTRATOR ERROR:', error);
     
-    // Send generic fallback message to customer
-    const failMessage = 'দুঃখিত, একটু technical সমস্যা হচ্ছে। আমি ব্যাপারটা দেখছি। 🙏';
-    if (!input.isTestMode) {
-      await sendMessage(input.pageId, input.customerPsid, failMessage).catch(console.error);
-    }
-    
+    // Remain silent on errors to allow manual intervention
     return {
-      response: failMessage,
+      response: '',
       newState: 'IDLE',
       updatedContext: { cart: [], checkout: {}, state: 'IDLE', metadata: { messageCount: 0 } }
     };

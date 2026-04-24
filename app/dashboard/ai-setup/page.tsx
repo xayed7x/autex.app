@@ -119,14 +119,12 @@ export default function AISetupPage() {
     id: string;
     customer: string;
     agent: string;
-    scenario?: 'negotiation' | 'greeting' | 'complaint' | 'product_inquiry' | 'out_of_stock' | string;
   }>>([])
   
   // Example Add Form
   const [showAddExample, setShowAddExample] = useState(false)
   const [newExampleCustomer, setNewExampleCustomer] = useState('')
   const [newExampleAgent, setNewExampleAgent] = useState('')
-  const [newExampleScenario, setNewExampleScenario] = useState('greeting')
 
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [fastLaneOpen, setFastLaneOpen] = useState(false)
@@ -920,11 +918,7 @@ export default function AISetupPage() {
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                           </Button>
                           
-                          {ex.scenario && (
-                            <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-semibold mb-2 bg-white dark:bg-black">
-                              {ex.scenario.replace('_', ' ')}
-                            </Badge>
-                          )}
+
                           
                           <div className="space-y-1">
                             <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">Customer said:</span>
@@ -956,21 +950,7 @@ export default function AISetupPage() {
                     <div className="p-5 rounded-xl border-2 border-orange-200 dark:border-orange-500/30 bg-orange-50/50 dark:bg-orange-500/5 space-y-4 relative">
                       <h4 className="font-semibold text-sm">Add New Example</h4>
                       
-                      <div className="space-y-2">
-                        <Label className="text-xs">Scenario (Optional)</Label>
-                        <select 
-                          className="flex h-9 w-full items-center justify-between rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm shadow-sm ring-offset-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950 dark:ring-offset-zinc-950 dark:placeholder:text-zinc-400 dark:focus:ring-zinc-300"
-                          value={newExampleScenario}
-                          onChange={(e) => setNewExampleScenario(e.target.value)}
-                        >
-                          <option value="greeting">Greeting / First Message</option>
-                          <option value="negotiation">Price Negotiation</option>
-                          <option value="product_inquiry">Product Details Inquiry</option>
-                          <option value="complaint">Complaint / Issue</option>
-                          <option value="out_of_stock">Out of Stock Handling</option>
-                          <option value="other">Other scenario</option>
-                        </select>
-                      </div>
+
 
                       <div className="space-y-2">
                         <Label className="text-xs">Customer said:</Label>
@@ -1017,8 +997,7 @@ export default function AISetupPage() {
                             const newEx = {
                               id: crypto.randomUUID(),
                               customer: newExampleCustomer,
-                              agent: newExampleAgent,
-                              scenario: newExampleScenario
+                              agent: newExampleAgent
                             };
                             setConversationExamples([...conversationExamples, newEx]);
                             setShowAddExample(false);

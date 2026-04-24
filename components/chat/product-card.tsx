@@ -34,30 +34,26 @@ export function ProductCard({ product, onOrderNow, onViewDetails }: ProductCardP
         )}
       </div>
       
-      <CardContent className="p-3">
-        <h4 className="font-semibold text-sm line-clamp-2 mb-1" title={product.name}>
-          {product.name}
-        </h4>
-        <p className="text-primary font-bold text-sm">
-          ৳{product.price.toLocaleString()}
+      <CardContent className="p-1.5 pb-0">
+        <p className="text-primary font-bold text-xs">
+          2 pound — {product.price.toLocaleString()}
         </p>
       </CardContent>
       
-      <CardFooter className="p-3 pt-0 flex flex-col gap-2">
+      <CardFooter className="p-1.5 pt-1.5 flex flex-col gap-1">
         <Button 
-          className="w-full h-8 text-xs" 
+          className="w-full h-7 text-[10px]" 
           onClick={() => onOrderNow(product.id)}
         >
-          <ShoppingCart className="w-3 h-3 mr-1.5" />
-          Order Now
+          <ShoppingCart className="w-2.5 h-2.5 mr-1" />
+          Order
         </Button>
         <Button 
           variant="outline" 
-          className="w-full h-8 text-xs"
+          className="w-full h-7 text-[10px]"
           onClick={() => onViewDetails(product.id)}
         >
-          <ExternalLink className="w-3 h-3 mr-1.5" />
-          View Details
+          Details
         </Button>
       </CardFooter>
     </Card>

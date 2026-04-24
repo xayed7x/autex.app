@@ -346,7 +346,7 @@ export default function ProductsPage() {
                       {/* Price */}
                       <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-0">
                          <p className="font-serif text-sm sm:text-lg font-semibold tracking-tight">
-                           ৳{product.price.toLocaleString()}
+                           {product.price.toLocaleString()}
                          </p>
                          {businessCategory !== 'food' && (
                            <p className="text-[10px] sm:text-xs text-muted-foreground font-mono bg-muted/50 px-1.5 py-0.5 rounded w-fit">

@@ -45,7 +45,7 @@ export function createProductCard(
   businessCategory?: string
 ): GenericTemplateMessage {
   const isFood = businessCategory === 'food';
-  const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
+  const formattedPrice = `${product.price.toLocaleString('en-BD')}`;
   
   let subtitle = '';
   let buttons = [];
@@ -56,7 +56,7 @@ export function createProductCard(
     buttons = [
       {
         type: 'postback' as const,
-        title: 'এটা "order" করব',
+        title: 'এটা order করব',
         payload: `ORDER_NOW_${product.id}`,
       },
     ];
@@ -88,8 +88,8 @@ export function createProductCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: product.name,
-            subtitle: subtitle,
+            title: `2 pound — ${product.price.toLocaleString('en-BD')}`,
+            subtitle: isFood ? undefined : subtitle,
             image_url: imageUrl,
             buttons: buttons,
           },
@@ -112,7 +112,7 @@ export function createProductCarousel(
   const limitedProducts = products.slice(0, 10);
   
   const elements: GenericTemplateElement[] = limitedProducts.map((product) => {
-    const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
+    const formattedPrice = `${product.price.toLocaleString('en-BD')}`;
     let subtitle = '';
     let buttons = [];
 
@@ -122,7 +122,7 @@ export function createProductCarousel(
       buttons = [
         {
           type: 'postback' as const,
-          title: 'এটা "order" করব',
+          title: 'এটা order করব',
           payload: `ORDER_NOW_${product.id}`,
         },
       ];
@@ -147,8 +147,8 @@ export function createProductCarousel(
     const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
     
     return {
-      title: product.name,
-      subtitle: subtitle,
+      title: `2 pound — ${product.price.toLocaleString('en-BD')}`,
+      subtitle: isFood ? undefined : subtitle,
       image_url: imageUrl,
       buttons: buttons,
     };
@@ -176,7 +176,7 @@ export function createProductDetailsCard(
   businessCategory?: string
 ): GenericTemplateMessage {
   const isFood = businessCategory === 'food';
-  const formattedPrice = `৳${product.price.toLocaleString('en-BD')}`;
+  const formattedPrice = `${product.price.toLocaleString('en-BD')}`;
   
   let subtitle = formattedPrice;
   
@@ -203,7 +203,7 @@ export function createProductDetailsCard(
             buttons: [
               {
                 type: 'postback' as const,
-                title: isFood ? 'এটা "order" করব' : '🛒 Order Now',
+                title: isFood ? 'এটা order করব' : '🛒 Order Now',
                 payload: `ORDER_NOW_${product.id}`,
               },
               {

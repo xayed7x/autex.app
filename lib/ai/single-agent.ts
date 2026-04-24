@@ -300,23 +300,22 @@ Rules for this turn:
       }
     }
       
-      // --- HALLUCINATION GUARD: BLOCK TEXTUAL TOOL CALLS ---
-      // Fix: Single escape for literal bracket in regex literal
-      if (responseMessage.content.match(/\[Calling|\[Search|\[Tool|\[Sending/i) && toolLoops === 0) {
-         console.warn(`⚠️ [REJECTION] AI tried to simulate a tool call in text. Forcing real tool pass...`);
+      // --- HALLUCINATION GUARD: BLOCK ALL TEXTUAL TOOL CALLS ---
+      // Detect ANY brackets [] in the text response as it indicates a hallucinated tool call
+      if (responseMessage.content.match(/\[/i) && toolLoops === 0) {
+         console.warn(`⚠️ [REJECTION] AI tried to use brackets in text. Forcing real tool pass...`);
          
-         // 3-STRIKE RULE: If we've already tried this 2 times in this turn, just flag it.
          if (toolLoops >= 2) {
             console.error(`🚨 [3-STRIKE FAILURE] AI is stuck in a hallucination loop. Flagging for manual.`);
             flaggedForManual = true;
             flagReason = "AI stuck in textual tool call loop (Hallucination).";
-            finalResponse = ""; // Silence
+            finalResponse = ""; 
             break;
          }
 
          messages.push({ 
             role: 'system', 
-            content: "CRITICAL ERROR: You wrote a placeholder like '[Calling...]' in your text. This is FORBIDDEN. You MUST call the actual tool using the 'tool_calls' array. Do not write your actions in text. Call the tool now." 
+            content: "CRITICAL ERROR: You are FORBIDDEN from using brackets '[ ]' or writing tool names in your text. If you want to search, you MUST call the actual 'search_products' tool. Do not write your actions. Respond only with an EMPTY STRING if you are sending pictures." 
          });
          toolLoops++;
          continue;
@@ -327,10 +326,22 @@ Rules for this turn:
          responseMessage.content = responseMessage.content.split(/\[THINK\]/i)[0].trim();
       }
 
-    if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
-      finalResponse = (responseMessage.content || '').trim();
-      break;
-    }
+     if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
+       // --- DISCOVERY PROTECTION ---
+       // If customer wants to see pictures/designs but AI didn't call the tool, force it.
+       if (responseMessage.content.match(/দেখান|ছবি|ডিজাইন|পিক|show|picture|design/i)) {
+          console.warn(`⚠️ [REJECTION] AI tried to answer a visual request without tool calls. Forcing retry...`);
+          messages.push({ 
+             role: 'system', 
+             content: "CRITICAL: The customer wants to see designs/pictures. You MUST call the 'search_products' tool. Do not just talk. Call the tool now and remain SILENT (empty text)." 
+          });
+          toolLoops++;
+          continue;
+       }
+
+       finalResponse = (responseMessage.content || '').trim();
+       break;
+     }
 
     toolLoops++;
 
@@ -343,7 +354,7 @@ Rules for this turn:
       if (toolName === 'search_products') {
         console.log('🔇 [SILENT VISUAL] Muting textual response for product discovery pass.');
         finalResponse = ""; // Ensure no text is sent to customer
-        responseMessage.content = ""; // Clear from message history too
+        responseMessage.content = ""; // Clear from message history
       }
       
       const fnArgs = JSON.parse(toolCall.function.arguments);

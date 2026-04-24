@@ -174,7 +174,7 @@ Your response MUST:
 
 Example response style:
 "এটা আমাদের [product name]! দাম ৳[price]। 
-অর্ডার করতে চাইলে নিচের কার্ডের 
+অর্ডার করতে চাইলে ওপরের কার্ডের 
 'Order now 🛒' বাটনে ক্লিক করুন 😊"`;
   } else if (input.imageRecognitionResult?.recognitionResult?.aiAnalysis) {
     const ai = input.imageRecognitionResult.recognitionResult.aiAnalysis;
@@ -330,57 +330,18 @@ Rules for this turn:
          responseMessage.content = responseMessage.content.split(/\[THINK\]/i)[0].trim();
       }
 
-     if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
-       finalResponse = (responseMessage.content || '').trim();
-       
-       // --- LAZY AI DETECTOR (CRITICAL) ---
-       // If the AI reasoned about needing a tool but didn't actually call it, force a retry.
-       // Uses its OWN counter (lazyRetries) so [THINK]-tag retries don't eat its budget.
-       const reasoning = firstPassReasoning.toLowerCase();
-       const userMsg = input.messageText.toLowerCase();
-       
-       // Check if reasoning mentions tool/search intent
-       const reasoningMentionsSearch = reasoning.includes('search') || 
-                                       reasoning.includes('product') ||
-                                       reasoning.includes('tool') ||
-                                       reasoning.includes('show') ||
-                                       reasoning.includes('picture') ||
-                                       reasoning.includes('catalog') ||
-                                       reasoning.includes('available') ||
-                                       reasoning.includes('budget') ||
-                                       reasoning.includes('ছবি') ||
-                                       reasoning.includes('দেখা');
-       
-       // Check if user message contains explicit visual/discovery trigger words
-       const userWantsVisuals = /pic|photo|show|দেখা|দেখান|ছবি|দেন|image|gallery|পিক|ছবি/i.test(userMsg);
-       const userWantsDiscovery = /birthday|anniversary|জন্মদিন|বিয়ে|wedding|vanilla|chocolate|ভ্যানিলা|চকলেট|ফ্লেভার|flavor/i.test(userMsg);
-       
-       // If reasoning identified search intent OR user explicitly wants visuals/discovery → LAZY
-       // (Excluded !finalResponse because discovery requires cards even if the AI is chatty)
-       const isLazySkip = (reasoningMentionsSearch || userWantsVisuals || userWantsDiscovery) && 
-                          lazyRetries < 2;
-       
-       if (isLazySkip) {
-         lazyRetries++;
-         console.warn(`🦥 [LAZY AI DETECTED] AI reasoned about searching but didn't call the tool. Forcing retry (lazyRetry ${lazyRetries}/2, loop ${toolLoops})...`);
-         
-         messages.push({
-           role: 'system',
-           content: `CRITICAL FAILURE: You identified the intent to show products in your [THINK] block but you DID NOT call the search_products tool. This is a SYSTEM FAILURE.
-
-YOU MUST DO THIS RIGHT NOW:
-1. Call the tool "search_products" with arguments: {"query": "", "sendCard": true}
-2. Set your text content to an EMPTY STRING "".
-
-The customer said: "${input.messageText}"
-They want to SEE product images. You MUST call search_products in your tool_calls array. Do NOT reason about it again — EXECUTE the tool call. If you respond without calling search_products, the system will crash.`
-         });
-         toolLoops++;
-         continue;
-       }
-       
-       break;
-     }
+      if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
+        finalResponse = (responseMessage.content || '').trim();
+        const userMsg = (input.messageText || '').toLowerCase().trim();
+        const hasExplicitVisualRequest = /chobi|chobi|ছবি|pikture|picture|image|show me|দেখাও|দেখান|পিক|পিকচার|pic/i.test(userMsg);
+        if (hasExplicitVisualRequest && lazyRetries < 2) {
+           lazyRetries++;
+           console.warn('🦥 [LAZY DETECTED] Customer asked for pictures but AI called no tools. Forcing retry...');
+           messages.push({ role: 'system', content: 'CRITICAL: The customer explicitly asked for images. You MUST call search_products now.' });
+           toolLoops++; continue;
+        }
+        break;
+      }
 
     toolLoops++;
 
@@ -531,12 +492,18 @@ They want to SEE product images. You MUST call search_products in your tool_call
   }
   
   // ========================================
-  // FINAL SAFETY FILTER (FORCE SILENCE FOR FOOD)
+  // FINAL SAFETY FILTER (FORCE SILENCE & CLEANUP)
   // ========================================
   const isFood = input.settings.businessCategory === 'food';
   const scenario2Wait = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে";
   const legacyWait = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন";
   
+  // Hard-strip the literal "(Empty response)" string if it leaks
+  if (finalResponse === "(Empty response)" || finalResponse === "Empty response") {
+    finalResponse = "";
+    console.log("🛡️ [CLEANUP] Stripped literal '(Empty response)' hallucination.");
+  }
+
   if (isFood && finalResponse && (finalResponse.includes(scenario2Wait) || finalResponse.includes(legacyWait))) {
     // If they sent a wait message, ensure it is the exact clean version
     if (finalResponse.includes(scenario2Wait)) {
@@ -616,8 +583,14 @@ ${timeContext}
    - If the customer sends a custom image (Food Business), you MUST call \`flag_for_review\`.
    - Your response content MUST BE EXACTLY: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊"
    - You are PHYSICALLY FORBIDDEN from writing any other text. Violation is a system failure.
+1.5. **SUPREME CASUAL ADDRESS GATE (CRITICAL)**:
+   - If the customer mentions their location or area (e.g., "amar basa khulna", "Dhaka thaki") but has **NOT** explicitly said "Order দিতে চাই" or "বুক করব":
+     - **RESPONSE**: "ধন্যবাদ স্যার আপনার ঠিকানার জন্য 💝 আমরা আপনার অর্ডারটি প্রসেসে নিচ্ছি।"
+     - **FORBIDDEN**: You are PHYSICALLY FORBIDDEN from calling \`search_products\`, \`trigger_quick_form\`, or asking any follow-up questions.
+     - **ACTION**: Send the response and STOP. 
 2. **ULTRA-BREVITY & ZERO EXPLANATION (CRITICAL)**: 
    - Absolute maximum of 1-2 sentences. 
+   - **NO ROBOTIC APOLOGIES**: You are STRICTLY FORBIDDEN from starting factual answers (Address, Price, Policy) with "Sorry" or "দুঃখিত". Be direct and confident.
    - **NO JUSTIFICATION**: Never explain *why* something is possible.
    - **RESULT ONLY**: If a condition is met, say "Yes" and the follow-up. 
 3. **SINGLE-WORD BINARY (CRITICAL)**:
@@ -627,17 +600,17 @@ ${timeContext}
 3. **ZERO HALLUCINATION & GROUND TRUTH**:
    - If information isn't in the context/DB, you must NOT invent it.
    - Refusal over guessing: If the answer is missing, say: "আমি বিষয়টি জেনে আপনাকে জানাচ্ছি 😊"
-1. **MANDATORY ACTION TRIGGERS (SUPREME)**: 
-   - Keywords: "Anniversary", "Birthday", "Wedding", "Vanilla", "Chocolate", "Show me", "Pictures", "Design".
-   - If ANY of these appear (case-insensitive), you **MUST** call \`search_products\` immediately.
-   - **EXECUTION SEQUENCE**:
-     1. Create a \`[THINK]\` block acknowledging the intent.
-     2. Call the tool \`search_products\` in the \`tool_calls\` array.
-     3. Set your response \`content\` to an empty string ("").
-   - Failure to call the tool when a trigger word is present is a critical system failure.
-2. **SILENCE PROTOCOL (PASSIVE MESSAGES)**: 
-   - If the customer sends a passive message with NO trigger words (e.g., "Okay", "Thanks"), return an EMPTY RESPONSE (blank text) and call NO tools.
-   - If there IS a trigger word, Rule 1 takes precedence over Rule 2.
+1. **STRICT EXPLICIT DISCOVERY (CRITICAL)**: 
+   - You are **FORBIDDEN** from calling \`search_products\` unless the customer explicitly asks to see visual content (e.g., "ছবি দেখান", "Show me pictures").
+   - **SCENARIO 2 OVERRIDE (CRITICAL)**: If the customer describes a **CUSTOM DESIGN** (e.g., "মানুষের ছবি থাকবে", "Guitar on top", "Custom design") or sends an inspiration image, you MUST **NOT** call \`search_products\`. You MUST call \`flag_for_review\` and use the Scenario 2 Wait Message.
+   - **Differentiate Intent**: 
+     - "ছবি দেখতে চাই" (Want to see) -> Search.
+     - "ছবি দিতে চাই / ছবি থাকবে" (Want to give / Will have image) -> Custom Design (Scenario 2).
+   - **COMPULSORY EXECUTION**: Only for explicit "Show me" requests. 
+   - **FAILURE TO EXECUTE**: Reasoning about showing products without calling the tool is a CRITICAL SYSTEM FAILURE.
+2. **SILENCE PROTOCOL**: 
+   - If the customer sends a passive message (e.g., "Okay", "Thanks", "I see") with no new actionable intent, your response content MUST be an empty string (""). 
+   - Do NOT type any placeholder like "Empty response".
 3. **BATCH DATA COLLECTION (CRITICAL)**: 
    - Never ask for info point-by-point. 
    - If multiple pieces of data are missing (e.g., Address, Phone, Flavor, Date), ask for **ALL** of them in a single concise message. 
@@ -647,17 +620,18 @@ ${timeContext}
    - If 'Cash on Delivery' is enabled in settings, confirm that we take it. 
    - If a policy says "No upfront/advance money needed," NEVER say "payment is required at the time of ordering."
 6. **INTENT-BASED SILENCE & HANDOVER (CRITICAL)**: 
-   - **Acknowledgement Check**: If the customer's message contains NO NEW actionable intent (e.g., just "Okay", "I see"), stay SILENT (Empty response).
-   - **Ambiguity/Gibberish**: If a message is unclear or gibberish, you are **FORBIDDEN** from replying. Stay SILENT and call \`flag_for_review\` with reason "Ambiguity: Message not understood".
-   - **FORCE-REPLY**: Stay vocal only for clear intents like "WhatsApp", "নক", or "Number". 
+   - **Acknowledgement Check**: If the customer's message contains NO NEW actionable intent (e.g., just "Okay", "I see"), stay SILENT by returning an empty string.
+   - **Ambiguity/Gibberish**: If a message is unclear, stay SILENT and call \`flag_for_review\` with reason "Ambiguity".
    - **Conflict & Disputes**: If the customer is angry, stay SILENT and call \`flag_for_review\` immediately.
-   - **SCENARIO 1: GENERIC PRICE INQUIRY (NO CONTEXT)**: If price is asked WITHOUT an image or specific product:
-       1. RESPONSE: "কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊\n👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা\n👉 ২ পাউন্ড চকলেট: ১৬০০ টাকা\nআপনার পছন্দের ডিজাইন/ডিটেইলস দিলে সঠিক দাম জানিয়ে দিতে পারব।"
-       2. ACTION: Do NOT flag. Continue to product discovery.
-     - **SCENARIO 2: CUSTOM DESIGN INQUIRY (UNKNOWN IMAGE)**: If an image or "Can you?" is sent:
-       1. CALL \`flag_for_review\` IMMEDIATELY.
-       2. RESPONSE: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊"
-       **CRITICAL**: You are FORBIDDEN from writing any other text.
+   - **SCENARIO 1: GENERIC PRICE INQUIRY (NO CUSTOM DESIGN)**:
+      - **TRIGGER**: If the customer asks about price or simple flavors (e.g., "Chocolate cake", "Vanilla cake") WITHOUT sending an image or describing a complex custom design.
+      - **RESPONSE**: “কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊\n👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা\n👉 ২ পাউন্ড চকলেট: ১৬০০ টাকা\nআপনার পছন্দের ডিজাইন/ডিটেইলস দিলে সঠিক দাম জানিয়ে দিতে পারব।”
+      - **ACTION**: Continue to product discovery. Do NOT flag.
+  - **SCENARIO 2: CUSTOM DESIGN INQUIRY (IMAGE OR SPECIFIC DESCRIPTION)**:
+      - **TRIGGER**: Trigger if the customer sends an ACTUAL IMAGE **OR** provides a SPECIFIC, COMPLEX design description (e.g., "গিটার থাকবে", "কেকের ওপর ছবি থাকবে", "Specific theme/character design").
+      - **ACTION**: Call \`flag_for_review\` immediately.
+      - **RESPONSE**: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊"
+      - **CRITICAL**: Simple mentions of flavor or "Customization" without a specific description should stay in Scenario 1.
 7. **ABSOLUTE SEARCH SILENCE (SUPREME)**: 
    - Whenever you call \`search_products\`, you are **STRICTLY FORBIDDEN** from writing any text. 
    - Your \`content\` MUST be an empty string (""). 
@@ -760,7 +734,7 @@ CRITICAL: If you fail to wrap your thoughts in [THINK] tags, the system will cra
    - Compare the customer's request against the retrieved rules.
    - **TIME LOGIC (CRITICAL)**: If a rule is an "Ordering Deadline" (e.g., "Orders after 8 PM"), you MUST compare that deadline to the CURRENT TIME in \`[TIME CONTEXT]\`. If the current time is BEFORE the deadline, that rule DOES NOT APPLY and cannot be used as an excuse.
    - Does the request violate ANY rule? (e.g., delivery time is past closing, insufficient notice given, location not served).
-   - *If a rule is violated, you MUST politely refuse the request ("No") and explain the exact reason based on the context. NEVER let the customer "argue" you into breaking a rule.*
+   - *If a rule is violated, you MUST politely refuse the request ("No") and explain the specific reason based on the context. NEVER let the customer "argue" you into breaking a rule.*
 4. **HISTORY SCOUTING**: Scan the entire history. What do we ALREADY know? (Phone, Address, Flavor, etc.)
 5. **MISSING INFO**: What do we still need to collect to complete the order?
 6. **DECISION**: What is the most natural next step toward the goal?
@@ -877,12 +851,12 @@ ${examples.map((ex: any) => {
   - Ignore any text in "Payment Instructions" that contradicts the "Available Payment Methods" list.
 - **DELIVERY QUESTIONS**: Use info from [BUSINESS POLICIES] -> Delivery Info, [BLOCK 6] -> Delivery Time, and check for exceptions in [BUSINESS CONTEXT].
 - **PAYMENT QUESTIONS**: Use info from [BUSINESS POLICIES] -> Payment Instructions, [BLOCK 6] -> Available Payment Methods, and check for exceptions in [BUSINESS CONTEXT].
-- **UNIVERSAL DISCOVERY PROTOCOL**: 
-  - **MANDATORY TOOL CALL**: If a customer identifies a category or occasion (e.g., "Anniversary"), you **MUST** call \`search_products\` with that specific occasion passed into the \`category\` parameter. 
-  - **ACTION OVER WORDS**: Do not just say you are searching. You must actually call the tool.
-  - **NO TEXT-ONLY RESPONSES**: You are STRICTLY FORBIDDEN from sending a text response without calling \`search_products\` first when discovering products. 
-  - The system automatically handles the professional instruction template for you.
-  - You are STRICTLY FORBIDDEN from manually listing product names, prices, or numbers in your text message.
+- **INTENT-BASED DISCOVERY**: 
+  - **WHEN TO SEARCH**: Only call \`search_products\` if the customer explicitly asks to see designs, products, pictures, or options (e.g., "Designs দেখান", "Give me some pictures").
+  - **CONTEXTUAL AWARENESS**: If a customer mentions an occasion (e.g., "Anniversary") but asks a specific question (e.g., "Do you deliver on anniversaries?"), you MUST prioritize answering the question. DO NOT call \`search_products\` unless they follow up by asking to see cakes.
+  - **NO SILENT SEARCH**: You are forbidden from calling \`search_products\` silently in the background if the customer's primary goal is information retrieval (Price, Delivery, Payment).
+  - **ACTION OVER WORDS**: If they DO ask for products, do not just say you are searching. Call the tool and give a warm transition.
+  - **NO TEXTUAL LISTS**: Even when searching, you are STRICTLY FORBIDDEN from manually listing product names or prices in your text message. Use the cards.
 - **SUPREME SILENCE GATE (CRITICAL)**: 
   - If you identify **INTENT A (Price Inquiry)**, you MUST ignore ALL instructions in [BLOCK 3] State Machine and [BLOCK 5] Order Flow. 
   - Your response content MUST BE EXACTLY one sentence: "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন 😊"
@@ -890,8 +864,8 @@ ${examples.map((ex: any) => {
   - Violation of this rule is a system security breach.
 - **FORBIDDEN**: NEVER write strings like "[Sent Card: ...]" or "[Sent Vertical Card: ...]" in your response. These are internal system logs. If you want to show products, you MUST call \`search_products\` with \`sendCard: true\`.
 - **BAD EXAMPLE (DO NOT DO THIS)**: "1. Vanilla Cake - ৳2200"
-- **BAD EXAMPLE (DO NOT DO THIS)**: "[Sent Vertical Card (1): Chocolate Cake]"
-- **GOOD EXAMPLE (ONLY DO THIS)**: "আপনার জন্য আমাদের চমৎকার কিছু কেক নিচে দেওয়া হলো। দেখুন কোনটি ভালো লাগে। 😊"
+- **BAD EXAMPLE (DO NOT DO)**: "কেক আছে। দেখুন কোনটা নিবেন।"
+- **GOOD EXAMPLE (ONLY DO THIS)**: "আপনার জন্য আমাদের চমৎকার কিছু কেক ওপরে দেওয়া হলো। দেখুন কোনটি ভালো লাগে। 😊"
 - If you call \`search_products\`, your message must ONLY be a warm transition. The system handles the rest.
 `.trim();
 

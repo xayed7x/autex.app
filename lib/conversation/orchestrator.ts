@@ -306,17 +306,20 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           await sendMessage(input.pageId, input.customerPsid, waitMessage);
         }
         
-        // 2. Flag for review (Owner needs to price this)
-        await flagForManualResponse(supabase, input.conversationId, "Unknown Food Image: Custom Design Inquiry");
-        
-        // 3. Update conversation metadata
+        // 2. Flag for review and update metadata in a single atomic operation
         await supabase.from('conversations').update({
+          control_mode: 'manual',
+          needs_manual_response: true,
+          manual_flag_reason: "Unknown Food Image: Custom Design Inquiry",
+          manual_flagged_at: new Date().toISOString(),
+          state: 'MANUAL_REVIEW',
           metadata: {
             ...currentContext.metadata,
             orderStage: 'COLLECTING_INFO',
             activeProductId: null
           }
         }).eq('id', input.conversationId);
+        console.log("🚩 [SHORT-CIRCUIT] Conversation flagged for manual review.");
 
         // 4. Log the bot message
         await supabase.from('messages').insert({
@@ -418,6 +421,13 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
 
     console.log(`🤖 Calling Agent... [Memory Summary: ${!!memorySummary}] [Messages Passed: ${recentMessages.length}]`);
     const agentResult = await runAgent(agentInput);
+
+    // --- DIAGNOSTIC: Catch missing tool calls for visuals ---
+    const reasoningStr = (agentResult.reasoning || '').toLowerCase();
+    const hasVisualIntentExplicit = reasoningStr.includes('show') || reasoningStr.includes('image') || reasoningStr.includes('picture') || reasoningStr.includes('ছবি');
+    if (hasVisualIntentExplicit && (!agentResult.toolCalls || agentResult.toolCalls.length === 0)) {
+      console.warn("⚠️ [INTENT GAP] AI reasoned about showing products but called NO tools. Customer will see an empty response.");
+    }
 
     // The agent's tools mutated `currentContext` in place.
     // Check if an order was created during this run (Step 4 tool side-effect)
@@ -698,31 +708,54 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // ========================================
     // STEP 6.9: GLOBAL SAFETY NET (FOR FOOD PRICE INQUIRIES)
     // ========================================
+    const scenario1Script = "কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊\n👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা\n👉 ২ পাউন্ড চকলেট: ১৬০০ টাকা\nআপনার পছন্দের ডিজাইন/ডিটেইলস দিলে সঠিক দাম জানিয়ে দিতে পারব।";
     const scenario2Wait = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে";
     const legacyWait = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন";
     
     if (settings.businessCategory === 'food' && (finalResponse?.includes(scenario2Wait) || finalResponse?.includes(legacyWait))) {
-      // FORCE strict silence for custom design inquiries
-      if (finalResponse?.includes(scenario2Wait)) {
-        finalResponse = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
+      // VALIDATION: Only allow Scenario 2 if:
+      // 1. An image was actually sent
+      // 2. OR the AI identified a specific custom description and self-flagged for it
+      const hasImage = input.imageRecognitionResult?.recognitionResult?.success === false || !!input.metadata?.inspirationImage;
+      const isAIFlagged = agentResult.shouldFlag === true;
+      
+      if (!hasImage && !isAIFlagged) {
+        console.log("🛡️ [SAFETY NET] Falling back to Scenario 1 (Rate Chart) because no image or custom flag was detected.");
+        finalResponse = scenario1Script;
+        agentResult.shouldFlag = false;
+        agentResult.flagReason = undefined;
       } else {
-        finalResponse = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন 😊";
+        // FORCE strict clean version of Scenario 2
+        finalResponse = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
+        
+        // Ensure flagging happens if we are in Scenario 2
+        if (!agentResult.shouldFlag) {
+          agentResult.shouldFlag = true;
+          agentResult.flagReason = "Safety Net: Price Inquiry (Scenario 2)";
+        }
+        console.log(`🛡️ [SAFETY NET] Confirmed Scenario 2 (Image: ${hasImage}, Flagged: ${isAIFlagged})`);
       }
-      
-      // FORCE tool actions if the AI forgot them
-      if (!agentResult.shouldFlag) {
-        agentResult.shouldFlag = true;
-        agentResult.flagReason = "Safety Net: Price Inquiry (Scenario 2)";
-      }
-      
-      console.log("🛡️ [SAFETY NET] Automatically triggered flag for custom price inquiry.");
     }
 
     // ========================================
-    // STEP 6.10: HANDLE MANUAL FLAGGING EARLY
+    // STEP 6.95: CASUAL ADDRESS SAFETY GATE
     // ========================================
-    if (agentResult.shouldFlag) {
-      await flagForManualResponse(supabase, input.conversationId, agentResult.flagReason || 'Agent self-flagged.');
+    const lowerMessage = (input.messageText || '').toLowerCase().trim();
+    
+    // Strict Sentence Patterns for Location Statements
+    const isLocationStatement = 
+      /^(amar basa|আমার বাসা)\s+/i.test(lowerMessage) || // Starts with "Amar basa..."
+      /\s+(thaki|থাকি)$/i.test(lowerMessage) ||          // Ends with "...thaki"
+      /^(ami|আমি)\s+.*\s+(theke|থেকে)\s+/i.test(lowerMessage); // "Ami [location] theke..."
+
+    // Safety: Ignore if it's actually about price or a direct question
+    const isPriceInquiry = lowerMessage.includes('dam') || lowerMessage.includes('দামি') || lowerMessage.includes('taka') || lowerMessage.includes('টাকা');
+    const isDirectQuestion = lowerMessage.includes('?') || lowerMessage.startsWith('ki ') || lowerMessage.startsWith('কি ');
+
+    if (settings.businessCategory === 'food' && isLocationStatement && !isPriceInquiry && !isDirectQuestion && !input.metadata?.inspirationImage) {
+      console.log("🛡️ [SAFETY NET] Strict pattern match for location statement. Forcing thank-you response.");
+      finalResponse = "ধন্যবাদ স্যার আপনার ঠিকানার জন্য 💝 আমরা আপনার অর্ডারটি প্রসেসে নিচ্ছি।";
+      agentResult.toolCalls = []; 
     }
 
     // ========================================
@@ -746,24 +779,18 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     }
 
     // ========================================
-    // STEP 6.10: HANDLE QUICK FORM TRIGGER (SYNCED WITH BUTTON LOGIC)
+    // STEP 6.10: HANDLE QUICK FORM TRIGGER
     // ========================================
     if (agentResult.shouldTriggerQuickForm) {
       const isFood = settings.businessCategory === 'food';
       
-      // 1. Fetch Official Form
       const officialForm = settings.quick_form_prompt || (isFood 
         ? `🌸✨ কেক অর্ডার ফর্ম ✨🌸\n1️⃣ জেলা সদর / উপজেলা:\n2️⃣ সম্পূর্ণ ঠিকানা:\n3️⃣ মোবাইল নম্বর:\n4️⃣ কেকের ডিজাইন ও শুভেচ্ছা বার্তা:\n5️⃣ কেকের ফ্লেভার:\n6️⃣ ডেলিভারির তারিখ ও সময়:\n\n📌 সব তথ্য একসাথে পূরণ করে দিন 😊`
         : 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nঠিকানা:');
       
-      // 2. Sync Metadata with Button-Click Logic
       if (!currentContext.metadata) currentContext.metadata = {};
       currentContext.metadata.orderStage = 'COLLECTING_INFO';
       
-      // 3. Persist State Change
-      await updateContextInDb(supabase, input.conversationId, finalStateToSave, currentContext);
-
-      // 4. Send Message
       if (!input.isTestMode) {
         await sendMessage(input.pageId, input.customerPsid, officialForm);
       }
@@ -777,6 +804,26 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         message_type: 'text',
       });
     }
+
+    // ========================================
+    // STEP 7: ATOMIC FINAL UPDATE (STATE, CONTEXT, FLAGS)
+    // ========================================
+    const finalUpdate: any = {
+      current_state: finalStateToSave,
+      context: currentContext,
+      last_message_at: new Date().toISOString()
+    };
+
+    if (agentResult.shouldFlag) {
+      finalUpdate.control_mode = 'manual';
+      finalUpdate.needs_manual_response = true;
+      finalUpdate.manual_flag_reason = agentResult.flagReason || 'Agent self-flagged.';
+      finalUpdate.manual_flagged_at = new Date().toISOString();
+      finalUpdate.state = 'MANUAL_REVIEW';
+      console.log(`🚩 [FINAL] Flagging conversation for review: ${finalUpdate.manual_flag_reason}`);
+    }
+
+    await supabase.from('conversations').update(finalUpdate).eq('id', input.conversationId);
 
     const duration = Date.now() - startTime;
     console.log(`✅ Orchestrator finished in ${duration}ms (Tool Loops: ${agentResult.toolCallsMade})\n`);

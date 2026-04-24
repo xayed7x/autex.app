@@ -284,10 +284,22 @@ export async function processMessagingEvent(
     const customerPsid = isOwnerMessage ? recipientId : senderId;
     const pageId = actualPageId;
 
-    // Immediate Sender Action: Mark as Seen
+    // Immediate Sender Action: Mark as Seen (ONLY if not in manual mode)
     if (!isOwnerMessage) {
-      const { markSeen } = await import('@/lib/facebook/messenger');
-      await markSeen(actualPageId, customerPsid);
+      // Quick check for manual mode before marking as seen
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('control_mode')
+        .eq('fb_page_id', pageId)
+        .eq('customer_psid', customerPsid)
+        .single();
+        
+      if (conv?.control_mode !== 'manual') {
+        const { markSeen } = await import('@/lib/facebook/messenger');
+        await markSeen(actualPageId, customerPsid);
+      } else {
+        console.log(`🔇 [MANUAL MODE] Skipping markSeen for customer ${customerPsid}`);
+      }
     }
 
     // If it's a customer message and the bot is enabled, take thread control from Meta Business Suite
@@ -1171,10 +1183,22 @@ export async function processInstagramMessagingEvent(
     console.log(`📸 [INSTAGRAM] Is Owner Message: ${isOwnerMessage}`);
     console.log(`📸 [INSTAGRAM] Resolved Customer IGSID: ${customerIgsid}`);
 
-    // Immediate Sender Action: Mark as Seen
+    // Immediate Sender Action: Mark as Seen (ONLY if not in manual mode)
     if (!isOwnerMessage) {
-      const { markSeen } = await import('@/lib/facebook/messenger');
-      await markSeen(pageId, customerIgsid);
+      // Quick check for manual mode before marking as seen
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('control_mode')
+        .eq('fb_page_id', pageId)
+        .eq('customer_psid', customerIgsid) // For IG, we use IGSID
+        .single();
+        
+      if (conv?.control_mode !== 'manual') {
+        const { markSeen } = await import('@/lib/facebook/messenger');
+        await markSeen(pageId, customerIgsid);
+      } else {
+        console.log(`🔇 [INSTAGRAM MANUAL] Skipping markSeen for customer ${customerIgsid}`);
+      }
     }
 
     // ========================================

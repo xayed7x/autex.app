@@ -29,11 +29,11 @@ const searchProducts: ChatCompletionTool = {
       properties: {
         query: {
           type: 'string',
-          description: 'Natural language search query. Examples: "red saree", "polo t-shirt", "shoes".',
+          description: 'Natural language search query. Examples: "red saree", "polo t-shirt". Optional: If empty, the tool searches all products.',
         },
         category: {
           type: 'string',
-          description: 'Filter by category (e.g., "Birthday", "Anniversary", "Couple / Love"). Optional. ALWAYS extract and pass this if the customer mentions a specific purpose or cake type.',
+          description: 'Filter by category: "Anniversary", "Birthday", "Wedding", "Baby Shower", "Engagement", "Islamic/Traditional", "Congratulation", "Gift/Love", or "Other". ALWAYS extract and pass this if mentioned.',
         },
         size: {
           type: 'string',
@@ -56,7 +56,7 @@ const searchProducts: ChatCompletionTool = {
           description: 'MANDATORY: Set to TRUE to send visual product cards to the customer. NEVER set to false during discovery.',
         },
       },
-      required: ['query'],
+      required: [],
     },
   },
 };
@@ -464,6 +464,21 @@ const sendImage: ChatCompletionTool = {
   },
 };
 
+const triggerQuickForm: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'trigger_quick_form',
+    description:
+      'Triggers the system to send the official Quick Form template configured in the AI Setup dashboard. ' +
+      'CALL WHEN: The customer expresses intent to order a custom design, modified cake, or non-standard weight. ' +
+      'STRICT RULE: Do NOT type the form fields in your response. Call this tool and stay SILENT or provide a warm confirmation.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
+};
+
 // ============================================
 // EXPORTS
 // ============================================
@@ -486,6 +501,7 @@ export function getToolsForCategory(category: string): ChatCompletionTool[] {
     collectPaymentDigits,
     recordNegotiationAttempt,
     sendImage,
+    triggerQuickForm,
   ];
 }
 
@@ -508,4 +524,5 @@ export type AgentToolName =
   | 'calculate_delivery'
   | 'collect_payment_digits'
   | 'record_negotiation_attempt'
-  | 'send_image';
+  | 'send_image'
+  | 'trigger_quick_form';

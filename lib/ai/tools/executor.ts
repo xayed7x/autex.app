@@ -49,6 +49,7 @@ export interface ToolSideEffects {
   shouldSendTransactionalMessages?: boolean;
   shouldFlag?: boolean;
   flagReason?: string;
+  shouldTriggerQuickForm?: boolean;
 }
 
 /** Combined output from a tool execution. */
@@ -125,6 +126,9 @@ export async function executeTool(
 
     case 'send_image':
       return executeSendImage(args, ctx);
+      
+    case 'trigger_quick_form':
+      return executeTriggerQuickForm(args, ctx);
 
     default: {
       const exhaustiveCheck: never = toolName;
@@ -818,10 +822,7 @@ async function executeFlagForReview(
       result: {
         success: true,
         data: { 
-          reason,
-          // SYSTEM MESSAGE: This message is automatically delivered to the customer 
-          // when this tool is called, so the agent doesn't have to generate it.
-          autoResponse: "অসাধারণ ডিজাইন! আমি আমাদের কাস্টম ডিজাইন টিমের সাথে কথা বলে দেখছি আমরা করতে পারবো কি না এবং এর দাম কত হবে। একটু সময় দিন Sir 😊"
+          reason
         },
         message: 'Conversation flagged for manual review. Professional Bengali message triggered.',
       },
@@ -1199,6 +1200,22 @@ async function executeCollectPaymentDigits(
           awaitingPaymentOrderId: undefined,
         }
       },
+    },
+  };
+}
+
+async function executeTriggerQuickForm(
+  args: Record<string, unknown>,
+  ctx: ToolExecutionContext
+): Promise<ToolExecutionOutput> {
+  return {
+    result: {
+      success: true,
+      data: {},
+      message: 'Quick form triggered. The system will send the official template from settings.',
+    },
+    sideEffects: {
+      shouldTriggerQuickForm: true,
     },
   };
 }

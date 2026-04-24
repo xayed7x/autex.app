@@ -54,15 +54,13 @@ export function buildOrderCollectionInstruction(settings: WorkspaceSettings): st
     
     return `${sharedValidationRules}
 
-**QUICK FORM MODE (EMULATE BUTTON-CLICK AESTHETIC):**
-When the customer expresses intent to order a SPECIFIC identified product (after search or image recognition), you MUST send EXACTLY this structured message format:
-
-${renderedForm}
-
-- Send as ONE structured message.
-- If customer provides partial data: Acknowledge naturally (NO NUMBERS like 1, 2, 3) and ask for the specific missing fields.
-- Parse ALL customer replies at once, then call update_customer_info then calculate_delivery.
-- Show ORDER SUMMARY and wait for confirmation.`.trim();
+**QUICK FORM MODE (SYSTEM-TRIGGERED):**
+When the customer expresses intent to order a SPECIFIC identified product (after search or image recognition):
+1. **CALL THE TOOL**: You MUST call the \`trigger_quick_form\` tool.
+2. **STRICT SILENCE**: You are FORBIDDEN from typing the form fields yourself in the chat response. 
+3. **OPTIONAL TEXT**: You may send a warm confirmation (e.g., "অবশ্যই! আমি অর্ডার ফর্মটি পাঠিয়ে দিচ্ছি 😊") in your textual response, but NEVER include the form fields.
+4. **PARSING**: Parse ALL customer replies to the system-sent form, then call update_customer_info then calculate_delivery.
+5. **SUMMARY**: Show ORDER SUMMARY and wait for confirmation.`.trim();
   }
 
   // CONVERSATIONAL MODE

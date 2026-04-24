@@ -221,7 +221,7 @@ export async function saveOrder(
       workspace_id: workspaceId,
       fb_page_id: fbPageId,
       conversation_id: conversationId,
-      customer_name: checkout.customerName,
+      customer_name: checkout.customerName || 'Customer',
       customer_phone: checkout.customerPhone,
       customer_address: checkout.customerAddress,
       delivery_charge: deliveryCharge,

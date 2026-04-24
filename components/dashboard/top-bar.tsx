@@ -37,6 +37,8 @@ import { usePathname, useRouter } from "next/navigation"
 import { useWorkspace } from "@/lib/workspace-provider"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { playNotificationSound } from "@/lib/notification-sound"
+import { NotificationToast, type CustomNotification } from "@/components/dashboard/notification-toast"
 
 interface TopBarProps {
   title?: string
@@ -117,10 +119,30 @@ export function TopBar({ title }: TopBarProps) {
   const [mobileSearchQuery, setMobileSearchQuery] = useState("")
   const [userData, setUserData] = useState<UserData | null>(null)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [customQueue, setCustomQueue] = useState<CustomNotification[]>([])
   const { needsReplyCount, pendingOrdersCount, loading: workspaceLoading } = useWorkspace()
   const pathname = usePathname()
   const router = useRouter()
   const { toast } = useToast()
+
+  // Auto-dismiss custom notifications after 5 seconds
+  useEffect(() => {
+    if (customQueue.length > 0) {
+      const timer = setTimeout(() => {
+        setCustomQueue((prev) => prev.slice(1))
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [customQueue])
+
+  const addCustomNotification = (notif: CustomNotification) => {
+    setCustomQueue((prev) => [...prev, notif])
+    playNotificationSound()
+  }
+
+  const handleDismiss = (id: string) => {
+    setCustomQueue((prev) => prev.filter((n) => n.id !== id))
+  }
   
   // Combined count for the bell badge: Actionable Conversations + Unread Notifications
   const unreadCount = notifications.filter((n) => n.unread).length
@@ -239,6 +261,15 @@ export function TopBar({ title }: TopBarProps) {
              
              setNotifications(prev => [newNotification, ...prev].slice(0, 5))
              
+             // Trigger Messenger-style notification and sound
+             addCustomNotification({
+               id: newOrder.id,
+               type: "order",
+               title: "নতুন অর্ডার! 🛍️",
+               subtitle: `${newOrder.customer_name} - ${newOrder.order_number || 'অর্ডার'}`,
+               href: "/dashboard/orders"
+             })
+
              toast({
                title: "New Order Received! 🎉",
                description: `Order #${newOrder.order_number || 'N/A'} from ${newOrder.customer_name}`,
@@ -550,6 +581,7 @@ export function TopBar({ title }: TopBarProps) {
           </DropdownMenu>
         </div>
       </div>
+      <NotificationToast queue={customQueue} onDismiss={handleDismiss} />
     </header>
   )
 }

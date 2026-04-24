@@ -296,6 +296,42 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         console.log('✨ [INSPIRATION DETECTED] Low confidence or no match found for food item.');
         if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
         currentContext.metadata.lastInspirationUrl = input.imageUrl;
+
+        // === 🚀 SHORT-CIRCUIT: AUTOMATED RESPONSE FOR UNKNOWN IMAGES ===
+        console.log("🚀 [SHORT-CIRCUIT] Skipping AI and sending automated form.");
+        
+        // 1. Send the Scenario 2 wait message
+        const waitMessage = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
+        if (!input.isTestMode) {
+          await sendMessage(input.pageId, input.customerPsid, waitMessage);
+        }
+        
+        // 2. Flag for review (Owner needs to price this)
+        await flagForManualResponse(supabase, input.conversationId, "Unknown Food Image: Custom Design Inquiry");
+        
+        // 3. Update conversation metadata
+        await supabase.from('conversations').update({
+          metadata: {
+            ...currentContext.metadata,
+            orderStage: 'COLLECTING_INFO',
+            activeProductId: null
+          }
+        }).eq('id', input.conversationId);
+
+        // 4. Log the bot message
+        await supabase.from('messages').insert({
+          conversation_id: input.conversationId,
+          sender: 'bot',
+          sender_type: 'bot',
+          message_text: waitMessage,
+          message_type: 'text',
+        });
+
+        return {
+          response: waitMessage,
+          newState: 'COLLECTING_INFO',
+          updatedContext: currentContext,
+        };
       }
 
       imageContext = {
@@ -445,14 +481,14 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     
     const hasProducts = currentContext.metadata?.identifiedProducts && currentContext.metadata.identifiedProducts.length > 0;
     
-    if (hasProducts && !orderCreated && !flowLocked) {
+    if (hasProducts && !orderCreated && !flowLocked && !finalResponse) {
       const productCount = currentContext.metadata.identifiedProducts.length;
       if (settings.businessCategory === 'food') {
         finalResponse = productCount === 1
-          ? `নিচের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👇`
-          : `নিচের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👇`;
+          ? `উপরের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👆`
+          : `উপরের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👆`;
       } else {
-        finalResponse = `অর্ডার করতে চাইলে নিচের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊`;
+        finalResponse = `অর্ডার করতে চাইলে উপরের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊`;
       }
     }
 
@@ -479,23 +515,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const isConfirmationMsg = finalResponse?.includes('অর্ডারটি কনফার্ম করা হয়েছে') || 
                               finalResponse?.includes('অর্ডার কনফার্ম হয়েছে');
 
-    // Send response via Facebook API
-    if (finalResponse) {
-      if (!input.isTestMode) {
-        await sendMessage(input.pageId, input.customerPsid, finalResponse);
-      } else {
-        console.log('🧪 Test mode: Skipping Facebook API call');
-      }
-      
-      // Log bot message to history
-      await supabase.from('messages').insert({
-        conversation_id: input.conversationId,
-        sender: 'bot',
-        sender_type: 'bot',
-        message_text: finalResponse,
-        message_type: 'text',
-      });
-    }
+
 
     // ========================================
     // STEP 6.5: SEND PRODUCT CARDS (Generic Templates)
@@ -609,6 +629,30 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           }
         }
 
+        // ========================================
+        // STEP 6.7: SEND TEXT RESPONSE (Sent AFTER cards)
+        // ========================================
+        // Send response via Facebook API
+        if (finalResponse) {
+          if (!input.isTestMode) {
+            await sendMessage(input.pageId, input.customerPsid, finalResponse);
+          } else {
+            console.log('🧪 Test mode: Skipping Facebook API call');
+          }
+          
+          // Log bot message to history
+          await supabase.from('messages').insert({
+            conversation_id: input.conversationId,
+            sender: 'bot',
+            sender_type: 'bot',
+            message_text: finalResponse,
+            message_type: 'text',
+          });
+          
+          // Clear finalResponse so we don't send it again below
+          finalResponse = '';
+        }
+
         // Track which product(s) were shown so subsequent tools can resolve identity
         // without relying on identifiedProducts (which we are about to clear).
         if (mappedProducts.length === 1) {
@@ -651,8 +695,87 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       }
     }
 
+    // ========================================
+    // STEP 6.9: GLOBAL SAFETY NET (FOR FOOD PRICE INQUIRIES)
+    // ========================================
+    const scenario2Wait = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে";
+    const legacyWait = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন";
+    
+    if (settings.businessCategory === 'food' && (finalResponse?.includes(scenario2Wait) || finalResponse?.includes(legacyWait))) {
+      // FORCE strict silence for custom design inquiries
+      if (finalResponse?.includes(scenario2Wait)) {
+        finalResponse = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
+      } else {
+        finalResponse = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন 😊";
+      }
+      
+      // FORCE tool actions if the AI forgot them
+      if (!agentResult.shouldFlag) {
+        agentResult.shouldFlag = true;
+        agentResult.flagReason = "Safety Net: Price Inquiry (Scenario 2)";
+      }
+      
+      console.log("🛡️ [SAFETY NET] Automatically triggered flag for custom price inquiry.");
+    }
+
+    // ========================================
+    // STEP 6.10: HANDLE MANUAL FLAGGING EARLY
+    // ========================================
     if (agentResult.shouldFlag) {
-      await flagForManualResponse(supabase, input.conversationId, agentResult.flagReason || 'Agent self-flagged or encountered hallucination risk.');
+      await flagForManualResponse(supabase, input.conversationId, agentResult.flagReason || 'Agent self-flagged.');
+    }
+
+    // ========================================
+    // STEP 6.9: SEND TEXT RESPONSE
+    // ========================================
+    if (finalResponse) {
+      if (!input.isTestMode) {
+        await sendMessage(input.pageId, input.customerPsid, finalResponse);
+      } else {
+        console.log('🧪 Test mode: Skipping Facebook API call');
+      }
+      
+      // Log bot message to history
+      await supabase.from('messages').insert({
+        conversation_id: input.conversationId,
+        sender: 'bot',
+        sender_type: 'bot',
+        message_text: finalResponse,
+        message_type: 'text',
+      });
+    }
+
+    // ========================================
+    // STEP 6.10: HANDLE QUICK FORM TRIGGER (SYNCED WITH BUTTON LOGIC)
+    // ========================================
+    if (agentResult.shouldTriggerQuickForm) {
+      const isFood = settings.businessCategory === 'food';
+      
+      // 1. Fetch Official Form
+      const officialForm = settings.quick_form_prompt || (isFood 
+        ? `🌸✨ কেক অর্ডার ফর্ম ✨🌸\n1️⃣ জেলা সদর / উপজেলা:\n2️⃣ সম্পূর্ণ ঠিকানা:\n3️⃣ মোবাইল নম্বর:\n4️⃣ কেকের ডিজাইন ও শুভেচ্ছা বার্তা:\n5️⃣ কেকের ফ্লেভার:\n6️⃣ ডেলিভারির তারিখ ও সময়:\n\n📌 সব তথ্য একসাথে পূরণ করে দিন 😊`
+        : 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nঠিকানা:');
+      
+      // 2. Sync Metadata with Button-Click Logic
+      if (!currentContext.metadata) currentContext.metadata = {};
+      currentContext.metadata.orderStage = 'COLLECTING_INFO';
+      
+      // 3. Persist State Change
+      await updateContextInDb(supabase, input.conversationId, finalStateToSave, currentContext);
+
+      // 4. Send Message
+      if (!input.isTestMode) {
+        await sendMessage(input.pageId, input.customerPsid, officialForm);
+      }
+      
+      // 5. Log to History
+      await supabase.from('messages').insert({
+        conversation_id: input.conversationId,
+        sender: 'bot',
+        sender_type: 'bot',
+        message_text: officialForm,
+        message_type: 'text',
+      });
     }
 
     const duration = Date.now() - startTime;

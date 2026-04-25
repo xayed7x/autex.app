@@ -516,11 +516,16 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // ========================================
     // STEP 5: CALL NEW SINGLE AGENT
     // ========================================
+    let messageWithStatus = input.messageText || '';
+    if (currentContext.metadata?.lastInspirationUrl) {
+      messageWithStatus = `[SYSTEM: CUSTOM DESIGN INQUIRY ACTIVE. Customer previously sent an image: ${currentContext.metadata.lastInspirationUrl}. ALWAYS stick to Scenario 2 for price questions.]\n${messageWithStatus}`;
+    }
+
     const agentInput: AgentInput = {
       workspaceId: input.workspaceId,
       fbPageId: input.fbPageId.toString(),
       conversationId: input.conversationId,
-      messageText: input.messageText || '',
+      messageText: messageWithStatus,
       isTest: !!convData.is_test,
       replyContext,
       imageRecognitionResult: imageContext,
@@ -830,7 +835,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       // VALIDATION: Only allow Scenario 2 if:
       // 1. An image was actually sent
       // 2. OR the AI identified a specific custom description and self-flagged for it
-      const hasImage = input.imageRecognitionResult?.recognitionResult?.success === false || !!input.metadata?.inspirationImage;
+      const hasImageInHistory = chatHistory.some(m => m.role === 'user' && (m.content?.includes('[Customer sent an image]') || m.content?.includes('http')));
+      const hasImage = input.imageUrl || !!currentContext.metadata?.lastInspirationUrl || hasImageInHistory;
       const isAIFlagged = agentResult.shouldFlag === true;
       
       if (!hasImage && !isAIFlagged) {
@@ -852,7 +858,23 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     }
 
     // ========================================
-    // STEP 6.95: CASUAL ADDRESS SAFETY GATE
+    // STEP 6.91: PRODUCT CONTEXT PRICE GUARD (Problems 1 & 2)
+    // ========================================
+    // If the AI tries to send the generic price list BUT we already have product context
+    // (a card was sent or a product is active), suppress it entirely.
+    if (settings.businessCategory === 'food' && finalResponse === scenario1Script) {
+      const hasProductCardInHistory = (allMessages || []).some(
+        (m: any) => m.sender_type === 'bot' && m.message_type === 'template'
+      );
+      const hasActiveProduct = !!currentContext.metadata?.activeProductId ||
+                               !!(currentContext.metadata?.recentlyShownProducts?.length);
+
+      if (hasProductCardInHistory || hasActiveProduct) {
+        console.log("🛡️ [PRICE GUARD] Suppressing generic price list — product card already exists in conversation.");
+        finalResponse = ''; // Stay silent; the card is already in the chat
+      }
+    }
+
     // ========================================
     const lowerMessage = (input.messageText || '').toLowerCase().trim();
     

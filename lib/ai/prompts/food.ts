@@ -120,8 +120,8 @@ STATE: CONFIRMING_ORDER
 export const FOOD_CUSTOM_ORDER_FLAGS = `
 [BLOCK 3.5 - CUSTOM ORDER FLAG SYSTEM (🚨 FOOD/CAKE ONLY)]
 
-**━━━ SCENARIO 1: GENERIC PRICE INQUIRY (NO CONTEXT) ━━━**
-TRIGGER if the customer asks for the price or rate WITHOUT sending an image or selecting a specific product:
+**━━━ SCENARIO 1: GENERIC PRICE INQUIRY (NO ACTIVE CUSTOM DESIGN) ━━━**
+TRIGGER if the customer asks for the price or rate WITHOUT having sent a custom image in the current conversation:
 - **RESPONSE**: Say EXACTLY:
   "কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊
   👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা
@@ -129,11 +129,11 @@ TRIGGER if the customer asks for the price or rate WITHOUT sending an image or s
   আপনার পছন্দের ডিজাইন/ডিটেইলস দিলে সঠিক দাম জানিয়ে দিতে পারব।"
 - **ACTION**: Do NOT call flag_for_review. Continue to product discovery.
 
-**━━━ SCENARIO 2: CUSTOM DESIGN INQUIRY (UNKNOWN IMAGE) ━━━**
-TRIGGER if the customer sends an image that was **NOT** matched in our catalog (imageRecognitionResult -> success: false):
-- **STEP 1 (RESPONSE)**: Say EXACTLY: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊"
-- **STEP 2 (TOOL)**: Call \`flag_for_review\` (Reason: "Custom Design Inquiry").
-- **STRICT RULE**: Do NOT call trigger_quick_form or any other tool. Just flag and send the wait message.
+**━━━ SCENARIO 2: CUSTOM DESIGN INQUIRY (ACTIVE IMAGE) ━━━**
+TRIGGER if the customer sends an unknown image OR asks a follow-up question (like price) after having already sent a custom image in history:
+- **STEP 1 (RESPONSE)**: Start with or include this message: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊" (You may also include info about delivery charges if the user asked for it).
+- **STEP 2 (TOOL - MANDATORY)**: You MUST call \`flag_for_review\` (Reason: "Custom Design Inquiry") immediately.
+- **STRICT RULE**: If an image was sent previously, you MUST stay in Scenario 2. Scenario 1 is FORBIDDEN. Do NOT call trigger_quick_form or any other tool. Just flag and send the wait message.
 
 - **Weight Mismatch (e.g., "1 pound hobe?"):**
   - RESPONSE: "আপনার পছন্দ অনুযায়ী আমরা এটি তৈরি করতে পারব। একটু wait করুন, আমি টিমের সাথে কথা বলে জানাচ্ছি 😊"

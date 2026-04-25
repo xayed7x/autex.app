@@ -206,8 +206,9 @@ export function tryFastLane(
 ): FastLaneResult {
   const trimmedInput = input.trim();
   
-  // Empty input - no match
-  if (!trimmedInput) {
+  // Empty input or INTERNAL SYSTEM MESSAGE - no match
+  // System messages starting with [SYSTEM: are intended for the AI Agent
+  if (!trimmedInput || trimmedInput.startsWith('[SYSTEM:')) {
     return { matched: false };
   }
   

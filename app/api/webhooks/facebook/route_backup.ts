@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import {
   verifySignature,
   generateEventId,
@@ -258,7 +258,7 @@ export async function processMessagingEvent(
     // This is the most robust way to find the workspace.
     
     // Fetch the page using entries.id (Page ID)
-    let { data: fbPageCheck, error: lookupError } = await supabase
+    const { data: fbPageCheck, error: lookupError } = await supabase
       .from('facebook_pages')
       .select('id, workspace_id, bot_enabled, encrypted_access_token')
       .eq('id', entryId)
@@ -397,12 +397,7 @@ export async function processMessagingEvent(
         await sendMessage(
           pageId,
           customerPsid,
-          settings.greeting || "আসসালামু আলাইকুম! 😊 আমি Meem, এই shop এর sales team আছি। কীভাবে সাহায্য করতে পারি? 🛍️"
-        );
-        return; // Halt standard processing
-      }
-
-            // Handle "Order Now" button click
+          settings.greeting || "আসসালামু আলাইকুম! 😊 আমি Meem, এই shop এর sales team �      // Handle "Order Now" button click
       if (payload.startsWith('ORDER_NOW_')) {
         const productId = payload.replace('ORDER_NOW_', '');
         console.log(`🛍️ Order Now clicked for product: ${productId}`);
@@ -414,7 +409,7 @@ export async function processMessagingEvent(
         // Fetch full product details including image
         const { data: product } = await supabase
           .from('products')
-          .select('id, name, price, flavors, category, image_urls')
+          .select('id, name, price, flavor, category, cake_category, image_urls, min_pounds')
           .eq('id', productId)
           .single();
 
@@ -473,7 +468,7 @@ export async function processMessagingEvent(
               metadata.activeProductId = product.id;
               metadata.activeProductName = product.name;
               metadata.activeProductPrice = product.price;
-              metadata.flavor = (product.flavors && product.flavors.length > 0) ? product.flavors[0] : (product.category || 'Default');
+              metadata.flavor = product.flavor;
               metadata.orderStage = 'COLLECTING_INFO';
               context.metadata = metadata;
 
@@ -505,9 +500,9 @@ export async function processMessagingEvent(
               }
 
               // STEP 2: Send product confirmation message
-              const weightLabel = '২ পাউন্ড'; // Default for now
-              const flavorLabel = (product.flavors && product.flavors.length > 0) ? product.flavors[0] : (product.category || 'বিশেষ ডিজাইন');
-              const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 **নাম:** ${product.name}\n💰 **দাম:** ${product.price.toLocaleString('en-BD')} টাকা\n🍫 **ফ্লেভার:** ${flavorLabel}\n⚖️ **ওজন:** ${weightLabel}\n\nঅর্ডার করতে চাইলে 'হ্যাঁ' লিখে কনফার্ম করুন। আমি আপনার তথ্যগুলো চেক করে দেখছি 😊`;
+              const weightLabel = product.min_pounds ? `${product.min_pounds} পাউন্ড` : '২ পাউন্ড';
+              const flavorLabel = product.flavor || product.cake_category || 'বিশেষ ডিজাইন';
+              const confirmationMsg = `✅ চমৎকার! আপনি এই কেকটি অর্ডার করতে চাইছেন:\n\n🎂 নাম: ${product.name}\n💰 দাম: ${product.price.toLocaleString('en-BD')} টাকা\n🍫 ফ্লেভার: ${flavorLabel}\n⚖️ ওজন: ${weightLabel}\n\nঅর্ডার কনফার্ম করতে নিচের ফর্মটি পূরণ করে পাঠান 👇`;
               await sendMessage(pageId, customerPsid, confirmationMsg);
 
               // Log confirmation message
@@ -519,20 +514,46 @@ export async function processMessagingEvent(
                 message_type: 'text',
               });
 
-              
-              // STEP 3: Trigger conversational AI processing instead of hardcoded form
+              // STEP 3: Send the quick order form
+              const quickForm = settings.quick_form_prompt || `🌸✨ কেক অর্ডার ফর্ম ✨🌸
+প্রিয় গ্রাহক, অনুগ্রহ করে অর্ডার কনফার্ম করার জন্য নিচের ফর্মটি একবারে সম্পূর্ণ কপি করে পূরণ করে পাঠান —
+
+⬇️ এই ফরম্যাটে লিখুন: ⬇️
+
+1️⃣ জেলা সদর / উপজেলা:
+2️⃣ সম্পূর্ণ ঠিকানা:
+3️⃣ মোবাইল নম্বর:
+4️⃣ কেকের ডিজাইন ও শুভেচ্ছা বার্তা:
+5️⃣ কেকের ফ্লেভার:
+6️⃣ ডেলিভারির তারিখ ও সময়:
+
+📌 বিশেষ অনুরোধ:
+👉 অনুগ্রহ করে সকল তথ্য একসাথে ও সঠিকভাবে পাঠাবেন। আলাদা আলাদা করে তথ্য দিলে অর্ডার প্রসেস করতে সমস্যা হয়।`;
+
+              await sendMessage(pageId, customerPsid, quickForm);
+
+              // Log quick form message
+              await supabase.from('messages').insert({
+                conversation_id: conversation.id,
+                sender: 'bot',
+                sender_type: 'bot',
+                message_text: quickForm,
+                message_type: 'text',
+              });
+            }
+          }
+        }
+        return;
+      }
+� তথ্য একসাথে ও সঠিকভাবে পাঠাবেন। আলাদা আলাদা করে তথ্য দিলে অর্ডার প্রসেস করতে সমস্যা হয়।`;
+
               await processMessage({
                 workspaceId: fbPage.workspace_id,
                 fbPageId: Number(fbPage.id),
                 conversationId: conversation.id,
                 customerPsid,
                 pageId,
-                messageText: `[SYSTEM: Customer clicked Order Now for product: ${product.name} (${flavorLabel}). 
-                1. DO NOT send a form. 
-                2. READ the conversation history (last 20 msgs) to see if they already gave Address or Phone. 
-                3. If address is found, clarify if it is a Village or District if ambiguous.
-                4. Ask for confirmation: "Do you want to order this?" 
-                5. Once confirmed, give the TOTAL BILL (Subtotal + Delivery) and ask for final "YES" to save.]`,
+                messageText: `[SYSTEM: Customer clicked Order Now for product: ${product.name} (${product.flavor}). START ORDER COLLECTION using THIS QUICK FORM: \n\n${quickForm}]`,
                 isTestMode: false,
                 botEnabled: fbPage.bot_enabled,
               });
@@ -544,8 +565,6 @@ export async function processMessagingEvent(
 
       // Handle "More Photos" button click
       if (payload.startsWith('MORE_PHOTOS_')) {
-        const { typingOn } = await import('@/lib/facebook/messenger');
-        await typingOn(pageId, customerPsid);
         const productId = payload.replace('MORE_PHOTOS_', '');
         console.log(`📸 More Photos clicked for product: ${productId}`);
 
@@ -599,8 +618,6 @@ export async function processMessagingEvent(
       
       // Handle "View Details" button click
       if (payload.startsWith('VIEW_DETAILS_')) {
-        const { typingOn } = await import('@/lib/facebook/messenger');
-        await typingOn(pageId, customerPsid);
         const productId = payload.replace('VIEW_DETAILS_', '');
         console.log(`📋 View Details clicked for product: ${productId}`);
         
@@ -1146,15 +1163,12 @@ export async function processMessagingEvent(
       });
 
       console.log('✅ Message processed successfully');
-    } catch (error) {
-      console.error('❌ Error processing messaging event:', error);
     } finally {
-      if (conversation?.id) {
-        processingLock.releaseLock(conversation.id);
-      }
+      // Always release lock
+      processingLock.releaseLock(conversation.id);
     }
   } catch (error) {
-    console.error('❌ Fatal error in processMessagingEvent:', error);
+    console.error('❌ Error processing messaging event:', error);
   }
 }
 
@@ -1624,15 +1638,11 @@ export async function processInstagramMessagingEvent(
       });
 
       console.log('✅ [INSTAGRAM] Message processed successfully');
-    } catch (error) {
-      console.error('❌ [INSTAGRAM] Error processing Instagram messaging event:', error);
     } finally {
-      if (conversation?.id) {
-        processingLock.releaseLock(conversation.id);
-      }
+      processingLock.releaseLock(conversation.id);
     }
   } catch (error) {
-    console.error('❌ Fatal error in processInstagramMessagingEvent:', error);
+    console.error('❌ [INSTAGRAM] Error processing Instagram messaging event:', error);
   }
 }
 
@@ -2120,3 +2130,4 @@ async function sendReferralProductCard(
     console.error(`🔗 [REFERRAL] Error in sendReferralProductCard:`, error);
   }
 }
+

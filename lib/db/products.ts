@@ -144,6 +144,25 @@ export async function searchProductsByKeywordsWithScoring(
   flavor?: string,
   category?: string
 ): Promise<Product[]> {
+  const STOPWORDS = new Set(['er', 'jonno', 'lagbe', 'chai', 'daen', 'dekhun', 'dekan', 'the', 'a', 'an', 'for', 'want', 'need', 'give', 'show', 'please', 'sir', 'maam', 'vai', 'apa', 'of', 'to', 'in', 'on', 'with']);
+  
+  const CATEGORY_ALIASES: Record<string, string> = {
+    'aniversary': 'anniversary',
+    'aniversery': 'anniversary',
+    'anniversery': 'anniversary',
+    'anivarsary': 'anniversary',
+    'anivarsery': 'anniversary',
+    'barthday': 'birthday',
+    'brithday': 'birthday',
+    'borthday': 'birthday',
+    'weedding': 'wedding',
+    'weding': 'wedding',
+    'ভ্যালেন্টাইন': 'valentine',
+    'বার্থডে': 'birthday',
+    'অ্যানিভারসারি': 'anniversary',
+    'বিয়ে': 'wedding',
+  };
+
   const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -168,11 +187,14 @@ export async function searchProductsByKeywordsWithScoring(
 
     // Optimization: If there are keywords, apply them in the DB query
     if (normalizedQuery) {
-      const keywords = normalizedQuery.toLowerCase().split(/\s+/);
+      const rawKeywords = normalizedQuery.toLowerCase().split(/\s+/);
+      const keywords = rawKeywords
+        .map(kw => CATEGORY_ALIASES[kw] || kw)
+        .filter(kw => kw.length >= 2 && !STOPWORDS.has(kw));
+
       const orConditions: string[] = [];
       
       keywords.forEach(keyword => {
-        if (keyword.length < 2) return; // Skip tiny keywords to avoid noise
         orConditions.push(`name.ilike.%${keyword}%`);
         orConditions.push(`description.ilike.%${keyword}%`);
         orConditions.push(`category.ilike.%${keyword}%`);
@@ -201,28 +223,42 @@ export async function searchProductsByKeywordsWithScoring(
       return (matchedProducts as Product[]).slice(offset, offset + limit);
     }
 
-    const keywords = normalizedQuery.toLowerCase().split(/\s+/);
+    const rawKeywords = normalizedQuery.toLowerCase().split(/\s+/);
+    const keywords = rawKeywords
+      .map(kw => CATEGORY_ALIASES[kw] || kw)
+      .filter(kw => kw.length >= 2 && !STOPWORDS.has(kw));
 
     // Score only the subset of products matched by DB
     const scoredProducts = (matchedProducts as Product[]).map((product) => {
       let score = 0;
 
       keywords.forEach((keyword) => {
-        // Check name (higher weight)
-        if (product.name?.toLowerCase().includes(keyword)) {
-          score += 3;
+        const nameLower = (product.name || '').toLowerCase();
+        const catLower = (product.category || '').toLowerCase();
+        const descLower = (product.description || '').toLowerCase();
+
+        // Check category (Extreme high weight for exact match)
+        if (catLower === keyword) {
+          score += 50;
+        } else if (catLower.includes(keyword)) {
+          score += 25;
         }
 
-        // Check description (medium weight)
-        if (product.description?.toLowerCase().includes(keyword)) {
-          score += 2;
+        // Check name (high weight)
+        if (nameLower.includes(keyword)) {
+          score += 15;
         }
 
-        // Check search_keywords array (high weight for exact matches)
+        // Check search_keywords array (medium-high weight)
         if (product.search_keywords?.some(
           (kw) => kw.toLowerCase().includes(keyword)
         )) {
-          score += 4;
+          score += 10;
+        }
+
+        // Check description (low weight)
+        if (descLower.includes(keyword)) {
+          score += 5;
         }
       });
 

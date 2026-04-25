@@ -380,6 +380,26 @@ export default function ConversationsPage() {
     }
   }, [workspaceId, selectedConversation?.id, isAtBottom])
 
+  // Automatically scroll to bottom when switching conversations or new messages arrive
+  useEffect(() => {
+    if (selectedConversation) {
+      // For initial load or switching conversations, jump instantly to bottom
+      // This prevents the user from having to scroll down manually
+      const jumpToBottom = () => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: "auto" })
+        }
+      }
+      
+      // Run once immediately
+      jumpToBottom()
+      
+      // Run again after a tiny delay to ensure any images/carousels have calculated heights
+      const timer = setTimeout(jumpToBottom, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [selectedConversation?.id, selectedConversation?.messages?.length])
+
   // Removed handleScroll as it's now integrated into the thumb update useEffect
 
   const fetchConversations = async () => {
@@ -1004,97 +1024,68 @@ export default function ConversationsPage() {
                   )} />
                 </div>
 
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3 className="font-bold text-base text-zinc-900 dark:text-white tracking-tight truncate max-w-[120px] sm:max-w-none">
-                      {selectedConversation.customer_name || "Unknown"}
-                    </h3>
-                    
-                    {/* Bot Mode Selector - Compact Version */}
-                    <div className="flex items-center">
-                      <Select
-                        value={selectedConversation.control_mode || 'bot'}
-                        onValueChange={async (mode) => {
-                          try {
-                            const res = await fetch(`/api/conversations/${selectedConversation.id}/control-mode`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ control_mode: mode }),
-                            });
-                            if (res.ok) {
-                              const data = await res.json();
-                              setSelectedConversation(prev => {
-                                if (!prev) return prev
-                                const isClearingFlag = mode === 'bot' || mode === 'hybrid'
-                                return {
-                                  ...prev,
-                                  control_mode: mode,
-                                  last_manual_reply_at: mode === 'bot' ? null : prev.last_manual_reply_at,
-                                  needs_manual_response: isClearingFlag ? false : prev.needs_manual_response,
-                                  manual_flag_reason: isClearingFlag ? null : prev.manual_flag_reason,
-                                }
-                              })
-
-                              setConversations(prev => prev.map(conv => {
-                                if (conv.id === selectedConversation.id) {
-                                  const isClearingFlag = mode === 'bot' || mode === 'hybrid'
-                                  return {
-                                    ...conv,
-                                    control_mode: mode,
-                                    needs_manual_response: isClearingFlag ? false : conv.needs_manual_response,
-                                    manual_flag_reason: isClearingFlag ? null : conv.manual_flag_reason,
-                                  }
-                                }
-                                return conv
-                              }))
-
-                              if (mode === 'bot' || mode === 'hybrid') {
-                                window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
-                              }
-                              toast.success(`Mode: ${mode.toUpperCase()}`);
+                <div className="flex-1 min-w-0 flex items-center gap-2">
+                  <h3 className="font-bold text-base text-zinc-900 dark:text-white tracking-tight truncate max-w-[150px]">
+                    {selectedConversation.customer_name || "Unknown"}
+                  </h3>
+                  
+                  {/* Bot Mode Selector - Compact Version */}
+                  <Select
+                    value={selectedConversation.control_mode || 'bot'}
+                    onValueChange={async (mode) => {
+                      try {
+                        const res = await fetch(`/api/conversations/${selectedConversation.id}/control-mode`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ control_mode: mode }),
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setSelectedConversation(prev => {
+                            if (!prev) return prev
+                            const isClearingFlag = mode === 'bot' || mode === 'hybrid'
+                            return {
+                              ...prev,
+                              control_mode: mode,
+                              last_manual_reply_at: mode === 'bot' ? null : prev.last_manual_reply_at,
+                              needs_manual_response: isClearingFlag ? false : prev.needs_manual_response,
+                              manual_flag_reason: isClearingFlag ? null : prev.manual_flag_reason,
                             }
-                          } catch (e) { toast.error("Failed to update mode"); }
-                        }}
-                      >
-                        <SelectTrigger className="h-6 w-auto border-none bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 px-2 py-0 text-[10px] font-black uppercase tracking-tighter transition-all rounded-md focus:ring-0">
-                           <div className="flex items-center gap-1">
-                              {selectedConversation.control_mode === 'manual' ? <User className="h-2.5 w-2.5 text-orange-500" /> : <Bot className="h-2.5 w-2.5 text-green-500" />}
-                              <SelectValue placeholder="Mode" />
-                           </div>
-                        </SelectTrigger>
-                        <SelectContent className="bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10">
-                          <SelectItem value="bot"><div className="flex items-center gap-2 text-xs"><Bot className="h-3 w-3 text-green-500" /> AI Bot</div></SelectItem>
-                          <SelectItem value="manual"><div className="flex items-center gap-2 text-xs"><User className="h-3 w-3 text-orange-500" /> Manual</div></SelectItem>
-                          <SelectItem value="hybrid"><div className="flex items-center gap-2 text-xs"><RefreshCw className="h-3 w-3 text-blue-500" /> Hybrid</div></SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                          })
 
-                    {/* State Selector - Compact */}
-                    <Select
-                      value={selectedConversation.current_state}
-                      onValueChange={handleStateChange}
-                      disabled={changingState}
-                    >
-                      <SelectTrigger className="h-6 w-auto border-none bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 px-2 py-0 text-[10px] font-black uppercase tracking-tighter transition-all rounded-md focus:ring-0">
-                        {changingState ? "..." : (
-                          <SelectValue>
-                            {(() => {
-                              const state = CONVERSATION_STATES.find(s => s.value === selectedConversation.current_state)
-                              return state ? `${state.icon} ${state.label}` : selectedConversation.current_state
-                            })()}
-                          </SelectValue>
-                        )}
-                      </SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10">
-                        {CONVERSATION_STATES.map((state) => (
-                          <SelectItem key={state.value} value={state.value} className="text-xs">
-                            {state.icon} {state.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                          setConversations(prev => prev.map(conv => {
+                            if (conv.id === selectedConversation.id) {
+                              const isClearingFlag = mode === 'bot' || mode === 'hybrid'
+                              return {
+                                ...conv,
+                                control_mode: mode,
+                                needs_manual_response: isClearingFlag ? false : conv.needs_manual_response,
+                                manual_flag_reason: isClearingFlag ? null : conv.manual_flag_reason,
+                              }
+                            }
+                            return conv
+                          }))
+
+                          if (mode === 'bot' || mode === 'hybrid') {
+                            window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
+                          }
+                          toast.success(`Mode: ${mode.toUpperCase()}`);
+                        }
+                      } catch (e) { toast.error("Failed to update mode"); }
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-auto border-none bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 px-2 py-0 text-[10px] font-black uppercase tracking-tighter transition-all rounded-md focus:ring-0">
+                       <div className="flex items-center gap-1">
+                          {selectedConversation.control_mode === 'manual' ? <User className="h-2.5 w-2.5 text-orange-500" /> : <Bot className="h-2.5 w-2.5 text-green-500" />}
+                          <SelectValue placeholder="Mode" />
+                       </div>
+                    </SelectTrigger>
+                    <SelectContent className="bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10">
+                      <SelectItem value="bot"><div className="flex items-center gap-2 text-xs"><Bot className="h-3 w-3 text-green-500" /> AI Bot</div></SelectItem>
+                      <SelectItem value="manual"><div className="flex items-center gap-2 text-xs"><User className="h-3 w-3 text-orange-500" /> Manual</div></SelectItem>
+                      <SelectItem value="hybrid"><div className="flex items-center gap-2 text-xs"><RefreshCw className="h-3 w-3 text-blue-500" /> Hybrid</div></SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 {getOrderIdFromContext(selectedConversation.context) && (
                   <Button 

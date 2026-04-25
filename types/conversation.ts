@@ -138,6 +138,11 @@ export interface ConversationMetadata {
   /** Active product media (lifestyle images/videos) */
   activeProductMediaImages?: string[];
   activeProductMediaVideos?: string[];
+
+  /** Set to true if the customer has sent a custom image for pricing (Scenario 2) */
+  activeCustomDesign?: boolean;
+  /** The URL of the custom image being quoted */
+  activeInspirationUrl?: string;
 }
 
 // ============================================

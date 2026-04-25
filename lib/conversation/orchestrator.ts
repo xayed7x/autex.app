@@ -298,7 +298,10 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       if (isInspiration) {
         console.log('✨ [INSPIRATION DETECTED] Low confidence or no match found for food item.');
         if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
-        currentContext.metadata.lastInspirationUrl = input.imageUrl;
+        currentContext.metadata.activeInspirationUrl = input.imageUrl;
+        currentContext.metadata.activeCustomDesign = true;
+        currentContext.metadata.orderStage = 'COLLECTING_INFO';
+        currentContext.metadata.activeProductId = undefined;
 
         // === 🚀 SHORT-CIRCUIT: AUTOMATED RESPONSE FOR UNKNOWN IMAGES ===
         console.log("🚀 [SHORT-CIRCUIT] Skipping AI and sending automated form.");
@@ -309,20 +312,14 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           await sendMessage(input.pageId, input.customerPsid, waitMessage);
         }
         
-        // 2. Flag for review and update metadata in a single atomic operation
+        // 2. Persist updated context in Bot Mode (do NOT flag for manual yet)
         await supabase.from('conversations').update({
-          control_mode: 'manual',
-          needs_manual_response: true,
-          manual_flag_reason: "Unknown Food Image: Custom Design Inquiry",
-          manual_flagged_at: new Date().toISOString(),
-          state: 'MANUAL_REVIEW',
-          metadata: {
-            ...currentContext.metadata,
-            orderStage: 'COLLECTING_INFO',
-            activeProductId: null
-          }
+          current_state: 'COLLECTING_INFO',
+          context: currentContext,
+          last_message_at: new Date().toISOString()
         }).eq('id', input.conversationId);
-        console.log("🚩 [SHORT-CIRCUIT] Conversation flagged for manual review.");
+        
+        console.log("🚩 [SHORT-CIRCUIT] Context persisted in Bot Mode.");
 
         // 4. Log the bot message
         await supabase.from('messages').insert({
@@ -406,8 +403,13 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // STEP 5: CALL NEW SINGLE AGENT
     // ========================================
     let messageWithStatus = input.messageText || '';
-    if (currentContext.metadata?.lastInspirationUrl) {
-      messageWithStatus = `[SYSTEM: CUSTOM DESIGN INQUIRY ACTIVE. Customer previously sent an image: ${currentContext.metadata.lastInspirationUrl}. ALWAYS stick to Scenario 2 for price questions.]\n${messageWithStatus}`;
+    if (currentContext.metadata?.activeCustomDesign) {
+      messageWithStatus = `[SYSTEM: CUSTOM DESIGN INQUIRY ACTIVE. Customer previously sent an image: ${currentContext.metadata.activeInspirationUrl || 'unknown'}. 
+      STRICT RULE: You are currently in SCENARIO 2 (Custom Design). 
+      1. Scenario 1 (Discovery/Gallery Search) is FORBIDDEN.
+      2. Do NOT search for products. Do NOT show generic prices.
+      3. Your ONLY task is to collect Address, Phone, Flavor, and Date while the human agent calculates the price.
+      4. Always start with the Scenario 2 acknowledgement message.]\n${messageWithStatus}`;
     }
 
     const agentInput: AgentInput = {

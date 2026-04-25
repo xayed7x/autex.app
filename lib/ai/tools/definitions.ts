@@ -23,7 +23,8 @@ const searchProducts: ChatCompletionTool = {
     description:
       'Search the product catalog and send visual cards. ' +
       'MANDATORY CALL: Whenever a customer asks to see cakes, designs, or products. ' +
-      'This is the ONLY tool that can send pictures to the customer.',
+      'This is the ONLY tool that can send pictures to the customer. ' +
+      'STRICT PROHIBITION: DO NOT call this if the customer has sent a custom image for pricing (Scenario 2).',
     parameters: {
       type: 'object',
       properties: {

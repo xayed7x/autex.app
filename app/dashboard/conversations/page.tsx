@@ -24,16 +24,15 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
-import { Search, Send, ArrowLeft, ExternalLink, Trash2 } from "lucide-react"
+import { Search, Send, ArrowLeft, ExternalLink, Trash2, AlertTriangle, RefreshCw, ChevronDown, Bot, User } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-provider"
-import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
-import { ConversationControlPanel } from "@/components/dashboard/conversation-control-panel"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AlertTriangle, Power } from "lucide-react"
-import { CONVERSATION_STATES } from "@/lib/conversation/state-machine"
 import { PremiumLoader } from "@/components/ui/premium/premium-loader"
+import { createClient } from "@/lib/supabase/client"
+import { useWorkspace } from "@/lib/workspace-provider"
+import { RequireFacebookPage } from "@/components/dashboard/require-facebook-page"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { CONVERSATION_STATES } from "@/lib/conversation/state-machine"
 
 type ConversationStatus = "IDLE" | "AWAITING_NAME" | "AWAITING_PHONE" | "AWAITING_ADDRESS" | "ORDER_COMPLETE"
 
@@ -137,6 +136,45 @@ const getControlModeBadge = (conv: Conversation) => {
   }
 }
 
+// Message grouping helper
+interface GroupedMessage extends Message {
+  isFirst?: boolean
+  isMiddle?: boolean
+  isLast?: boolean
+  isSingle?: boolean
+}
+
+const groupMessages = (messages: Message[]): GroupedMessage[] => {
+  if (!messages || messages.length === 0) return []
+  
+  return messages.map((msg, index) => {
+    const prev = messages[index - 1]
+    const next = messages[index + 1]
+    
+    const getSenderId = (m: Message) => m.sender_type || m.sender
+    
+    const isSameAsPrev = prev && getSenderId(prev) === getSenderId(msg)
+    const isSameAsNext = next && getSenderId(next) === getSenderId(msg)
+    
+    // Check time gap (2 minutes for grouping)
+    const timeGapPrev = prev ? (new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime()) : 0
+    const timeGapNext = next ? (new Date(next.created_at).getTime() - new Date(msg.created_at).getTime()) : 0
+    
+    const groupThreshold = 120000 // 2 minutes
+    
+    const isFirst = !isSameAsPrev || timeGapPrev > groupThreshold
+    const isLast = !isSameAsNext || timeGapNext > groupThreshold
+    
+    return {
+      ...msg,
+      isFirst: isFirst && !isLast,
+      isMiddle: isSameAsPrev && isSameAsNext && timeGapPrev <= groupThreshold && timeGapNext <= groupThreshold,
+      isLast: isLast && !isFirst,
+      isSingle: isFirst && isLast
+    }
+  })
+}
+
 export default function ConversationsPage() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
@@ -157,19 +195,73 @@ export default function ConversationsPage() {
   const [pendingState, setPendingState] = useState<string | null>(null) // State waiting for confirmation
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [showScrollButton, setShowScrollButton] = useState(false)
+  const [thumbTop, setThumbTop] = useState(0)
+  const [thumbHeight, setThumbHeight] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // Needs Reply filter state
   const [needsReplyFilter, setNeedsReplyFilter] = useState(false)
-  const { needsReplyCount } = useWorkspace()
+  const { needsReplyCount, workspaceId } = useWorkspace()
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
   useEffect(() => {
-    scrollToBottom()
-  }, [selectedConversation?.messages, detailLoading])
+    if (!scrollContainerRef.current) return
+    const container = scrollContainerRef.current
+    
+    const updateThumb = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container
+      const height = Math.max((clientHeight / scrollHeight) * clientHeight, 40)
+      const top = (scrollTop / scrollHeight) * clientHeight
+      setThumbHeight(height)
+      setThumbTop(top)
+      
+      const atBottom = scrollHeight - scrollTop - clientHeight < 100
+      setIsAtBottom(atBottom)
+      if (atBottom) setShowScrollButton(false)
+    }
+    
+    container.addEventListener('scroll', updateThumb)
+    window.addEventListener('resize', updateThumb)
+    updateThumb()
+    
+    return () => {
+      container.removeEventListener('scroll', updateThumb)
+      window.removeEventListener('resize', updateThumb)
+    }
+  }, [selectedConversation?.messages])
+
+  const handleThumbMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+    const startY = e.clientY
+    const startTop = thumbTop
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!scrollContainerRef.current) return
+      const deltaY = moveEvent.clientY - startY
+      const containerHeight = scrollContainerRef.current.clientHeight
+      const scrollHeight = scrollContainerRef.current.scrollHeight
+      
+      const newTop = Math.min(Math.max(startTop + deltaY, 0), containerHeight - thumbHeight)
+      const scrollRatio = newTop / containerHeight
+      scrollContainerRef.current.scrollTop = scrollRatio * scrollHeight
+    }
+    
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
 
   // Handle URL query params for filter and deep-linking
   useEffect(() => {
@@ -198,23 +290,97 @@ export default function ConversationsPage() {
     fetchPageBotStatus()
   }, [statusFilter, searchQuery, needsReplyFilter])
 
-  // Polling effect for real-time message updates
+  // Real-time Subscriptions
   useEffect(() => {
-    if (selectedConversation) {
-      // Start polling when a conversation is selected
-      pollingIntervalRef.current = setInterval(() => {
-        fetchConversationDetail(selectedConversation.id, true)
-      }, 5000) // Poll every 5 seconds
-    }
+    if (!workspaceId) return
+    
+    const supabase = createClient()
+    
+    // 1. Subscribe to conversation updates (for list sorting and status)
+    const convChannel = supabase
+      .channel(`conversations-list-${workspaceId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'conversations',
+        filter: `workspace_id=eq.${workspaceId}`
+      }, (payload) => {
+        const updatedConv = payload.new as Conversation
+        setConversations(prev => {
+          const exists = prev.find(c => c.id === updatedConv.id)
+          if (exists) {
+            // Update existing and move to top if it's a new message
+            const filtered = prev.filter(c => c.id !== updatedConv.id)
+            return [{ ...exists, ...updatedConv }, ...filtered]
+          } else {
+            // New conversation
+            return [updatedConv, ...prev]
+          }
+        })
+      })
+      .subscribe()
 
-    // Cleanup: stop polling when conversation is deselected or component unmounts
+    // 2. Subscribe to messages (for real-time chat)
+    // Note: We listen to all messages for this workspace implicitly by listening to 
+    // messages where the conversation is in our conversations list.
+    // However, to keep it simple and secure, we'll subscribe to messages for the selected conversation
+    // and also listen for ANY message update to refresh the conversation list's "last message".
+    const msgChannel = supabase
+      .channel(`messages-global-${workspaceId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages'
+      }, async (payload) => {
+        const newMessage = payload.new as Message
+        
+        // Update conversation list item's last message
+        setConversations(prev => prev.map(conv => {
+          if (conv.id === newMessage.conversation_id) {
+            return {
+              ...conv,
+              last_message: newMessage,
+              last_message_at: newMessage.created_at,
+              message_count: (conv.message_count || 0) + 1
+            }
+          }
+          return conv
+        }).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()))
+
+        // If this message belongs to the selected conversation, append it
+        if (selectedConversation && newMessage.conversation_id === selectedConversation.id) {
+          setSelectedConversation(prev => {
+            if (!prev) return prev
+            // Avoid duplicates (e.g. from optimistic UI)
+            if (prev.messages?.some(m => m.id === newMessage.id || m.id === `temp-${newMessage.created_at}`)) {
+              return prev
+            }
+            return {
+              ...prev,
+              messages: [...(prev.messages || []), newMessage]
+            }
+          })
+          
+          // Auto-scroll if we are at bottom
+          if (isAtBottom) {
+            setTimeout(scrollToBottom, 50)
+          } else if (newMessage.sender_type === 'owner' || newMessage.sender === 'human') {
+            // Always scroll if WE sent the message
+            setTimeout(scrollToBottom, 50)
+          } else {
+            setShowScrollButton(true)
+          }
+        }
+      })
+      .subscribe()
+
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
-        pollingIntervalRef.current = null
-      }
+      supabase.removeChannel(convChannel)
+      supabase.removeChannel(msgChannel)
     }
-  }, [selectedConversation?.id])
+  }, [workspaceId, selectedConversation?.id, isAtBottom])
+
+  // Removed handleScroll as it's now integrated into the thumb update useEffect
 
   const fetchConversations = async () => {
     try {
@@ -420,6 +586,11 @@ export default function ConversationsPage() {
 
   const handleSelectConversation = async (conv: Conversation) => {
     setMobileView("chat")
+    // Optimistically set the basic info so the header can show immediately
+    setSelectedConversation(prev => ({
+      ...conv,
+      messages: prev?.id === conv.id ? prev.messages : [] // keep messages if same ID, else clear to avoid flash
+    }))
     await fetchConversationDetail(conv.id)
   }
 
@@ -503,18 +674,14 @@ export default function ConversationsPage() {
           // Clear the manual flag after owner replied
           needs_manual_response: false,
           manual_flag_reason: null,
-          // Update control mode to hybrid
-          control_mode: data.control_mode || 'hybrid',
+          // Update control mode - now preserving current mode as per user request
+          control_mode: data.control_mode || prev.control_mode,
         }
       })
 
-      // Show appropriate toast message based on the actual new mode from server
+      // Show appropriate toast message
       if (wasFlagged) {
-        if (data.control_mode === 'manual') {
-          toast.success('✅ Message sent! Staying in Manual mode')
-        } else {
-          toast.success('✅ Message sent! Conversation moved to Hybrid mode (bot paused for 30 min)')
-        }
+        toast.success('✅ Message sent! Bot remains active')
         // Re-fetch conversations to update the local badge count
         fetchConversations()
         // Dispatch event to notify TopBar to refresh its badge
@@ -630,7 +797,7 @@ export default function ConversationsPage() {
         </Alert>
       )}
 
-      <div className="flex h-[calc(100vh-4rem)]">
+      <div className="flex h-[calc(100dvh-4rem)] lg:h-[calc(100vh-4rem)] overflow-hidden">
         {/* Conversations List - Left Panel */}
         {/* Conversations List - Left Panel */}
         <div
@@ -747,9 +914,9 @@ export default function ConversationsPage() {
 
                         <div className="flex items-start gap-3 pl-2">
                           <div className="relative">
-                            <Avatar className={cn("h-11 w-11 border-2 shadow-sm transition-colors", isSelected ? "border-zinc-200 dark:border-white" : "border-zinc-100 dark:border-white/10")}>
+                            <Avatar className={cn("h-12 w-12 border shadow-sm transition-all duration-300", isSelected ? "border-zinc-300 dark:border-white/20 scale-105" : "border-zinc-100 dark:border-white/5")}>
                               <AvatarImage src={conv.customer_profile_pic_url || undefined} alt={conv.customer_name} />
-                              <AvatarFallback className="bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-200 text-sm font-bold">
+                              <AvatarFallback className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 text-xs font-bold">
                                 {(conv.customer_name || 'U').substring(0, 2).toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
@@ -809,15 +976,6 @@ export default function ConversationsPage() {
 
         {/* Chat Panel - Right Panel */}
         <div className={cn("flex-1 flex flex-col bg-zinc-50/50 dark:bg-[#050505] h-full overflow-hidden relative", mobileView === "list" && "hidden lg:flex")}>
-          {/* Loading Overlay */}
-          {(detailLoading || (!selectedConversation && loading)) && (
-            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-black/80 backdrop-blur-sm transition-all duration-300">
-               <div className="bg-white dark:bg-zinc-900 px-8 py-10 rounded-2xl shadow-2xl flex flex-col items-center gap-6 border border-zinc-100 dark:border-white/10 relative overflow-hidden min-w-[300px]">
-                 <PremiumLoader className="bg-transparent" />
-               </div>
-            </div>
-          )}
-
           {selectedConversation ? (
             <>
               {/* Background Gradient Effect */}
@@ -825,13 +983,13 @@ export default function ConversationsPage() {
               <div className="absolute inset-0 bg-gradient-to-b from-white/40 to-white/0 dark:from-zinc-900/10 dark:to-black pointer-events-none" />
 
               {/* Chat Header */}
-              <div className="p-4 flex items-center gap-4 shrink-0 z-10 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-white/5 shadow-sm">
-                <Button variant="ghost" size="icon" className="lg:hidden text-zinc-500 dark:text-zinc-400" onClick={() => setMobileView("list")}>
-                  <ArrowLeft className="h-5 w-5" />
+              <div className="p-2 sm:p-4 flex items-center gap-2 sm:gap-4 shrink-0 z-10 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-white/5 shadow-sm transition-all duration-300">
+                <Button variant="ghost" size="icon" className="lg:hidden text-zinc-500 dark:text-zinc-400 h-8 w-8" onClick={() => setMobileView("list")}>
+                  <ArrowLeft className="h-4 w-4" />
                 </Button>
                 
                 <div className="relative">
-                  <Avatar className="h-10 w-10 border border-zinc-200 dark:border-white/10 shadow-inner">
+                  <Avatar className="h-8 w-8 border border-zinc-200 dark:border-white/10 shadow-inner">
                     <AvatarImage 
                       src={selectedConversation.customer_profile_pic_url || undefined} 
                       alt={selectedConversation.customer_name} 
@@ -846,46 +1004,97 @@ export default function ConversationsPage() {
                   )} />
                 </div>
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-lg text-zinc-900 dark:text-white tracking-tight truncate">
-                      {selectedConversation.customer_name || "Unknown Customer"}
+                <div className="flex-1 min-w-0 flex flex-col justify-center">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="font-bold text-base text-zinc-900 dark:text-white tracking-tight truncate max-w-[120px] sm:max-w-none">
+                      {selectedConversation.customer_name || "Unknown"}
                     </h3>
-                    {pageBotEnabled === false && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 dark:text-red-400 border border-red-500/20 font-bold uppercase tracking-wider whitespace-nowrap">
-                        Bot Disabled
-                      </span>
-                    )}
+                    
+                    {/* Bot Mode Selector - Compact Version */}
+                    <div className="flex items-center">
+                      <Select
+                        value={selectedConversation.control_mode || 'bot'}
+                        onValueChange={async (mode) => {
+                          try {
+                            const res = await fetch(`/api/conversations/${selectedConversation.id}/control-mode`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ control_mode: mode }),
+                            });
+                            if (res.ok) {
+                              const data = await res.json();
+                              setSelectedConversation(prev => {
+                                if (!prev) return prev
+                                const isClearingFlag = mode === 'bot' || mode === 'hybrid'
+                                return {
+                                  ...prev,
+                                  control_mode: mode,
+                                  last_manual_reply_at: mode === 'bot' ? null : prev.last_manual_reply_at,
+                                  needs_manual_response: isClearingFlag ? false : prev.needs_manual_response,
+                                  manual_flag_reason: isClearingFlag ? null : prev.manual_flag_reason,
+                                }
+                              })
+
+                              setConversations(prev => prev.map(conv => {
+                                if (conv.id === selectedConversation.id) {
+                                  const isClearingFlag = mode === 'bot' || mode === 'hybrid'
+                                  return {
+                                    ...conv,
+                                    control_mode: mode,
+                                    needs_manual_response: isClearingFlag ? false : conv.needs_manual_response,
+                                    manual_flag_reason: isClearingFlag ? null : conv.manual_flag_reason,
+                                  }
+                                }
+                                return conv
+                              }))
+
+                              if (mode === 'bot' || mode === 'hybrid') {
+                                window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
+                              }
+                              toast.success(`Mode: ${mode.toUpperCase()}`);
+                            }
+                          } catch (e) { toast.error("Failed to update mode"); }
+                        }}
+                      >
+                        <SelectTrigger className="h-6 w-auto border-none bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 px-2 py-0 text-[10px] font-black uppercase tracking-tighter transition-all rounded-md focus:ring-0">
+                           <div className="flex items-center gap-1">
+                              {selectedConversation.control_mode === 'manual' ? <User className="h-2.5 w-2.5 text-orange-500" /> : <Bot className="h-2.5 w-2.5 text-green-500" />}
+                              <SelectValue placeholder="Mode" />
+                           </div>
+                        </SelectTrigger>
+                        <SelectContent className="bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10">
+                          <SelectItem value="bot"><div className="flex items-center gap-2 text-xs"><Bot className="h-3 w-3 text-green-500" /> AI Bot</div></SelectItem>
+                          <SelectItem value="manual"><div className="flex items-center gap-2 text-xs"><User className="h-3 w-3 text-orange-500" /> Manual</div></SelectItem>
+                          <SelectItem value="hybrid"><div className="flex items-center gap-2 text-xs"><RefreshCw className="h-3 w-3 text-blue-500" /> Hybrid</div></SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* State Selector - Compact */}
+                    <Select
+                      value={selectedConversation.current_state}
+                      onValueChange={handleStateChange}
+                      disabled={changingState}
+                    >
+                      <SelectTrigger className="h-6 w-auto border-none bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 px-2 py-0 text-[10px] font-black uppercase tracking-tighter transition-all rounded-md focus:ring-0">
+                        {changingState ? "..." : (
+                          <SelectValue>
+                            {(() => {
+                              const state = CONVERSATION_STATES.find(s => s.value === selectedConversation.current_state)
+                              return state ? `${state.icon} ${state.label}` : selectedConversation.current_state
+                            })()}
+                          </SelectValue>
+                        )}
+                      </SelectTrigger>
+                      <SelectContent className="bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10">
+                        {CONVERSATION_STATES.map((state) => (
+                          <SelectItem key={state.value} value={state.value} className="text-xs">
+                            {state.icon} {state.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  {/* State Dropdown - Manual Override */}
-                  <Select
-                    value={selectedConversation.current_state}
-                    onValueChange={handleStateChange}
-                    disabled={changingState}
-                  >
-                    <SelectTrigger className="w-auto min-w-[140px] h-6 text-[10px] border-none bg-transparent p-0 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 transition-colors uppercase tracking-widest font-bold focus:ring-0 justify-start">
-                      {changingState ? (
-                        <span className="flex items-center gap-2">
-                          <div className="h-3 w-3 rounded-full border-2 border-zinc-500/20 border-t-zinc-500 animate-spin" />
-                          UPDATING...
-                        </span>
-                      ) : (
-                        <SelectValue>
-                          {(() => {
-                            const state = CONVERSATION_STATES.find(s => s.value === selectedConversation.current_state)
-                            return state ? `${state.icon} ${state.label}` : selectedConversation.current_state
-                          })()}
-                        </SelectValue>
-                      )}
-                    </SelectTrigger>
-                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-white/10">
-                      {CONVERSATION_STATES.map((state) => (
-                        <SelectItem key={state.value} value={state.value} className="focus:bg-zinc-100 dark:focus:bg-white/10 text-zinc-700 dark:text-zinc-300 focus:text-zinc-900 dark:focus:text-white">
-                          {state.icon} {state.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
                 {getOrderIdFromContext(selectedConversation.context) && (
                   <Button 
@@ -945,95 +1154,99 @@ export default function ConversationsPage() {
               )}
 
               {/* Control Panel */}
-              <ConversationControlPanel 
-                conversation={selectedConversation}
-                onModeChange={(mode) => {
-                  // Update local state with new mode
-                  setSelectedConversation(prev => {
-                    if (!prev) return prev
-                    const isClearingFlag = mode === 'bot' || mode === 'hybrid'
-                    return {
-                      ...prev,
-                      control_mode: mode,
-                      last_manual_reply_at: mode === 'bot' ? null : prev.last_manual_reply_at,
-                      // Clear manual flag locally when switching modes
-                      needs_manual_response: isClearingFlag ? false : prev.needs_manual_response,
-                      manual_flag_reason: isClearingFlag ? null : prev.manual_flag_reason,
-                    }
-                  })
-
-                  // Also update the item in the conversations list so the sidebar badge disappears
-                  setConversations(prev => prev.map(conv => {
-                    if (conv.id === selectedConversation.id) {
-                      const isClearingFlag = mode === 'bot' || mode === 'hybrid'
-                      return {
-                        ...conv,
-                        control_mode: mode,
-                        needs_manual_response: isClearingFlag ? false : conv.needs_manual_response,
-                        manual_flag_reason: isClearingFlag ? null : conv.manual_flag_reason,
-                      }
-                    }
-                    return conv
-                  }))
-
-                  // Dispatch event to refresh notification badge in TopBar
-                  if (mode === 'bot' || mode === 'hybrid') {
-                    window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
-                  }
-                }}
-              />
 
               {/* Messages Container */}
-              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+              <div 
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto p-4 scrollbar-hide relative"
+                style={{ scrollBehavior: isDragging ? 'auto' : 'smooth' }}
+              >
+                {/* Custom Scrollbar Rail & Thumb */}
+                <div className="absolute right-1 top-0 bottom-0 w-1.5 z-40 group/scrollbar">
+                  <div 
+                    className={cn(
+                      "absolute right-0 w-1.5 rounded-full bg-zinc-300/50 dark:bg-zinc-700/50 transition-opacity duration-300 cursor-grab active:cursor-grabbing",
+                      isDragging ? "opacity-100 w-2" : "opacity-0 group-hover/scrollbar:opacity-100"
+                    )}
+                    style={{ 
+                      top: `${thumbTop}px`, 
+                      height: `${thumbHeight}px` 
+                    }}
+                    onMouseDown={handleThumbMouseDown}
+                  />
+                </div>
+                
                 {detailLoading ? (
-                  <div className="flex items-center justify-center h-full w-full relative min-h-[100px]">
-                    <PremiumLoader className="bg-transparent" />
+                  <div className="flex flex-col items-center justify-center h-full w-full py-20">
+                     <div className="relative h-16 w-16">
+                        <div className="absolute inset-0 rounded-full border-4 border-zinc-100 dark:border-white/5" />
+                        <div className="absolute inset-0 rounded-full border-4 border-zinc-900 dark:border-white border-t-transparent animate-spin" />
+                     </div>
+                     <p className="mt-4 text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest animate-pulse">
+                        Syncing Messages...
+                     </p>
                   </div>
                 ) : (
-                  <div className="flex flex-col justify-end min-h-full pb-32">
-                    <div className="space-y-6">
+                  <div className="flex flex-col justify-end min-h-full pb-44 sm:pb-32">
+                    <div className="space-y-1">
                       {selectedConversation.messages && selectedConversation.messages.length > 0 ? (
-                        selectedConversation.messages.map((message) => {
+                        groupMessages(selectedConversation.messages).map((message) => {
                           const isRight = isRightAligned(message);
                           const senderLabel = getSenderLabel(message);
                           const isBot = senderLabel.includes("Bot");
                           const isOwner = senderLabel.includes("You");
                           
+                          // Corner logic for grouping
+                          const bubbleCorners = cn(
+                            "rounded-2xl",
+                            isRight ? (
+                              message.isFirst ? "rounded-br-sm" :
+                              message.isMiddle ? "rounded-tr-sm rounded-br-sm" :
+                              message.isLast ? "rounded-tr-sm" :
+                              ""
+                            ) : (
+                              message.isFirst ? "rounded-bl-sm" :
+                              message.isMiddle ? "rounded-tl-sm rounded-bl-sm" :
+                              message.isLast ? "rounded-tl-sm" :
+                              ""
+                            )
+                          );
+
                           return (
                           <div
                             key={message.id}
-                            className={cn("flex flex-col group", isRight ? "items-end" : "items-start")}
+                            className={cn("flex flex-col group", isRight ? "items-end" : "items-start", message.isMiddle || message.isLast ? "mt-0.5" : "mt-4")}
                           >
-                            <div className={cn("flex items-center gap-2 mb-1 px-1 opacity-60 group-hover:opacity-100 transition-opacity", isRight ? "flex-row-reverse" : "")}>
-                              <span className={cn("text-[10px] font-bold tracking-wider uppercase", isRight ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-500")}>
-                                {isBot ? '🤖 AI Assistant' : isOwner ? '👨‍💼 You' : selectedConversation.customer_name}
-                              </span>
-                              <span className="text-[9px] text-zinc-400 dark:text-zinc-600">
-                                {formatMessageTime(message.created_at)}
-                              </span>
-                              {showMessengerBadge(message) && (
-                                <span className="text-[9px] bg-[#0084FF]/10 text-[#0084FF] px-1.5 py-[1px] rounded flex items-center gap-1 font-bold">
-                                  Messenger
+                            {(message.isFirst || message.isSingle) && (
+                              <div className={cn("flex items-center gap-2 mb-1 px-1 opacity-60 group-hover:opacity-100 transition-opacity", isRight ? "flex-row-reverse" : "")}>
+                                <span className={cn("text-[10px] font-bold tracking-wider uppercase", isRight ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-500")}>
+                                  {isBot ? '🤖 AI Assistant' : isOwner ? '👨‍💼 You' : selectedConversation.customer_name}
                                 </span>
-                              )}
-                            </div>
+                                <span className="text-[9px] text-zinc-400 dark:text-zinc-600">
+                                  {formatMessageTime(message.created_at)}
+                                </span>
+                                {showMessengerBadge(message) && (
+                                  <span className="text-[9px] bg-[#0084FF]/10 text-[#0084FF] px-1.5 py-[1px] rounded flex items-center gap-1 font-bold">
+                                    Messenger
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             
                             <div
                               className={cn(
-                                "max-w-[75%] rounded-2xl px-5 py-3 shadow-sm text-sm relative transition-all duration-200",
-                                // Style Logic Refined for Both Modes:
+                                "max-w-[75%] px-4 py-2.5 shadow-sm text-sm relative transition-all duration-200",
+                                bubbleCorners,
+                                // Style Logic Refined for Messenger Look:
                                 isBot ? 
-                                  // Bot:
-                                  "bg-white dark:bg-white text-zinc-900 dark:text-black rounded-tl-sm border border-zinc-200 dark:border-transparent shadow-[0_2px_8px_rgba(0,0,0,0.05)] dark:shadow-[0_0_15px_rgba(255,255,255,0.1)]" : 
+                                  "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-white/10 shadow-sm" : 
                                 isOwner ? 
-                                  // Owner (You):
-                                  "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-100 border border-emerald-100 dark:border-emerald-500/20 rounded-tr-sm" :
-                                  // Customer (User):
-                                  "bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-white/5 rounded-tl-sm backdrop-blur-md"
+                                  "bg-[#0084FF] text-white border-none shadow-md" :
+                                  "bg-zinc-200/80 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-none backdrop-blur-md"
                               )}
                             >
-                               {/* Render image from image_url column */}
-                               {(message as any).image_url && (
+                               {/* Render image from image_url column (if not already in attachments) */}
+                               {(message as any).image_url && (!message.attachments || !Array.isArray(message.attachments) || !message.attachments.some((a: any) => a.payload?.url === (message as any).image_url)) && (
                                  <div className="mb-2 overflow-hidden rounded-lg">
                                    <a 
                                       href={(message as any).image_url} 
@@ -1087,10 +1300,42 @@ export default function ConversationsPage() {
                                    }
                                  </div>
                                )}
+
+                               {/* Render generic templates (Carousels/Cards) */}
+                               {message.attachments && Array.isArray(message.attachments) && message.attachments.some((att: any) => att.type === 'template' && att.payload?.template_type === 'generic') && (
+                                 <div className="flex gap-3 overflow-x-auto pb-4 -mx-2 px-2 scrollbar-hide snap-x w-full max-w-[300px] sm:max-w-md">
+                                   {message.attachments
+                                     .filter((att: any) => att.type === 'template' && att.payload?.template_type === 'generic')
+                                     .flatMap((att: any) => att.payload.elements || [])
+                                     .map((el: any, idx: number) => (
+                                       <div key={idx} className="min-w-[180px] max-w-[180px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden snap-start shadow-sm flex flex-col">
+                                         {el.image_url && (
+                                           <div className="relative h-28 w-full bg-zinc-100 dark:bg-white/5">
+                                             <img src={el.image_url} alt={el.title} className="w-full h-full object-cover" />
+                                           </div>
+                                         )}
+                                         <div className="p-3 flex-1 flex flex-col">
+                                           <h4 className="font-bold text-xs line-clamp-1 mb-1">{el.title}</h4>
+                                           {el.subtitle && <p className="text-[10px] text-zinc-500 line-clamp-2 leading-tight">{el.subtitle}</p>}
+                                           {el.buttons && Array.isArray(el.buttons) && el.buttons.length > 0 && (
+                                             <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-white/5 space-y-1">
+                                               {el.buttons.map((btn: any, bIdx: number) => (
+                                                 <div key={bIdx} className="text-[9px] font-bold text-center py-1 rounded bg-zinc-50 dark:bg-white/5 text-zinc-600 dark:text-zinc-400">
+                                                   {btn.title}
+                                                 </div>
+                                               ))}
+                                             </div>
+                                           )}
+                                         </div>
+                                       </div>
+                                     ))
+                                   }
+                                 </div>
+                               )}
                               
                               {/* Render text message */}
                               {message.message_text && (
-                                <p className={cn("leading-relaxed whitespace-pre-line", isBot ? "font-medium" : "font-normal")}>
+                                <p className={cn("leading-relaxed whitespace-pre-line text-[15px]", isBot ? "font-normal" : "font-normal")}>
                                   {message.message_text}
                                 </p>
                               )}
@@ -1124,6 +1369,20 @@ export default function ConversationsPage() {
                       <div ref={messagesEndRef} />
                     </div>
                   </div>
+                )}
+
+                {/* Scroll to Bottom Button */}
+                {showScrollButton && (
+                  <Button
+                    size="icon"
+                    className="fixed bottom-32 right-8 z-30 rounded-full bg-zinc-900 dark:bg-white text-white dark:text-black shadow-xl animate-bounce"
+                    onClick={() => {
+                      scrollToBottom()
+                      setShowScrollButton(false)
+                    }}
+                  >
+                    <ChevronDown className="h-5 w-5" />
+                  </Button>
                 )}
               </div>
 

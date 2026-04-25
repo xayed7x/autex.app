@@ -90,16 +90,14 @@ export async function POST(
       console.warn('⚠️ Message sent to Facebook but failed to save to database')
     }
 
-    // Update conversation's control_mode and timestamps
-    const currentMode = conversation.control_mode || 'bot'
-    const newMode = currentMode === 'manual' ? 'manual' : 'hybrid'
+    // Update conversation's last_message_at and manual reply timestamps
+    // We NO LONGER force hybrid mode here as per user request: "the bot will always be enabled"
     const now = new Date().toISOString()
     
     const { error: updateError } = await supabase
       .from('conversations')
       .update({ 
         last_message_at: now,
-        control_mode: newMode,
         last_manual_reply_at: now,
         // Clear manual flag when owner responds
         needs_manual_response: false,
@@ -111,7 +109,7 @@ export async function POST(
     if (updateError) {
       console.error('Error updating conversation:', updateError)
     } else {
-      console.log(`🎛️ [MANUAL MESSAGE] Updated control_mode to: ${newMode}, cleared manual flag`)
+      console.log(`🎛️ [MANUAL MESSAGE] Updated timestamps, maintained mode: ${conversation.control_mode || 'bot'}`)
     }
 
     return NextResponse.json({
@@ -122,7 +120,7 @@ export async function POST(
         message_text: text.trim(),
         created_at: new Date().toISOString(),
       },
-      control_mode: newMode,
+      control_mode: conversation.control_mode || 'bot',
     })
   } catch (error) {
     console.error('Manual message API error:', error)

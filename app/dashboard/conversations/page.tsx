@@ -205,6 +205,12 @@ export default function ConversationsPage() {
   // Needs Reply filter state
   const [needsReplyFilter, setNeedsReplyFilter] = useState(false)
   const { needsReplyCount, workspaceId } = useWorkspace()
+  const selectedIdRef = useRef<string | null>(null)
+
+  // Keep ref in sync with selected conversation for Real-time callbacks
+  useEffect(() => {
+    selectedIdRef.current = selectedConversation?.id || null
+  }, [selectedConversation?.id])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -348,7 +354,7 @@ export default function ConversationsPage() {
         }).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()))
 
         // If this message belongs to the selected conversation, append it
-        if (selectedConversation && newMessage.conversation_id === selectedConversation.id) {
+        if (selectedIdRef.current && newMessage.conversation_id === selectedIdRef.current) {
           setSelectedConversation(prev => {
             if (!prev) return prev
             // Avoid duplicates (e.g. from optimistic UI)

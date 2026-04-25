@@ -19,6 +19,9 @@ export function MobileNav() {
   const pathname = usePathname()
   const { needsReplyCount, pendingOrdersCount } = useWorkspace()
 
+  // Hide bottom navbar on conversation page to maximize space
+  if (pathname === '/dashboard/conversations') return null
+
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border">
       <div className="flex items-center justify-around py-2">

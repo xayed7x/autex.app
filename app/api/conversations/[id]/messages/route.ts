@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendMessage } from '@/lib/facebook/messenger'
+import { sendMessage, sendImage } from '@/lib/facebook/messenger'
 
 export async function POST(
   request: Request,
@@ -29,10 +29,10 @@ export async function POST(
 
     // Parse request body
     const body = await request.json()
-    const { text } = body
-
-    if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      return NextResponse.json({ error: 'Message text is required' }, { status: 400 })
+    const { text, attachment_url, attachment_type } = body
+ 
+    if ((!text || text.trim().length === 0) && !attachment_url) {
+      return NextResponse.json({ error: 'Message text or attachment is required' }, { status: 400 })
     }
 
     // Get conversation details
@@ -53,13 +53,33 @@ export async function POST(
 
     // Send message via Facebook Messenger
     try {
-      const fbResponse = await sendMessage(
-        conversation.fb_page_id.toString(),
-        conversation.customer_psid,
-        text.trim()
-      )
-
-      console.log('✅ Manual message sent via Facebook:', fbResponse.message_id)
+      if (attachment_url) {
+        // Send media attachment
+        await sendImage(
+          conversation.fb_page_id.toString(),
+          conversation.customer_psid,
+          attachment_url,
+          attachment_type === 'video' ? 'video' : 'image'
+        )
+        
+        // If there's also text, send it as a separate message
+        if (text && text.trim().length > 0) {
+          await sendMessage(
+            conversation.fb_page_id.toString(),
+            conversation.customer_psid,
+            text.trim()
+          )
+        }
+      } else {
+        // Send plain text message
+        await sendMessage(
+          conversation.fb_page_id.toString(),
+          conversation.customer_psid,
+          text.trim()
+        )
+      }
+ 
+      console.log('✅ Manual message(s) sent via Facebook')
     } catch (fbError: any) {
       console.error('❌ Facebook API error:', fbError)
       return NextResponse.json(
@@ -67,17 +87,21 @@ export async function POST(
         { status: 500 }
       )
     }
-
-    // Save message to database with sender='human' and sender_type='owner'
+ 
+    // Save message to database
     const { data: savedMessage, error: saveError } = await supabase
       .from('messages')
       .insert({
         conversation_id: conversation.id,
         sender: 'human',
         sender_type: 'owner',
-        message_text: text.trim(),
-        message_type: 'text',
-        attachments: null,
+        message_text: text?.trim() || null,
+        message_type: attachment_type || 'text',
+        image_url: attachment_type === 'image' ? attachment_url : null,
+        attachments: attachment_url ? [{ 
+          type: attachment_type || 'image', 
+          payload: { url: attachment_url } 
+        }] : null,
       })
       .select()
       .single()
@@ -117,7 +141,8 @@ export async function POST(
       message: savedMessage || {
         conversation_id: conversation.id,
         sender: 'human',
-        message_text: text.trim(),
+        message_text: text?.trim() || null,
+        message_type: attachment_type || 'text',
         created_at: new Date().toISOString(),
       },
       control_mode: conversation.control_mode || 'bot',

@@ -60,10 +60,6 @@ export async function sendMessage(
     let accessToken: string;
     try {
       accessToken = decryptToken(encryptedToken);
-      console.log('Access token decrypted successfully:', {
-        tokenPrefix: accessToken.substring(0, 15) + '...',
-        tokenLength: accessToken.length,
-      });
     } catch (decryptError) {
       console.error('Failed to decrypt access token:', decryptError);
       throw new Error('Failed to decrypt access token - token may be corrupted');
@@ -134,6 +130,41 @@ export async function sendMessage(
     return result;
   } catch (error) {
     console.error('Error sending message:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sends an image or video attachment to a Facebook user via Messenger
+ * Fetches and decrypts the page access token internally.
+ */
+export async function sendImage(
+  pageId: string,
+  recipientPsid: string,
+  mediaUrl: string,
+  type: 'image' | 'video' = 'image'
+): Promise<void> {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+    
+    const { data: fbPage, error: pageError } = await supabase
+      .from('facebook_pages')
+      .select('encrypted_access_token')
+      .eq('id', pageId)
+      .single();
+
+    if (pageError || !fbPage) {
+      throw new Error(`Failed to fetch Facebook page: ${pageError?.message || 'Page not found'}`);
+    }
+
+    const accessToken = decryptToken(fbPage.encrypted_access_token);
+    await sendImageWithToken(pageId, recipientPsid, mediaUrl, accessToken, type);
+  } catch (error) {
+    console.error('Error in sendImage helper:', error);
     throw error;
   }
 }
@@ -421,11 +452,12 @@ export async function replyToComment(
  * @returns Promise that resolves when the message is sent
  * @throws Error if sending fails
  */
-export async function sendImage(
+export async function sendImageWithToken(
   pageId: string,
   psid: string,
   mediaUrl: string,
-  accessToken: string
+  accessToken: string,
+  type: 'image' | 'video' = 'image'
 ): Promise<void> {
   try {
     // STRICT VALIDATION

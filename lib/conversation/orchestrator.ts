@@ -27,6 +27,7 @@ export interface ProcessMessageInput {
   customerPsid: string;
   messageText?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   mid?: string | null;
   replyToMid?: string | null;
   workspaceId: string;
@@ -59,6 +60,41 @@ export interface ProcessMessageResult {
   orderCreated?: boolean;
   orderNumber?: string;
   productCard?: ProductCard;
+}
+
+// ========================================
+// REPETITION SAFETY HELPERS
+// ========================================
+
+/**
+ * Normalizes text for comparison by removing honorifics, spaces, and punctuation.
+ */
+function normalizeForComparison(text: string): string {
+  return text
+    .replace(/[স্যার|sir|madam|ম্যাম|।|?|!|,|.|:]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Checks if a response is a repetition of any recent bot messages.
+ */
+function isResponseRepetitive(finalResponse: string, allMessages: any[]): boolean {
+  if (!finalResponse) return false;
+
+  const normalizedCurrent = normalizeForComparison(finalResponse);
+  const recentBotMsgs = (allMessages || [])
+    .filter((m: any) => m.sender_type === 'bot' && m.message_text)
+    .slice(-3);
+  
+  return recentBotMsgs.some(m => {
+    const normalizedPrev = normalizeForComparison(m.message_text || '');
+    // Check for exact normalized match or substring containment
+    return normalizedPrev === normalizedCurrent || 
+           (normalizedCurrent.length > 20 && normalizedPrev.includes(normalizedCurrent)) ||
+           (normalizedPrev.length > 20 && normalizedCurrent.includes(normalizedPrev));
+  });
 }
 
 // ============================================
@@ -277,10 +313,17 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // STEP 2: HANDLE IMAGES (UNTOUCHED RECOGNITION API)
     // ========================================
     let imageContext: PendingImage | null = null;
-    if (input.imageUrl && (input.botEnabled !== false || input.isTestMode)) {
+    
+    // Support debounced multi-images by picking the first one if imageUrl is missing
+    let activeImageUrl = input.imageUrl;
+    if (!activeImageUrl && input.imageUrls && input.imageUrls.length > 0) {
+      activeImageUrl = input.imageUrls[0];
+    }
+
+    if (activeImageUrl && (input.botEnabled !== false || input.isTestMode)) {
       console.log('🖼️ Running Image Recognition...');
       const formData = new FormData();
-      formData.append('imageUrl', input.imageUrl);
+      formData.append('imageUrl', activeImageUrl);
       formData.append('workspaceId', input.workspaceId);
       
       const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/image-recognition`, {
@@ -306,8 +349,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         // === 🚀 STATE-AWARE SHORT-CIRCUIT: AUTOMATED RESPONSE FOR UNKNOWN IMAGES ===
         const waitMessage = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
         
-        // Only send if NOT already in history (last 5 messages)
-        const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-5);
+        // Only send if NOT already in history (last 10 messages)
+        const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-10);
         const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
 
         if (!alreadySent) {
@@ -407,14 +450,6 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // STEP 5: CALL NEW SINGLE AGENT
     // ========================================
     let messageWithStatus = input.messageText || '';
-    if (currentContext.metadata?.activeCustomDesign) {
-      messageWithStatus = `[SYSTEM: CUSTOM DESIGN INQUIRY ACTIVE. Customer previously sent an image: ${currentContext.metadata.activeInspirationUrl || 'unknown'}. 
-      STRICT RULE: You are currently in SCENARIO 2 (Custom Design). 
-      1. Scenario 1 (Discovery/Gallery Search) is FORBIDDEN.
-      2. Do NOT search for products. Do NOT show generic prices.
-      3. Your ONLY task is to collect Address, Phone, Flavor, and Date while the human agent calculates the price.
-      4. Always start with the Scenario 2 acknowledgement message.]\n${messageWithStatus}`;
-    }
 
     const agentInput: AgentInput = {
       workspaceId: input.workspaceId,
@@ -658,23 +693,31 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         // ========================================
         // Send response via Facebook API
         if (finalResponse) {
-          if (!input.isTestMode) {
-            await sendMessage(input.pageId, input.customerPsid, finalResponse);
-          } else {
-            console.log('🧪 Test mode: Skipping Facebook API call');
+          // Universal Repetition Check
+          if (isResponseRepetitive(finalResponse, allMessages)) {
+            console.log(`🚫 [UNIVERSAL REPETITION SAFETY NET] Silencing repetitive response (after cards): "${finalResponse.substring(0, 30)}..."`);
+            finalResponse = "";
           }
-          
-          // Log bot message to history
-          await supabase.from('messages').insert({
-            conversation_id: input.conversationId,
-            sender: 'bot',
-            sender_type: 'bot',
-            message_text: finalResponse,
-            message_type: 'text',
-          });
-          
-          // Clear finalResponse so we don't send it again below
-          finalResponse = '';
+
+          if (finalResponse) {
+            if (!input.isTestMode) {
+              await sendMessage(input.pageId, input.customerPsid, finalResponse);
+            } else {
+              console.log('🧪 Test mode: Skipping Facebook API call');
+            }
+            
+            // Log bot message to history
+            await supabase.from('messages').insert({
+              conversation_id: input.conversationId,
+              sender: 'bot',
+              sender_type: 'bot',
+              message_text: finalResponse,
+              message_type: 'text',
+            });
+            
+            // Clear finalResponse so we don't send it again below
+            finalResponse = '';
+          }
         }
 
         // Track which product(s) were shown so subsequent tools can resolve identity
@@ -779,8 +822,18 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
 
     if (settings.businessCategory === 'food' && isLocationStatement && !isPriceInquiry && !isDirectQuestion && !input.metadata?.inspirationImage) {
       console.log("🛡️ [SAFETY NET] Strict pattern match for location statement. Forcing thank-you response.");
-      finalResponse = "ধন্যবাদ স্যার আপনার ঠিকানার জন্য 💝 আমরা আপনার অর্ডারটি প্রসেসে নিচ্ছি।";
+      finalResponse = "ধন্যবাদ আপনার ঠিকানার জন্য 💝 আমরা আপনার অর্ডারটি প্রসেসে নিচ্ছি।";
       agentResult.toolCalls = []; 
+    }
+
+    // ========================================
+    // STEP 6.95: UNIVERSAL REPETITION SAFETY NET
+    // ========================================
+    // Final barrier: If the response we are about to send is identical to ANY
+    // of the last 3 bot messages, silence it entirely.
+    if (finalResponse && isResponseRepetitive(finalResponse, allMessages)) {
+      console.log(`🚫 [UNIVERSAL REPETITION SAFETY NET] Silencing repetitive response: "${finalResponse.substring(0, 30)}..."`);
+      finalResponse = "";
     }
 
     // ========================================

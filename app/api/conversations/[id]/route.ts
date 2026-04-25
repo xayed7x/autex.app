@@ -62,24 +62,7 @@ export async function GET(
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       )
       
-      // Deduplicate consecutive messages with same content and sender
-      const deduplicatedMessages = []
-      let lastMessage = null
-      
-      for (const message of conversation.messages) {
-        // Check if this is a duplicate of the last message
-        const isDuplicate = lastMessage && 
-          lastMessage.sender === message.sender &&
-          lastMessage.message_text === message.message_text &&
-          Math.abs(new Date(lastMessage.created_at).getTime() - new Date(message.created_at).getTime()) < 5000 // Within 5 seconds
-        
-        if (!isDuplicate) {
-          deduplicatedMessages.push(message)
-          lastMessage = message
-        }
-      }
-      
-      conversation.messages = deduplicatedMessages
+      conversation.messages = conversation.messages
     }
 
     // NOTE: Manual flags are now cleared only when an actual reply is sent 

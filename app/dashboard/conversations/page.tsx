@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
-import { Search, Send, ArrowLeft, ExternalLink, Trash2, AlertTriangle, RefreshCw, ChevronDown, Bot, User } from "lucide-react"
+import { Search, Send, ArrowLeft, ExternalLink, Trash2, AlertTriangle, RefreshCw, ChevronDown, Bot, User, Mic, Image as ImageIcon, Plus, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { PremiumLoader } from "@/components/ui/premium/premium-loader"
@@ -45,6 +45,16 @@ interface Message {
   created_at: string
   attachments?: any
   image_url?: string | null
+  conversation_id?: string
+  status?: 'sending' | 'sent' | 'error'
+}
+
+interface PendingAttachment {
+  id: string
+  url?: string
+  type: 'image' | 'video'
+  file: File
+  status: 'uploading' | 'ready' | 'error'
 }
 
 interface Conversation {
@@ -200,6 +210,9 @@ export default function ConversationsPage() {
   const [thumbTop, setThumbTop] = useState(0)
   const [thumbHeight, setThumbHeight] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
+  const [uploadingMedia, setUploadingMedia] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // Needs Reply filter state
@@ -296,11 +309,46 @@ export default function ConversationsPage() {
     fetchPageBotStatus()
   }, [statusFilter, searchQuery, needsReplyFilter])
 
+  const isAtBottomRef = useRef(isAtBottom)
+  const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+  
+  useEffect(() => {
+    isAtBottomRef.current = isAtBottom
+  }, [isAtBottom])
+
+  // Polling Fallback (every 5 seconds)
+  useEffect(() => {
+    if (!selectedConversation?.id) return
+    
+    const interval = setInterval(() => {
+      // Background sync now runs SILENTLY every 5 seconds, just like Messenger.
+      // This ensures messages appear automatically without any distracting loading screens.
+      if (selectedIdRef.current) {
+        fetchConversationDetail(selectedIdRef.current, true)
+      }
+    }, 5000)
+    
+    // Also refresh on window focus (standard Messenger behavior)
+    const handleFocus = () => {
+      if (selectedIdRef.current) {
+        fetchConversationDetail(selectedIdRef.current, true)
+      }
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [selectedConversation?.id, realtimeStatus])
+
   // Real-time Subscriptions
   useEffect(() => {
     if (!workspaceId) return
     
     const supabase = createClient()
+    setRealtimeStatus('connecting')
     
     // 1. Subscribe to conversation updates (for list sorting and status)
     const convChannel = supabase
@@ -337,54 +385,53 @@ export default function ConversationsPage() {
         event: 'INSERT',
         schema: 'public',
         table: 'messages'
-      }, async (payload) => {
+      }, (payload) => {
         const newMessage = payload.new as Message
         
         // Update conversation list item's last message
-        setConversations(prev => prev.map(conv => {
-          if (conv.id === newMessage.conversation_id) {
-            return {
-              ...conv,
-              last_message: newMessage,
-              last_message_at: newMessage.created_at,
-              message_count: (conv.message_count || 0) + 1
-            }
+        setConversations(prev => {
+          const exists = prev.find(c => c.id === newMessage.conversation_id)
+          if (!exists) {
+            // If it's a new conversation not in our list, we should probably fetch the list again
+            // but for now let's just ignore or wait for the convChannel
+            return prev
           }
-          return conv
-        }).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()))
-
-        // If this message belongs to the selected conversation, append it
-        if (selectedIdRef.current && newMessage.conversation_id === selectedIdRef.current) {
-          setSelectedConversation(prev => {
-            if (!prev) return prev
-            // Avoid duplicates (e.g. from optimistic UI)
-            if (prev.messages?.some(m => m.id === newMessage.id || m.id === `temp-${newMessage.created_at}`)) {
-              return prev
-            }
-            return {
-              ...prev,
-              messages: [...(prev.messages || []), newMessage]
-            }
-          })
           
-          // Auto-scroll if we are at bottom
-          if (isAtBottom) {
-            setTimeout(scrollToBottom, 50)
-          } else if (newMessage.sender_type === 'owner' || newMessage.sender === 'human') {
-            // Always scroll if WE sent the message
-            setTimeout(scrollToBottom, 50)
-          } else {
-            setShowScrollButton(true)
-          }
+          return prev.map(conv => {
+            if (conv.id === newMessage.conversation_id) {
+              return {
+                ...conv,
+                last_message: newMessage,
+                last_message_at: newMessage.created_at,
+                message_count: (conv.message_count || 0) + 1
+              }
+            }
+            return conv
+          }).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime())
+        })
+
+        // If this message belongs to the selected conversation, refresh it
+        if (selectedIdRef.current && newMessage.conversation_id === selectedIdRef.current) {
+          // Instead of manually appending, let's fetch the detail silently to ensure
+          // we get all server-side updates (state, metadata, etc.)
+          fetchConversationDetail(selectedIdRef.current, true)
         }
       })
-      .subscribe()
+      .on('system', { event: '*' }, (payload) => {
+        console.log('Realtime System Event:', payload)
+      })
+      .subscribe((status) => {
+        console.log(`Realtime Subscription Status: ${status}`)
+        if (status === 'SUBSCRIBED') setRealtimeStatus('connected')
+        if (status === 'CLOSED' || status === 'CHANNEL_ERROR') setRealtimeStatus('disconnected')
+      })
 
     return () => {
       supabase.removeChannel(convChannel)
       supabase.removeChannel(msgChannel)
+      setRealtimeStatus('disconnected')
     }
-  }, [workspaceId, selectedConversation?.id, isAtBottom])
+  }, [workspaceId])
 
   // Automatically scroll to bottom when switching conversations or new messages arrive
   useEffect(() => {
@@ -640,103 +687,178 @@ export default function ConversationsPage() {
     return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
   }
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSendMessage = async (e?: React.FormEvent, attachmentUrl?: string, attachmentType?: string) => {
+    if (e) e.preventDefault()
     
-    if (!newMessage.trim() || !selectedConversation || sendingMessage) {
+    const messageText = newMessage.trim()
+    const hasPending = pendingAttachments.length > 0
+    const hasText = messageText.length > 0
+
+    if (!hasText && !attachmentUrl && !hasPending || !selectedConversation || sendingMessage) {
       return
     }
 
-    const messageText = newMessage.trim()
-    const tempId = `temp-${Date.now()}`
-    
-    // Optimistic UI update
-    const optimisticMessage: Message = {
-      id: tempId,
-      sender: 'human',
-      message_text: messageText,
-      message_type: 'text',
-      created_at: new Date().toISOString(),
-    }
-
-    setSelectedConversation(prev => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        messages: [...(prev.messages || []), optimisticMessage]
-      }
-    })
-
-    setNewMessage('')
     setSendingMessage(true)
-
+    
+    // Helper to send a single message (with optional attachment)
+    const sendSingleMessage = async (text: string | null, url?: string, type?: string) => {
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+    
+      // Optimistic UI update
+      const optimisticMessage: Message = {
+        id: tempId,
+        sender: 'human',
+        message_text: text || '',
+        message_type: type === 'video' ? 'video' : type === 'image' ? 'image' : 'text',
+        created_at: new Date().toISOString(),
+        image_url: type === 'image' ? url : null,
+        attachments: url ? [{ 
+          type: type || 'image', 
+          payload: { url: url } 
+        }] : null
+      }
+ 
+      setSelectedConversation(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          messages: [...(prev.messages || []), optimisticMessage]
+        }
+      })
+ 
+    if (!attachmentUrl) setNewMessage('')
+    setSendingMessage(true)
+ 
     try {
       const response = await fetch(`/api/conversations/${selectedConversation.id}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: messageText }),
+        body: JSON.stringify({ 
+          text: messageText,
+          attachment_url: attachmentUrl,
+          attachment_type: attachmentType
+        }),
       })
-
+ 
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to send message')
       }
-
-      const data = await response.json()
-      
-      // Check if this was a flagged conversation - show special toast
-      const wasFlagged = selectedConversation.needs_manual_response
-      
-      // Replace optimistic message with real message from server
-      setSelectedConversation(prev => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          messages: (prev.messages || []).map(msg => 
-            msg.id === tempId ? data.message : msg
-          ),
-          // Clear the manual flag after owner replied
-          needs_manual_response: false,
-          manual_flag_reason: null,
-          // Update control mode - now preserving current mode as per user request
-          control_mode: data.control_mode || prev.control_mode,
-        }
-      })
-
-      // Show appropriate toast message
-      if (wasFlagged) {
-        toast.success('✅ Message sent! Bot remains active')
-        // Re-fetch conversations to update the local badge count
-        fetchConversations()
-        // Dispatch event to notify TopBar to refresh its badge
-        window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
-        // Turn off the needs reply filter so conversation stays visible
-        if (needsReplyFilter) {
-          setNeedsReplyFilter(false)
-        }
-      } else {
-        toast.success('Message sent successfully')
+ 
+        const data = await response.json()
+        
+        // Update optimistic message with real message
+        setSelectedConversation(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            messages: (prev.messages || []).map(msg => 
+              msg.id === tempId ? data.message : msg
+            ),
+            needs_manual_response: false,
+            manual_flag_reason: null,
+            control_mode: data.control_mode || prev.control_mode,
+          }
+        })
+      } catch (error: any) {
+        console.error('Error sending message:', error)
+        // Remove optimistic message on error
+        setSelectedConversation(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            messages: (prev.messages || []).filter(msg => msg.id !== tempId)
+          }
+        })
+        toast.error(error.message || 'Failed to send message')
       }
-    } catch (error: any) {
-      console.error('Error sending message:', error)
-      
-      // Remove optimistic message on error
-      setSelectedConversation(prev => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          messages: (prev.messages || []).filter(msg => msg.id !== tempId)
+    }
+
+    try {
+      if (attachmentUrl) {
+        await sendSingleMessage(messageText, attachmentUrl, attachmentType)
+      } else if (hasPending) {
+        const readyAttachments = pendingAttachments.filter(a => a.status === 'ready')
+        
+        if (readyAttachments.length === 0 && !hasText) {
+          toast.error("Attachments are still uploading...")
+          setSendingMessage(false)
+          return
         }
-      })
-      
-      // Restore message text so user can retry
-      setNewMessage(messageText)
-      toast.error(error.message || 'Failed to send message')
+
+        for (let i = 0; i < readyAttachments.length; i++) {
+          const att = readyAttachments[i]
+          await sendSingleMessage(i === 0 ? messageText : null, att.url, att.type)
+        }
+        
+        if (readyAttachments.length === 0 && hasText) {
+          await sendSingleMessage(messageText)
+        }
+        
+        setPendingAttachments([])
+      } else {
+        await sendSingleMessage(messageText)
+      }
+
+      setNewMessage('')
     } finally {
       setSendingMessage(false)
     }
+  }
+ 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0 || !selectedConversation) return
+
+    const newFiles = Array.from(files)
+    
+    // Create pending attachments
+    const newAttachments: PendingAttachment[] = newFiles.map(file => ({
+      id: Math.random().toString(36).substring(7),
+      type: file.type.startsWith('video/') ? 'video' : 'image',
+      file,
+      status: 'uploading'
+    }))
+
+    setPendingAttachments(prev => [...prev, ...newAttachments])
+    
+    // Background upload each file
+    newAttachments.forEach(async (attachment) => {
+      try {
+        const formData = new FormData()
+        formData.append('file', attachment.file)
+        formData.append('folder', 'autex/chat-attachments')
+        formData.append('resource_type', attachment.type)
+
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (!response.ok) throw new Error('Upload failed')
+
+        const data = await response.json()
+        
+        setPendingAttachments(prev => prev.map(a => 
+          a.id === attachment.id ? { ...a, url: data.url, status: 'ready' } : a
+        ))
+      } catch (error) {
+        console.error('Upload failed for file:', attachment.file.name, error)
+        setPendingAttachments(prev => prev.map(a => 
+          a.id === attachment.id ? { ...a, status: 'error' } : a
+        ))
+        toast.error(`Failed to upload ${attachment.file.name}`)
+      }
+    })
+
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removePendingAttachment = (id: string) => {
+    setPendingAttachments(prev => prev.filter(a => a.id !== id))
   }
 
   const getSenderLabel = (message: Message) => {
@@ -1008,131 +1130,80 @@ export default function ConversationsPage() {
               <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03] dark:opacity-[0.02]" />
               <div className="absolute inset-0 bg-gradient-to-b from-white/40 to-white/0 dark:from-zinc-900/10 dark:to-black pointer-events-none" />
 
-              {/* Chat Header */}
-              <div className="p-2 sm:p-4 flex items-center gap-2 sm:gap-4 shrink-0 z-10 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-white/5 shadow-sm transition-all duration-300">
-                <Button variant="ghost" size="icon" className="lg:hidden text-zinc-500 dark:text-zinc-400 h-8 w-8" onClick={() => setMobileView("list")}>
-                  <ArrowLeft className="h-4 w-4" />
+              {/* Chat Header - Minimal Redesign */}
+              <div className="px-4 py-3 flex items-center gap-3 shrink-0 z-10 bg-white dark:bg-zinc-950 border-b border-zinc-100 dark:border-white/5 transition-all duration-300">
+                <Button variant="ghost" size="icon" className="lg:hidden text-zinc-500 dark:text-zinc-400 h-8 w-8 -ml-2" onClick={() => setMobileView("list")}>
+                  <ArrowLeft className="h-5 w-5" />
                 </Button>
                 
                 <div className="relative">
-                  <Avatar className="h-8 w-8 border border-zinc-200 dark:border-white/10 shadow-inner">
+                  <Avatar className="h-10 w-10 border border-zinc-100 dark:border-white/5 shadow-sm">
                     <AvatarImage 
                       src={selectedConversation.customer_profile_pic_url || undefined} 
                       alt={selectedConversation.customer_name} 
                     />
-                    <AvatarFallback className="bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-bold">
+                    <AvatarFallback className="bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-bold text-xs">
                       {(selectedConversation.customer_name || 'U').substring(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className={cn(
-                      "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-[#121212]",
+                      "absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-zinc-950",
                       statusIndicator[selectedConversation.current_state] || "bg-zinc-500"
                   )} />
                 </div>
-
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <h3 className="font-bold text-base text-zinc-900 dark:text-white tracking-tight truncate max-w-[150px]">
+ 
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-base text-zinc-900 dark:text-white tracking-tight truncate">
                     {selectedConversation.customer_name || "Unknown"}
                   </h3>
-                  
-                  {/* Bot Mode Selector - Compact Version */}
-                  <Select
-                    value={selectedConversation.control_mode || 'bot'}
-                    onValueChange={async (mode) => {
-                      try {
-                        const res = await fetch(`/api/conversations/${selectedConversation.id}/control-mode`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ control_mode: mode }),
-                        });
-                        if (res.ok) {
-                          const data = await res.json();
-                          setSelectedConversation(prev => {
-                            if (!prev) return prev
-                            const isClearingFlag = mode === 'bot' || mode === 'hybrid'
-                            return {
-                              ...prev,
-                              control_mode: mode,
-                              last_manual_reply_at: mode === 'bot' ? null : prev.last_manual_reply_at,
-                              needs_manual_response: isClearingFlag ? false : prev.needs_manual_response,
-                              manual_flag_reason: isClearingFlag ? null : prev.manual_flag_reason,
-                            }
-                          })
-
-                          setConversations(prev => prev.map(conv => {
-                            if (conv.id === selectedConversation.id) {
-                              const isClearingFlag = mode === 'bot' || mode === 'hybrid'
-                              return {
-                                ...conv,
-                                control_mode: mode,
-                                needs_manual_response: isClearingFlag ? false : conv.needs_manual_response,
-                                manual_flag_reason: isClearingFlag ? null : conv.manual_flag_reason,
-                              }
-                            }
-                            return conv
-                          }))
-
-                          if (mode === 'bot' || mode === 'hybrid') {
-                            window.dispatchEvent(new CustomEvent('needsReplyCountChanged'))
-                          }
-                          toast.success(`Mode: ${mode.toUpperCase()}`);
-                        }
-                      } catch (e) { toast.error("Failed to update mode"); }
-                    }}
-                  >
-                    <SelectTrigger className="h-6 w-auto border-none bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 px-2 py-0 text-[10px] font-black uppercase tracking-tighter transition-all rounded-md focus:ring-0">
-                       <div className="flex items-center gap-1">
-                          {selectedConversation.control_mode === 'manual' ? <User className="h-2.5 w-2.5 text-orange-500" /> : <Bot className="h-2.5 w-2.5 text-green-500" />}
-                          <SelectValue placeholder="Mode" />
-                       </div>
-                    </SelectTrigger>
-                    <SelectContent className="bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10">
-                      <SelectItem value="bot"><div className="flex items-center gap-2 text-xs"><Bot className="h-3 w-3 text-green-500" /> AI Bot</div></SelectItem>
-                      <SelectItem value="manual"><div className="flex items-center gap-2 text-xs"><User className="h-3 w-3 text-orange-500" /> Manual</div></SelectItem>
-                      <SelectItem value="hybrid"><div className="flex items-center gap-2 text-xs"><RefreshCw className="h-3 w-3 text-blue-500" /> Hybrid</div></SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-1.5 -mt-0.5">
+                    <div className={cn("h-1.5 w-1.5 rounded-full", statusIndicator[selectedConversation.current_state] || "bg-zinc-500")} />
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
+                       {statusLabels[selectedConversation.current_state] || "Active"}
+                    </span>
+                  </div>
                 </div>
-                {getOrderIdFromContext(selectedConversation.context) && (
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20 dark:hover:bg-emerald-500/20"
-                    onClick={() => router.push(`/dashboard/orders`)}
-                  >
-                    <ExternalLink className="h-3 w-3 mr-2" />
-                    View Order
-                  </Button>
-                )}
-                <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors h-8 w-8"
-                    onClick={() => setDeleteDialogOpen(true)}
-                    title="Delete conversation"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will permanently delete the conversation with <strong>{selectedConversation.customer_name}</strong> and all its messages. This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-                      <AlertDialogAction 
-                        onClick={handleDeleteConversation}
-                        disabled={deleting}
-                        className="bg-red-600 hover:bg-red-700 text-white"
-                      >
-                        {deleting ? 'Deleting...' : 'Delete'}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+ 
+                <div className="flex items-center gap-1">
+                   {/* Bot Mode Selector - Even More Compact */}
+                    <Select
+                      value={selectedConversation.control_mode || 'bot'}
+                      onValueChange={async (mode) => {
+                        try {
+                          const res = await fetch(`/api/conversations/${selectedConversation.id}/control-mode`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ control_mode: mode }),
+                          });
+                          if (res.ok) {
+                            setSelectedConversation(prev => prev ? ({ ...prev, control_mode: mode }) : null);
+                            toast.success(`Mode: ${mode.toUpperCase()}`);
+                          }
+                        } catch (e) { toast.error("Failed to update mode"); }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-auto border-none bg-zinc-50 dark:bg-white/5 hover:bg-zinc-100 dark:hover:bg-white/10 px-3 text-[10px] font-black uppercase tracking-tight transition-all rounded-full focus:ring-0">
+                         <div className="flex items-center gap-2">
+                            {selectedConversation.control_mode === 'manual' ? <User className="h-3 w-3 text-orange-500" /> : <Bot className="h-3 w-3 text-green-500" />}
+                            <SelectValue placeholder="Mode" />
+                         </div>
+                      </SelectTrigger>
+                      <SelectContent className="bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10">
+                        <SelectItem value="bot"><div className="flex items-center gap-2 text-xs"><Bot className="h-3 w-3 text-green-500" /> AI Bot</div></SelectItem>
+                        <SelectItem value="manual"><div className="flex items-center gap-2 text-xs"><User className="h-3 w-3 text-orange-500" /> Manual</div></SelectItem>
+                        <SelectItem value="hybrid"><div className="flex items-center gap-2 text-xs"><RefreshCw className="h-3 w-3 text-blue-500" /> Hybrid</div></SelectItem>
+                      </SelectContent>
+                    </Select>
+ 
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors h-8 w-8 rounded-full"
+                      onClick={() => setDeleteDialogOpen(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                </div>
               </div>
 
               {/* Manual Flag Banner */}
@@ -1152,10 +1223,10 @@ export default function ConversationsPage() {
 
               {/* Control Panel */}
 
-              {/* Messages Container */}
+              {/* Messages Container - Removed Bottom Gradient for more space */}
               <div 
                 ref={scrollContainerRef}
-                className="flex-1 overflow-y-auto p-4 scrollbar-hide relative"
+                className="flex-1 overflow-y-auto p-4 scrollbar-hide relative bg-white dark:bg-[#050505]"
                 style={{ scrollBehavior: isDragging ? 'auto' : 'smooth' }}
               >
                 {/* Custom Scrollbar Rail & Thumb */}
@@ -1175,16 +1246,16 @@ export default function ConversationsPage() {
                 
                 {detailLoading ? (
                   <div className="flex flex-col items-center justify-center h-full w-full py-20">
-                     <div className="relative h-16 w-16">
-                        <div className="absolute inset-0 rounded-full border-4 border-zinc-100 dark:border-white/5" />
-                        <div className="absolute inset-0 rounded-full border-4 border-zinc-900 dark:border-white border-t-transparent animate-spin" />
+                     <div className="relative h-12 w-12">
+                        <div className="absolute inset-0 rounded-full border-2 border-zinc-100 dark:border-white/5" />
+                        <div className="absolute inset-0 rounded-full border-2 border-zinc-900 dark:border-white border-t-transparent animate-spin" />
                      </div>
-                     <p className="mt-4 text-xs font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest animate-pulse">
-                        Syncing Messages...
+                     <p className="mt-4 text-[10px] font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest animate-pulse">
+                        Syncing...
                      </p>
                   </div>
                 ) : (
-                  <div className="flex flex-col justify-end min-h-full pb-44 sm:pb-32">
+                  <div className="flex flex-col justify-end min-h-full pb-20">
                     <div className="space-y-1">
                       {selectedConversation.messages && selectedConversation.messages.length > 0 ? (
                         groupMessages(selectedConversation.messages).map((message) => {
@@ -1232,97 +1303,51 @@ export default function ConversationsPage() {
                             
                             <div
                               className={cn(
-                                "max-w-[75%] px-4 py-2.5 shadow-sm text-sm relative transition-all duration-200",
+                                "max-w-[85%] px-4 py-2 relative transition-all duration-200",
                                 bubbleCorners,
-                                // Style Logic Refined for Messenger Look:
-                                isBot ? 
-                                  "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-white/10 shadow-sm" : 
-                                isOwner ? 
-                                  "bg-[#0084FF] text-white border-none shadow-md" :
-                                  "bg-zinc-200/80 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-none backdrop-blur-md"
+                                isRight ? 
+                                  "bg-[#0084FF] text-white shadow-sm" :
+                                  "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
                               )}
                             >
-                               {/* Render image from image_url column (if not already in attachments) */}
-                               {(message as any).image_url && (!message.attachments || !Array.isArray(message.attachments) || !message.attachments.some((a: any) => a.payload?.url === (message as any).image_url)) && (
-                                 <div className="mb-2 overflow-hidden rounded-lg">
-                                   <a 
-                                      href={(message as any).image_url} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer"
-                                      className="block group/img"
-                                    >
-                                      <img 
-                                        src={(message as any).image_url} 
-                                        alt="Attachment"
-                                        className="max-w-full max-h-64 object-contain transition-transform duration-500 group-hover/img:scale-105"
-                                      />
-                                    </a>
+                               {/* Render image attachment */}
+                               {(message.message_type === 'image' || (message as any).image_url) && (
+                                 <div className="mb-1 -mx-4 -mt-2 overflow-hidden rounded-t-2xl">
+                                    <img 
+                                      src={(message as any).image_url || message.attachments?.[0]?.payload?.url} 
+                                      alt="Attachment"
+                                      className="max-w-full max-h-[400px] w-auto object-cover"
+                                    />
                                  </div>
                                )}
-
-                               {/* Render image attachments */}
-                               {message.attachments && Array.isArray(message.attachments) && message.attachments.length > 0 && (
-                                 <div className="space-y-2 mb-2">
-                                   {message.attachments
-                                     .filter((att: any) => att.type === 'image' && att.payload?.url)
-                                     .map((att: any, idx: number) => (
-                                       <a 
-                                         key={idx} 
-                                         href={att.payload.url} 
-                                         target="_blank" 
-                                         rel="noopener noreferrer"
-                                         className="block group/img overflow-hidden rounded-lg"
-                                       >
-                                         <img 
-                                           src={att.payload.url} 
-                                           alt={`Attachment ${idx + 1}`}
-                                           className="max-w-full max-h-64 object-contain transition-transform duration-500 group-hover/img:scale-105"
-                                           onError={(e) => {
-                                             (e.target as HTMLImageElement).style.display = 'none'
-                                           }}
-                                         />
-                                       </a>
-                                     ))
-                                   }
-                                   
-                                   {/* Render audio attachments */}
-                                   {message.attachments
-                                     .filter((att: any) => att.type === 'audio' && att.payload?.url)
-                                     .map((att: any, idx: number) => (
-                                       <div key={idx} className="bg-black/5 dark:bg-white/5 p-2 rounded-lg flex flex-col gap-1">
-                                         <span className="text-[10px] font-bold opacity-60">🎤 VOICE MESSAGE</span>
-                                         <audio src={att.payload.url} controls className="h-8 w-full max-w-[240px]" />
-                                       </div>
-                                     ))
-                                   }
+ 
+                               {/* Render video attachment */}
+                               {message.message_type === 'video' && message.attachments?.[0]?.payload?.url && (
+                                 <div className="mb-1 -mx-4 -mt-2 overflow-hidden rounded-t-2xl bg-black">
+                                    <video 
+                                      src={message.attachments[0].payload.url} 
+                                      controls 
+                                      className="max-w-full max-h-[400px] w-auto"
+                                    />
                                  </div>
                                )}
-
+ 
                                {/* Render generic templates (Carousels/Cards) */}
                                {message.attachments && Array.isArray(message.attachments) && message.attachments.some((att: any) => att.type === 'template' && att.payload?.template_type === 'generic') && (
-                                 <div className="flex gap-3 overflow-x-auto pb-4 -mx-2 px-2 scrollbar-hide snap-x w-full max-w-[300px] sm:max-w-md">
+                                 <div className="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide snap-x w-full">
                                    {message.attachments
                                      .filter((att: any) => att.type === 'template' && att.payload?.template_type === 'generic')
                                      .flatMap((att: any) => att.payload.elements || [])
                                      .map((el: any, idx: number) => (
-                                       <div key={idx} className="min-w-[180px] max-w-[180px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden snap-start shadow-sm flex flex-col">
+                                       <div key={idx} className="min-w-[200px] max-w-[200px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden snap-start shadow-sm flex flex-col">
                                          {el.image_url && (
-                                           <div className="relative h-28 w-full bg-zinc-100 dark:bg-white/5">
+                                           <div className="relative h-32 w-full">
                                              <img src={el.image_url} alt={el.title} className="w-full h-full object-cover" />
                                            </div>
                                          )}
-                                         <div className="p-3 flex-1 flex flex-col">
-                                           <h4 className="font-bold text-xs line-clamp-1 mb-1">{el.title}</h4>
-                                           {el.subtitle && <p className="text-[10px] text-zinc-500 line-clamp-2 leading-tight">{el.subtitle}</p>}
-                                           {el.buttons && Array.isArray(el.buttons) && el.buttons.length > 0 && (
-                                             <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-white/5 space-y-1">
-                                               {el.buttons.map((btn: any, bIdx: number) => (
-                                                 <div key={bIdx} className="text-[9px] font-bold text-center py-1 rounded bg-zinc-50 dark:bg-white/5 text-zinc-600 dark:text-zinc-400">
-                                                   {btn.title}
-                                                 </div>
-                                               ))}
-                                             </div>
-                                           )}
+                                         <div className="p-3">
+                                           <h4 className="font-bold text-xs line-clamp-1">{el.title}</h4>
+                                           <p className="text-[10px] text-zinc-500 line-clamp-2 mt-1">{el.subtitle}</p>
                                          </div>
                                        </div>
                                      ))
@@ -1332,20 +1357,21 @@ export default function ConversationsPage() {
                               
                               {/* Render text message */}
                               {message.message_text && (
-                                <p className={cn("leading-relaxed whitespace-pre-line text-[15px]", isBot ? "font-normal" : "font-normal")}>
+                                <p className="leading-snug whitespace-pre-line text-[15px] py-1">
                                   {message.message_text}
                                 </p>
                               )}
                               
                               {/* Status Indicators for Send */}
                               {message.id.startsWith('temp-') && (
-                                <span className="absolute bottom-1 right-2 w-2 h-2 rounded-full border-2 border-current border-t-transparent animate-spin opacity-50" />
+                                <span className="absolute bottom-1 right-2 w-2 h-2 rounded-full border-2 border-white/40 border-t-white animate-spin" />
                               )}
                             </div>
                           </div>
-                        )})
-                      ) : (
-                        <div className="flex flex-col items-center justify-center py-20 opacity-40">
+                        )
+                      })
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-20 opacity-40">
                           <div className="w-20 h-20 rounded-full bg-zinc-100 dark:bg-white/5 flex items-center justify-center mb-4">
                              <div className="w-3 h-3 bg-zinc-300 dark:bg-white rounded-full animate-bounce" />
                           </div>
@@ -1367,8 +1393,9 @@ export default function ConversationsPage() {
                     </div>
                   </div>
                 )}
+              </div>
 
-                {/* Scroll to Bottom Button */}
+              {/* Scroll to Bottom Button */}
                 {showScrollButton && (
                   <Button
                     size="icon"
@@ -1381,51 +1408,112 @@ export default function ConversationsPage() {
                     <ChevronDown className="h-5 w-5" />
                   </Button>
                 )}
-              </div>
 
-              {/* Chat Input - Floating Capsule (Fixed at bottom, above mobile nav) */}
-              <div className="p-4 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-black dark:via-black/80 dark:to-transparent absolute bottom-16 lg:bottom-0 left-0 right-0 z-20">
-                <div className="max-w-3xl mx-auto bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border border-zinc-200 dark:border-white/10 rounded-full p-2 shadow-2xl shadow-zinc-200/50 dark:shadow-black/50 flex items-center gap-2 relative">
-                   <form onSubmit={handleSendMessage} className="flex-1 flex gap-2">
-                    <Input
-                      placeholder="Type a message..."
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      className="flex-1 bg-transparent border-none text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:ring-offset-0 px-4 h-10"
-                      disabled={sendingMessage}
-                      autoComplete="off"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          handleSendMessage(e)
-                        }
-                      }}
-                    />
-                    <Button 
-                      type="submit" 
-                      size="icon" 
-                      className={cn(
-                        "h-10 w-10 rounded-full transition-all duration-300 shadow-md",
-                        newMessage.trim() 
-                          ? "bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-black dark:hover:bg-white/90 scale-100" 
-                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 scale-90"
+                {/* Messenger-style Chat Input */}
+              <div className="p-3 sm:p-4 bg-white dark:bg-zinc-950 border-t border-zinc-100 dark:border-white/5 relative z-20">
+                <div className="max-w-5xl mx-auto flex items-center gap-2 sm:gap-3">
+                   {/* Left Side Icons */}
+                   <div className="flex items-center gap-1 sm:gap-2">
+                     <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-[#0084FF] hover:bg-zinc-100 dark:hover:bg-white/5 shrink-0">
+                       <Mic className="h-5 w-5" />
+                     </Button>
+                     <Button 
+                       variant="ghost" 
+                       size="icon" 
+                       className="h-9 w-9 rounded-full text-[#0084FF] hover:bg-zinc-100 dark:hover:bg-white/5 shrink-0"
+                       onClick={() => fileInputRef.current?.click()}
+                       disabled={uploadingMedia || sendingMessage}
+                     >
+                       <ImageIcon className="h-5 w-5" />
+                     </Button>
+                     <input 
+                       type="file" 
+                       ref={fileInputRef} 
+                       className="hidden" 
+                       accept="image/*,video/*"
+                       multiple
+                       onChange={handleFileUpload}
+                     />
+                   </div>
+ 
+                   {/* Capsule Input Area */}
+                    <div className="flex-1 flex flex-col bg-zinc-100 dark:bg-zinc-800 rounded-2xl overflow-hidden">
+                      {/* Pending Attachments Preview */}
+                      {pendingAttachments.length > 0 && (
+                        <div className="flex gap-2 p-2 overflow-x-auto scrollbar-hide bg-zinc-50/50 dark:bg-black/20 border-b border-zinc-200/50 dark:border-white/5">
+                          {pendingAttachments.map((attachment) => (
+                            <div key={attachment.id} className="relative h-16 w-16 shrink-0 group">
+                              {attachment.type === 'image' ? (
+                                <img 
+                                  src={URL.createObjectURL(attachment.file)} 
+                                  alt="Preview" 
+                                  className={cn(
+                                    "h-full w-full object-cover rounded-lg border border-zinc-200 dark:border-white/10",
+                                    attachment.status === 'uploading' && "opacity-40"
+                                  )}
+                                />
+                              ) : (
+                                <div className="h-full w-full bg-zinc-200 dark:bg-zinc-700 rounded-lg flex items-center justify-center">
+                                  <PremiumLoader className="scale-50" />
+                                </div>
+                              )}
+                              
+                              {attachment.status === 'uploading' && (
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <div className="w-4 h-4 border-2 border-[#0084FF] border-t-transparent rounded-full animate-spin" />
+                                </div>
+                              )}
+
+                              <button 
+                                onClick={() => removePendingAttachment(attachment.id)}
+                                className="absolute -top-1 -right-1 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-full p-0.5 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
-                      disabled={sendingMessage || !newMessage.trim()}
-                    >
-                      {sendingMessage ? (
-                        <div className="h-4 w-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </Button>
+
+                      <form onSubmit={(e) => handleSendMessage(e)} className="flex-1 flex items-center gap-2 pr-2">
+                     <div className="flex-1 relative flex items-center">
+                        <Input
+                          placeholder="Aa"
+                          value={newMessage}
+                          onChange={(e) => setNewMessage(e.target.value)}
+                          className="w-full bg-zinc-100 dark:bg-zinc-800 border-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:ring-offset-0 px-4 h-10 rounded-full"
+                          disabled={sendingMessage || uploadingMedia}
+                          autoComplete="off"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault()
+                              handleSendMessage()
+                            }
+                          }}
+                        />
+                     </div>
+ 
+                     {/* Send Button */}
+                     <Button 
+                       type="submit" 
+                       size="icon" 
+                       variant="ghost"
+                       className={cn(
+                         "h-10 w-10 rounded-full transition-all duration-300",
+                         newMessage.trim() 
+                           ? "text-[#0084FF] hover:bg-zinc-100 dark:hover:bg-white/5" 
+                           : "text-zinc-300 dark:text-zinc-700"
+                       )}
+                       disabled={sendingMessage || uploadingMedia || (!newMessage.trim() && pendingAttachments.filter(a => a.status === 'ready').length === 0)}
+                     >
+                        <Send className="h-5 w-5 fill-current" />
+                     </Button>
                   </form>
                 </div>
-                <p className="text-[10px] text-zinc-400 dark:text-zinc-600 text-center mt-2 opacity-70">
-                   Press Enter to send via Messenger
-                </p>
               </div>
-            </>
-          ) : (
+            </div>
+          </>
+        ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground bg-white dark:bg-[#050505]">
               {loading ? (
                 <div className="relative h-12 w-full">
@@ -1472,6 +1560,35 @@ export default function ConversationsPage() {
               className="bg-orange-600 hover:bg-orange-700"
             >
               Reset to Idle
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Conversation Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" />
+              Delete Conversation?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-left">
+              This will permanently delete all messages in this conversation. 
+              The customer contact will remain, but the chat history will be cleared.
+              <p className="mt-2 text-red-600 dark:text-red-400 font-medium">
+                This action cannot be undone.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConversation}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Everything'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

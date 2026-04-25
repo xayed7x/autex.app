@@ -333,11 +333,32 @@ Rules for this turn:
       if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
         finalResponse = (responseMessage.content || '').trim();
         const userMsg = (input.messageText || '').toLowerCase().trim();
-        const hasExplicitVisualRequest = /chobi|chobi|ছবি|pikture|picture|image|show me|দেখাও|দেখান|পিক|পিকচার|pic/i.test(userMsg);
-        if (hasExplicitVisualRequest && lazyRetries < 2) {
+        const reasoning = firstPassReasoning.toLowerCase();
+        const content = (responseMessage.content || '').toLowerCase();
+
+        // Layer 1: Customer explicitly asked for visuals (Keywords)
+        const customerWantsVisuals = /chobi|ছবি|pikture|picture|image|show me|দেখাও|দেখান|পিক|পিকচার|pic/i.test(userMsg);
+        
+        // Layer 2: AI's internal reasoning explicitly stated a positive intent to search/send/show
+        const aiReasonedToAct = (
+          (reasoning.includes('i will search') || reasoning.includes('i will show') || reasoning.includes('i will send') || reasoning.includes('সার্চ করব') || reasoning.includes('পাঠাব')) &&
+          !reasoning.includes('not search') && !reasoning.includes('will not show')
+        );
+
+        // Layer 3: AI explicitly claimed to be currently sending/showing something in the final text
+        // We look for "Here is", "I'm sending", etc.
+        const aiClaimedToAct = (
+          (content.includes('here is') || content.includes('sending') || content.includes('showing') || content.includes('উপরে') || content.includes('ওপরে') || content.includes('পাঠাচ্ছি') || content.includes('দেখুন')) &&
+          content.length < 150 // Only if the message is short (typical of tool-accompanying text)
+        );
+
+        if ((customerWantsVisuals || aiReasonedToAct || aiClaimedToAct) && lazyRetries < 2) {
            lazyRetries++;
-           console.warn('🦥 [LAZY DETECTED] Customer asked for pictures but AI called no tools. Forcing retry...');
-           messages.push({ role: 'system', content: 'CRITICAL: The customer explicitly asked for images. You MUST call search_products now.' });
+           console.warn(`🦥 [LAZY DETECTED] Context: CustomerWants=${customerWantsVisuals}, AiReasoned=${aiReasonedToAct}, AiClaimed=${aiClaimedToAct}. Forcing retry...`);
+           messages.push({ 
+             role: 'system', 
+             content: 'CRITICAL: Your response implies you are showing a product card, but you failed to call the search_products tool. If you are showing products, you MUST call the tool now. If you are just asking a question, ignore this and continue.' 
+           });
            toolLoops++; continue;
         }
         break;

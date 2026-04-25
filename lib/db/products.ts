@@ -228,35 +228,45 @@ export async function searchProductsByKeywordsWithScoring(
       .map(kw => CATEGORY_ALIASES[kw] || kw)
       .filter(kw => kw.length >= 2 && !STOPWORDS.has(kw));
 
+    console.log(`🔍 [DB_SEARCH] Keywords:`, keywords);
+
     // Score only the subset of products matched by DB
     const scoredProducts = (matchedProducts as Product[]).map((product) => {
       let score = 0;
+      const CATEGORY_KEYWORDS = new Set(['anniversary', 'birthday', 'wedding', 'valentine', 'engagement', 'baby shower', 'cake']);
 
       keywords.forEach((keyword) => {
         const nameLower = (product.name || '').toLowerCase();
         const catLower = (product.category || '').toLowerCase();
         const descLower = (product.description || '').toLowerCase();
 
-        // Check category (Extreme high weight for exact match)
+        // 1. CATEGORY BOOST (Highest Priority)
         if (catLower === keyword) {
-          score += 50;
+          score += 100; // Exact category match
         } else if (catLower.includes(keyword)) {
-          score += 25;
+          score += 50;
         }
 
-        // Check name (high weight)
+        // 2. NAME MATCH
         if (nameLower.includes(keyword)) {
+          // If the keyword is a high-intent category word, boost it more
+          if (CATEGORY_KEYWORDS.has(keyword) && keyword !== 'cake') {
+            score += 60;
+          } else if (keyword === 'cake') {
+            score += 5; // Low boost for generic 'cake'
+          } else {
+            score += 20;
+          }
+        }
+
+        // 3. SEARCH KEYWORDS
+        if (product.search_keywords?.some(
+          (sk) => sk.toLowerCase().includes(keyword)
+        )) {
           score += 15;
         }
 
-        // Check search_keywords array (medium-high weight)
-        if (product.search_keywords?.some(
-          (kw) => kw.toLowerCase().includes(keyword)
-        )) {
-          score += 10;
-        }
-
-        // Check description (low weight)
+        // 4. DESCRIPTION
         if (descLower.includes(keyword)) {
           score += 5;
         }

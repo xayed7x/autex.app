@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import {
   verifySignature,
   generateEventId,
@@ -507,7 +507,7 @@ export async function processMessagingEvent(
               // STEP 2: Send product confirmation message
               const weightLabel = '২ পাউন্ড'; // Default for now
               const flavorLabel = (product.flavors && product.flavors.length > 0) ? product.flavors[0] : (product.category || 'বিশেষ ডিজাইন');
-              const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 **নাম:** ${product.name}\n💰 **দাম:** ${product.price.toLocaleString('en-BD')} টাকা\n🍫 **ফ্লেভার:** ${flavorLabel}\n⚖️ **ওজন:** ${weightLabel}\n\nঅর্ডার করতে চাইলে 'হ্যাঁ' লিখে কনফার্ম করুন। আমি আপনার তথ্যগুলো চেক করে দেখছি 😊`;
+              const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 নাম: ${product.name}\n💰 দাম: ${product.price.toLocaleString('en-BD')} টাকা\n🍫 ফ্লেভার: ${flavorLabel}\n⚖️ ওজন: ${weightLabel}\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
               await sendMessage(pageId, customerPsid, confirmationMsg);
 
               // Log confirmation message
@@ -520,22 +520,9 @@ export async function processMessagingEvent(
               });
 
               
-              // STEP 3: Trigger conversational AI processing instead of hardcoded form
-              await processMessage({
-                workspaceId: fbPage.workspace_id,
-                fbPageId: Number(fbPage.id),
-                conversationId: conversation.id,
-                customerPsid,
-                pageId,
-                messageText: `[SYSTEM: Customer clicked Order Now for product: ${product.name} (${flavorLabel}). 
-                1. DO NOT send a form. 
-                2. READ the conversation history (last 20 msgs) to see if they already gave Address or Phone. 
-                3. If address is found, clarify if it is a Village or District if ambiguous.
-                4. Ask for confirmation: "Do you want to order this?" 
-                5. Once confirmed, give the TOTAL BILL (Subtotal + Delivery) and ask for final "YES" to save.]`,
-                isTestMode: false,
-                botEnabled: fbPage.bot_enabled,
-              });
+              // STEP 3: STOP and wait for customer response. 
+              // The AI will pick up the context (activeProductId, flavor, etc.) 
+              // from the metadata when the customer replies "Yes" or sends a message.
             }
           }
         }

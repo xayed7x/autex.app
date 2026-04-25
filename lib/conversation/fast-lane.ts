@@ -238,7 +238,7 @@ export function tryFastLane(
     // Check if it's a "silent search" (e.g., "chocolate cake", "anniversary cake", "birthday")
     // Catching these anywhere in the string to support natural language like "I want cake for my birthday"
     const isSilentDiscovery = settings?.businessCategory === 'food' 
-      ? /(চকলেট|ভ্যানিলা|অ্যানিভারসারি|বার্থডে|বড়|ছোট|হৃদয়|heart|cake|chocolate|vanilla|anniversary|birthday|red velvet|black forest|wedding|বিয়ে|উপহার|gift|engagement|নিবন্ধন|ভ্যালেন্টাইন|valentine|পাউন্ড|pound|kg|কেজি)/i.test(trimmedInput)
+      ? /(চকলেট|ভ্যানিলা|অ্যানিভারসারি|বার্থডে|বড়|ছোট|হৃদয়|heart|cake|chocolate|vanilla|anniversary|aniversary|anniversery|aniversery|birthday|barthday|red velvet|black forest|wedding|weedding|weding|বিয়ে|উপহার|gift|engagement|নিবন্ধন|ভ্যালেন্টাইন|valentine|পাউন্ড|pound|kg|কেজি)/i.test(trimmedInput)
       : false;
 
     if (isExplicitDiscovery || isSilentDiscovery) {

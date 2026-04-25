@@ -303,33 +303,37 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         currentContext.metadata.orderStage = 'COLLECTING_INFO';
         currentContext.metadata.activeProductId = undefined;
 
-        // === 🚀 SHORT-CIRCUIT: AUTOMATED RESPONSE FOR UNKNOWN IMAGES ===
-        console.log("🚀 [SHORT-CIRCUIT] Skipping AI and sending automated form.");
-        
-        // 1. Send the Scenario 2 wait message
+        // === 🚀 STATE-AWARE SHORT-CIRCUIT: AUTOMATED RESPONSE FOR UNKNOWN IMAGES ===
         const waitMessage = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
-        if (!input.isTestMode) {
-          await sendMessage(input.pageId, input.customerPsid, waitMessage);
+        
+        // Only send if NOT already in history (last 5 messages)
+        const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-5);
+        const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
+
+        if (!alreadySent) {
+          console.log("🚀 [SHORT-CIRCUIT] Sending automated wait message.");
+          if (!input.isTestMode) {
+            await sendMessage(input.pageId, input.customerPsid, waitMessage);
+          }
+          
+          // Log the bot message
+          await supabase.from('messages').insert({
+            conversation_id: input.conversationId,
+            sender: 'bot',
+            sender_type: 'bot',
+            message_text: waitMessage,
+            message_type: 'text',
+          });
+        } else {
+          console.log("🛡️ [SHORT-CIRCUIT] Skipping automated response - already sent recently.");
         }
         
-        // 2. Persist updated context in Bot Mode (do NOT flag for manual yet)
+        // Persist updated context
         await supabase.from('conversations').update({
           current_state: 'COLLECTING_INFO',
           context: currentContext,
           last_message_at: new Date().toISOString()
         }).eq('id', input.conversationId);
-        
-        console.log("🚩 [SHORT-CIRCUIT] Context persisted in Bot Mode.");
-
-        // 4. Log the bot message
-        await supabase.from('messages').insert({
-          conversation_id: input.conversationId,
-          sender: 'bot',
-          sender_type: 'bot',
-          message_text: waitMessage,
-          message_type: 'text',
-        });
-
         return {
           response: waitMessage,
           newState: 'COLLECTING_INFO',
@@ -723,28 +727,22 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const legacyWait = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন";
     
     if (settings.businessCategory === 'food' && (finalResponse?.includes(scenario2Wait) || finalResponse?.includes(legacyWait))) {
-      // VALIDATION: Only allow Scenario 2 if:
-      // 1. An image was actually sent
-      // 2. OR the AI identified a specific custom description and self-flagged for it
-      const hasImageInHistory = chatHistory.some(m => m.role === 'user' && (m.content?.includes('[Customer sent an image]') || m.content?.includes('http')));
-      const hasImage = input.imageUrl || !!currentContext.metadata?.lastInspirationUrl || hasImageInHistory;
-      const isAIFlagged = agentResult.shouldFlag === true;
-      
-      if (!hasImage && !isAIFlagged) {
-        console.log("🛡️ [SAFETY NET] Falling back to Scenario 1 (Rate Chart) because no image or custom flag was detected.");
-        finalResponse = scenario1Script;
-        agentResult.shouldFlag = false;
-        agentResult.flagReason = undefined;
+      const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-3);
+      const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
+
+      if (alreadySent) {
+        console.log("🛡️ [SAFETY NET] Removing repetitive Scenario 2 wait message.");
+        // Surgically remove only the wait message part, keep any other text (like delivery info)
+        finalResponse = finalResponse.replace(/আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে.*?😊/g, "").trim();
+        finalResponse = finalResponse.replace(scenario2Wait, "").trim();
+        finalResponse = finalResponse.replace(legacyWait, "").trim();
       } else {
-        // FORCE strict clean version of Scenario 2
+        // Force strict clean version of Scenario 2
         finalResponse = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
-        
-        // Ensure flagging happens if we are in Scenario 2
         if (!agentResult.shouldFlag) {
           agentResult.shouldFlag = true;
           agentResult.flagReason = "Safety Net: Price Inquiry (Scenario 2)";
         }
-        console.log(`🛡️ [SAFETY NET] Confirmed Scenario 2 (Image: ${hasImage}, Flagged: ${isAIFlagged})`);
       }
     }
 

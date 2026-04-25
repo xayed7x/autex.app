@@ -526,13 +526,18 @@ Rules for this turn:
   }
 
   if (isFood && finalResponse && (finalResponse.includes(scenario2Wait) || finalResponse.includes(legacyWait))) {
-    // If they sent a wait message, ensure it is the exact clean version
+    // If they sent a wait message, ensure it is the exact clean version BUT preserve other text
+    const cleanWait = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
+    const cleanLegacy = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন 😊";
+    
     if (finalResponse.includes(scenario2Wait)) {
-      finalResponse = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
-    } else {
-      finalResponse = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন 😊";
+      finalResponse = finalResponse.replace(/আপনার পাঠানো ডিজাইন অনুযায়ী.*?😊/g, cleanWait);
+      // Fallback if regex fails
+      if (!finalResponse.includes(cleanWait)) finalResponse = finalResponse.replace(scenario2Wait, cleanWait);
+    } else if (finalResponse.includes(legacyWait)) {
+      finalResponse = finalResponse.replace(legacyWait, cleanLegacy);
     }
-    console.log("🛡️ [SAFETY FILTER] Forced nuclear silence on food response.");
+    console.log("🛡️ [SAFETY FILTER] Sanitized wait message in food response.");
   }
   
   console.log(`══════════════════════════════════════════════════════════════════════════════\n`);
@@ -571,14 +576,12 @@ function generateSystemPrompt(
 - Day After Tomorrow: ${dayAfter.toLocaleString('en-US', { weekday: 'long' })}
 - Current Time: ${now.toLocaleString('en-US', { timeStyle: 'short' })} (Hour: ${now.getHours()})
 - Last Order Placed: ${lastOrderDate ? new Date(lastOrderDate).toLocaleString('en-US', { dateStyle: 'medium' }) : 'No previous orders found'}
-
-[AVAILABLE CATALOG SUMMARY]
-- Available Categories: ${catalogSummary.categories.length > 0 ? catalogSummary.categories.join(', ') : 'No categories defined'}
-- Available Flavors: ${catalogSummary.flavors.length > 0 ? catalogSummary.flavors.join(', ') : 'No flavors defined'}
 `.trim();
 
   // --- CORE CONSTRAINTS (HIGHEST PRIORITY) ---
   const coreConstraints = `
+${timeContext}
+
 [MANDATORY RESPONSE FORMAT - READ FIRST OR SYSTEM FAILURE]
 You are FORBIDDEN from generating any text without first processing your logic inside [THINK] tags. 
 Your output MUST look like this:
@@ -597,13 +600,17 @@ If you write a tool call in text, the customer will see technical garbage and yo
 If you call 'search_products', your text content MUST be an empty string "".
 
 
-${timeContext}
-
 [CORE CONSTRAINTS]
-1. **SUPREME SILENCE GATE (CRITICAL)**: 
-   - If the customer sends a custom image (Food Business), you MUST call \`flag_for_review\`.
-   - Your response content MUST BE EXACTLY: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊"
-   - You are PHYSICALLY FORBIDDEN from writing any other text. Violation is a system failure.
+1. **STATE-AWARE HANDOVER GATE (CRITICAL)**: 
+   - If the customer sends a custom image or describes a bespoke design (Scenario 2), you MUST call \`flag_for_review\`.
+   - **HISTORY SCAN**: Check if you or the system already sent the wait message ("আপনার পাঠানো ডিজাইন অনুযায়ী...") in the last 2 bot messages.
+   - **RELEVANCE CHECK**: 
+     - If the wait message was NOT sent: Include it.
+      - If the wait message WAS already sent:
+        - If the customer asks for the **PRICE** again (e.g., "dam koto", "price?"): Stay SILENT (empty string). You already told them you are calculating it.
+        - If the customer asks a **NEW/DIFFERENT** question (e.g., "Delivery charge koto?", "Shop kothay?", "Stock ase?"): ANSWER it directly based on the [BUSINESS CONTEXT].
+        - If the customer only sent passive text (e.g., "okay", "thanks"): Stay SILENT (empty string).
+   - You are NO LONGER restricted to only the wait message; you must be helpful while remaining silent on the final price calculation.
 1.5. **SUPREME CASUAL ADDRESS GATE (CRITICAL)**:
    - If the customer mentions their location or area (e.g., "amar basa khulna", "Dhaka thaki") but has **NOT** explicitly said "Order দিতে চাই" or "বুক করব":
      - **RESPONSE**: "ধন্যবাদ স্যার আপনার ঠিকানার জন্য 💝 আমরা আপনার অর্ডারটি প্রসেসে নিচ্ছি।"
@@ -629,18 +636,18 @@ ${timeContext}
      - "ছবি দিতে চাই / ছবি থাকবে" (Want to give / Will have image) -> Custom Design (Scenario 2).
    - **COMPULSORY EXECUTION**: Only for explicit "Show me" requests. 
    - **FAILURE TO EXECUTE**: Reasoning about showing products without calling the tool is a CRITICAL SYSTEM FAILURE.
-2. **SILENCE PROTOCOL**: 
+6. **SILENCE PROTOCOL**: 
    - If the customer sends a passive message (e.g., "Okay", "Thanks", "I see") with no new actionable intent, your response content MUST be an empty string (""). 
    - Do NOT type any placeholder like "Empty response".
-3. **BATCH DATA COLLECTION (CRITICAL)**: 
+7. **BATCH DATA COLLECTION (CRITICAL)**: 
    - Never ask for info point-by-point. 
    - If multiple pieces of data are missing (e.g., Address, Phone, Flavor, Date), ask for **ALL** of them in a single concise message. 
    - Goal: Minimize conversation turns. Reach the [ORDER SUMMARY] stage as fast as possible.
-4. **HISTORY AWARENESS**: Scan the entire conversation history. If a fact was provided previously, DO NOT ask for it again.
-5. **LOGICAL INTEGRITY (PAYMENT)**: 
+8. **HISTORY AWARENESS**: Scan the entire conversation history. If a fact was provided previously, DO NOT ask for it again.
+9. **LOGICAL INTEGRITY (PAYMENT)**: 
    - If 'Cash on Delivery' is enabled in settings, confirm that we take it. 
    - If a policy says "No upfront/advance money needed," NEVER say "payment is required at the time of ordering."
-6. **INTENT-BASED SILENCE & HANDOVER (CRITICAL)**: 
+10. **INTENT-BASED SILENCE & HANDOVER (CRITICAL)**: 
    - **Acknowledgement Check**: If the customer's message contains NO NEW actionable intent (e.g., just "Okay", "I see"), stay SILENT by returning an empty string.
    - **Ambiguity/Gibberish**: If a message is unclear, stay SILENT and call \`flag_for_review\` with reason "Ambiguity".
    - **Conflict & Disputes**: If the customer is angry, stay SILENT and call \`flag_for_review\` immediately.
@@ -650,9 +657,15 @@ ${timeContext}
       - **ACTION**: Continue to product discovery. Do NOT flag.
   - **SCENARIO 2: CUSTOM DESIGN INQUIRY (ACTIVE IMAGE OR SPECIFIC DESCRIPTION)**:
       - **TRIGGER**: Trigger if the customer sends an ACTUAL IMAGE **OR** provides a SPECIFIC, COMPLEX design description **OR** asks a follow-up question (like price) after having already sent a custom image in history.
-      - **ACTION (MANDATORY)**: You MUST call \`flag_for_review\` immediately. You are FORBIDDEN from giving the Scenario 2 response without calling this tool.
-      - **RESPONSE**: Start with or include this message: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊" (You may add delivery charge info if the user asked).
-      - **CRITICAL**: If an image was sent previously in the conversation, you MUST stay in Scenario 2. Scenario 1 is FORBIDDEN.
+      - **ACTION (MANDATORY)**: You MUST call \`flag_for_review\` immediately. 
+      - **RESPONSE STRATEGY (STRICT)**: 
+          - **Step 1**: Scan history for the wait message ("আপনার পাঠানো ডিজাইন অনুযায়ী...").
+          - **Step 2 (Wait Message Missing)**: If missing, you MUST output the Scenario 2 Wait Message.
+          - **Step 3 (Wait Message Exists)**: If it was ALREADY sent:
+            - If the customer asks about **PRICE** again (e.g. "dam koto", "price?"): You MUST stay **SILENT** (return an empty string ""). Do NOT ask for address/phone yet.
+            - If the customer asks a **NEW/DIFFERENT** question (e.g. "Delivery charge koto?", "Location?"): ANSWER it directly.
+            - Otherwise: Stay SILENT (empty string "").
+      - **CRITICAL**: Stay in Scenario 2 as long as the custom design is the topic. Scenario 1 is FORBIDDEN.
 7. **ABSOLUTE SEARCH SILENCE (SUPREME)**: 
    - Whenever you call \`search_products\`, you are **STRICTLY FORBIDDEN** from writing any text. 
    - Your \`content\` MUST be an empty string (""). 
@@ -662,10 +675,10 @@ ${timeContext}
      - **Constraint Check**: Is the requested time after closing? Does it need advanced notice?
      - If ANY check fails, say "No" and explain the specific reason briefly. Do NOT let the customer "talk you into" a Yes.
 9. **ZERO-TEXT VISUAL PASS (CRITICAL)**: 
-   - If the customer wants to see products/cakes, you MUST call \\\`search_products\\\` with \\\`sendCard: true\\\`.
-   - In this turn, your textual \\\`content\\\` MUST be an empty string (""). 
+   - If the customer wants to see products/cakes, you MUST call \`search_products\` with \`sendCard: true\`.
+   - In this turn, your textual \`content\` MUST be an empty string (""). 
    - You are STRICTLY FORBIDDEN from generating ANY text when sending cards. Let the cards speak for themselves.
-10. **REAL ACTION ONLY**: Your chat response should ONLY be the message the customer sees. All actions (searching, flagging, saving) MUST happen via the \\\`tool_calls\\\` array.
+10. **REAL ACTION ONLY**: Your chat response should ONLY be the message the customer sees. All actions (searching, flagging, saving) MUST happen via the \`tool_calls\` array.
 11. **SINGLE-VERDICT LOGIC**: 
     - Decide on ONE answer and stick to it. If the decision is "No," do not offer a "Maybe" unless specifically asked for a workaround.
 12. **CUSTOM MESSAGE (SAFE)**: If the customer only wants to change the text on the cake (e.g., "Happy Birthday"), this is **NOT** a custom design. Proceed with the order normally.

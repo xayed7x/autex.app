@@ -61,6 +61,45 @@ class ProcessingLockManager {
   }
 
   /**
+   * Acquire a database-level lock for cross-instance coordination (Vercel)
+   * This prevents parallel webhooks for the same conversation from double-processing.
+   */
+  async acquireDbLock(supabase: any, conversationId: string, lockType: string = 'bot_processing', ttlSeconds: number = 15): Promise<boolean> {
+    const lockId = `lock_${conversationId}`;
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+    
+    // First, try to clean up any expired lock for this conversation
+    try {
+      await supabase
+        .from('webhook_events')
+        .delete()
+        .eq('event_id', lockId)
+        .eq('event_type', 'lock')
+        .lt('processed_at', new Date().toISOString());
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+
+    // Try to insert the lock
+    const { error } = await supabase
+      .from('webhook_events')
+      .insert({
+        event_id: lockId,
+        event_type: 'lock',
+        payload: { lock_type: lockType, acquired_at: new Date().toISOString() },
+        processed_at: expiresAt // Overloading processed_at to mean "expires_at" for locks
+      });
+
+    if (error) {
+      console.log(`🔒 [DB-LOCK] Could not acquire lock for ${conversationId} (likely already active)`);
+      return false;
+    }
+
+    console.log(`🔒 [DB-LOCK] Acquired DB lock for conversation ${conversationId} (Expires: ${expiresAt})`);
+    return true;
+  }
+
+  /**
    * Release a lock on a conversation
    * @param conversationId - The conversation to unlock
    */
@@ -71,6 +110,23 @@ class ProcessingLockManager {
       const holdTime = Date.now() - existing.locked_at
       console.log(`🔓 [LOCK] Released lock for conversation ${conversationId} (held for ${holdTime}ms)`)
       this.locks.delete(conversationId)
+    }
+  }
+
+  /**
+   * Release a database-level lock
+   */
+  async releaseDbLock(supabase: any, conversationId: string): Promise<void> {
+    const lockId = `lock_${conversationId}`;
+    try {
+      await supabase
+        .from('webhook_events')
+        .delete()
+        .eq('event_id', lockId)
+        .eq('event_type', 'lock');
+      console.log(`🔓 [DB-LOCK] Released DB lock for conversation ${conversationId}`);
+    } catch (e) {
+      console.warn(`⚠️ [DB-LOCK] Failed to release DB lock for ${conversationId}:`, e);
     }
   }
 

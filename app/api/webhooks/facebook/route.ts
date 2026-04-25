@@ -1072,28 +1072,12 @@ export async function processMessagingEvent(
     
     console.log('🎭 Calling Orchestrator...');
     
-    // Try to acquire lock for bot processing
-    const lockAcquired = processingLock.acquireLock(conversation.id, 'bot_processing', 15000);
+    // Try to acquire DB lock for bot processing
+    const dbLockAcquired = await processingLock.acquireDbLock(supabase, conversation.id, 'bot_processing', 20);
     
-    if (!lockAcquired) {
-      // Check if owner is currently sending
-      const currentLock = processingLock.isLocked(conversation.id);
-      if (currentLock?.lock_type === 'owner_sending') {
-        console.log('⏸️ [BOT] Owner is sending message, waiting...');
-        const released = await processingLock.waitForLock(conversation.id, 3000);
-        if (!released) {
-          console.log('⏭️ [BOT] Owner still sending, skipping bot response to avoid duplicate');
-          return;
-        }
-        // Try to acquire again
-        if (!processingLock.acquireLock(conversation.id, 'bot_processing', 15000)) {
-          console.log('⏭️ [BOT] Could not acquire lock after waiting, skipping');
-          return;
-        }
-      } else {
-        console.log('⏭️ [BOT] Could not acquire lock, skipping processing');
-        return;
-      }
+    if (!dbLockAcquired) {
+      console.log('⏭️ [BOT] Could not acquire DB lock (already processing elsewhere), skipping');
+      return;
     }
 
     try {
@@ -1137,7 +1121,7 @@ export async function processMessagingEvent(
       console.error('❌ Error processing messaging event:', error);
     } finally {
       if (conversation?.id) {
-        processingLock.releaseLock(conversation.id);
+        await processingLock.releaseDbLock(supabase, conversation.id);
       }
     }
   } catch (error) {
@@ -1552,30 +1536,12 @@ export async function processInstagramMessagingEvent(
       }
     }
 
-    // ========================================
-    // CALL ORCHESTRATOR (Bot Processing)
-    // ========================================
-
-    console.log('📸 [INSTAGRAM] Calling Orchestrator...');
-
-    const lockAcquired = processingLock.acquireLock(conversation.id, 'bot_processing', 15000);
-
-    if (!lockAcquired) {
-      const currentLock = processingLock.isLocked(conversation.id);
-      if (currentLock?.lock_type === 'owner_sending') {
-        const released = await processingLock.waitForLock(conversation.id, 3000);
-        if (!released) {
-          console.log('⏭️ [INSTAGRAM] Owner still sending, skipping bot response');
-          return;
-        }
-        if (!processingLock.acquireLock(conversation.id, 'bot_processing', 15000)) {
-          console.log('⏭️ [INSTAGRAM] Could not acquire lock after waiting');
-          return;
-        }
-      } else {
-        console.log('⏭️ [INSTAGRAM] Could not acquire lock, skipping processing');
-        return;
-      }
+    // Try to acquire DB lock for bot processing
+    const dbLockAcquired = await processingLock.acquireDbLock(supabase, conversation.id, 'bot_processing', 20);
+    
+    if (!dbLockAcquired) {
+      console.log('⏭️ [INSTAGRAM] Could not acquire DB lock (already processing elsewhere), skipping');
+      return;
     }
 
     try {
@@ -1615,7 +1581,7 @@ export async function processInstagramMessagingEvent(
       console.error('❌ [INSTAGRAM] Error processing Instagram messaging event:', error);
     } finally {
       if (conversation?.id) {
-        processingLock.releaseLock(conversation.id);
+        await processingLock.releaseDbLock(supabase, conversation.id);
       }
     }
   } catch (error) {

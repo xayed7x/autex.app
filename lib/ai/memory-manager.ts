@@ -24,7 +24,7 @@ const openai = new OpenAI({
 });
 
 const MAX_MESSAGES_BEFORE_SUMMARY = 20;
-const MESSAGES_TO_KEEP = 10;
+const MESSAGES_TO_KEEP = 20;
 
 // ============================================
 // TYPES
@@ -132,6 +132,13 @@ async function generateSummary(
     }
   }
 
+  console.log(`\n══════════════════════════════════════════════════════════════════════════════`);
+  console.log(`🧠 [MEMORY GENERATION] Starting compression of older history...`);
+  console.log(`──────────────────────────────────────────────────────────────────────────────`);
+  console.log(`[RAW INPUT TO SUMMARIZE]:`);
+  console.log(messagesToSummarize.map(m => `  ${m.role.toUpperCase()}: ${typeof m.content === 'string' ? m.content : '[Non-text content]'}`).join('\n'));
+  console.log(`──────────────────────────────────────────────────────────────────────────────`);
+
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
@@ -157,7 +164,13 @@ async function generateSummary(
     });
   }
 
-  return completion.choices[0].message.content || existingSummary || '';
+  const newSummary = completion.choices[0].message.content || existingSummary || '';
+  
+  console.log(`[GENERATED MASTER SUMMARY]:`);
+  console.log(`  "${newSummary}"`);
+  console.log(`══════════════════════════════════════════════════════════════════════════════\n`);
+
+  return newSummary;
 }
 
 /**

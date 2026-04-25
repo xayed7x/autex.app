@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { TopBar } from "@/components/dashboard/top-bar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
@@ -214,6 +215,7 @@ export default function ConversationsPage() {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // Needs Reply filter state
   const [needsReplyFilter, setNeedsReplyFilter] = useState(false)
@@ -224,6 +226,13 @@ export default function ConversationsPage() {
   useEffect(() => {
     selectedIdRef.current = selectedConversation?.id || null
   }, [selectedConversation?.id])
+
+  // Auto-reset textarea height when message is cleared
+  useEffect(() => {
+    if (newMessage === '' && textareaRef.current) {
+      textareaRef.current.style.height = '40px'
+    }
+  }, [newMessage])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -1477,13 +1486,20 @@ export default function ConversationsPage() {
 
                       <form onSubmit={(e) => handleSendMessage(e)} className="flex-1 flex items-center gap-2 pr-2">
                      <div className="flex-1 relative flex items-center">
-                        <Input
+                        <Textarea
+                          ref={textareaRef}
                           placeholder="Aa"
                           value={newMessage}
-                          onChange={(e) => setNewMessage(e.target.value)}
-                          className="w-full bg-zinc-100 dark:bg-zinc-800 border-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:ring-offset-0 px-4 h-10 rounded-full"
+                          onChange={(e) => {
+                            setNewMessage(e.target.value)
+                            // Auto-expand logic
+                            if (textareaRef.current) {
+                              textareaRef.current.style.height = '40px'
+                              textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
+                            }
+                          }}
+                          className="w-full bg-zinc-100 dark:bg-zinc-800 border-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:ring-offset-0 px-4 py-2.5 h-[40px] min-h-[40px] max-h-[200px] rounded-[20px] resize-none overflow-y-auto leading-tight transition-all duration-200"
                           disabled={sendingMessage || uploadingMedia}
-                          autoComplete="off"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                               e.preventDefault()

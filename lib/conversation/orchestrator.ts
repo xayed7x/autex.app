@@ -275,8 +275,12 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       if (msg.image_url) {
         content += content ? ` [Customer sent an image]` : '[Customer sent an image]';
       }
+      
+      // Page Owner or Bot are both 'assistant' roles
+      const isAssistant = msg.sender === 'bot' || msg.sender === input.pageId.toString();
+      
       return {
-        role: msg.sender === 'bot' ? 'assistant' : 'user',
+        role: isAssistant ? 'assistant' : 'user',
         content,
       };
     }) as ChatCompletionMessageParam[];
@@ -449,6 +453,16 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // ========================================
     // STEP 5: CALL NEW SINGLE AGENT
     // ========================================
+    console.log(`\n──────────────────────────────────────────────────────────────────────────────`);
+    console.log(`📦 [RAW CONVERSATION INPUT] Feeding to AI brain:`);
+    recentMessages.forEach((m, i) => {
+      const role = m.role === 'user' ? 'Customer' : m.role === 'assistant' ? 'Bot' : 'System';
+      const content = typeof m.content === 'string' ? m.content.replace(/\n/g, ' ') : '[Non-text content]';
+      console.log(`   ${i + 1}. ${role}: "${content.substring(0, 100)}${content.length > 100 ? '...' : ''}"`);
+    });
+    console.log(`──────────────────────────────────────────────────────────────────────────────\n`);
+
+    console.log(`🤖 Calling Agent... [Memory Summary: ${!!memorySummary}] [Messages Passed: ${recentMessages.length}]`);
     let messageWithStatus = input.messageText || '';
 
     const agentInput: AgentInput = {

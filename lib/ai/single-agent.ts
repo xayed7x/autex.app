@@ -309,13 +309,17 @@ Rules for this turn:
       if (hasHallucinatedTool) {
          console.warn(`⚠️ [REJECTION] AI tried to use brackets or JSON in text (Loop ${toolLoops}). Forcing real tool pass...`);
          
-         if (toolLoops >= 3) { // Increased to 3 for more resilience
+         if (toolLoops >= 3) {
             console.error(`🚨 [3-STRIKE FAILURE] AI is stuck in a hallucination loop. Flagging for manual.`);
             flaggedForManual = true;
             flagReason = "AI stuck in textual tool call loop (Hallucination).";
             finalResponse = ""; 
             break;
          }
+
+         // To prevent OpenAI 400 errors, we must strip tool_calls from the rejected message
+         // if we are going to continue the loop without providing tool responses.
+         responseMessage.tool_calls = undefined;
 
          messages.push({ 
             role: 'system', 
@@ -582,14 +586,19 @@ function generateSystemPrompt(
   const coreConstraints = `
 ${timeContext}
 
-[MANDATORY RESPONSE FORMAT - READ FIRST OR SYSTEM FAILURE]
-You are FORBIDDEN from generating any text without first processing your logic inside [THINK] tags. 
-Your output MUST look like this:
+[STRICT CONTEXT ADHERENCE - NO GUESSING]
+- **DO NOT BE PROACTIVE**: Never offer information or rules for products that the customer has NOT mentioned. 
+- **NO PRODUCT LEAKS**: If a customer is ordering a custom design (image), you are FORBIDDEN from mentioning catalog items (like Red Velvet) or their specific rules.
+- **STAY IN YOUR LANE**: If you don't have enough info, call flag_for_review. DO NOT guess a reason or a date.
+
 [THINK]
-1. INTENT: What is the customer's goal right now?
-2. PERSISTENT CONTEXT: What do I already know from history (e.g. Occasion: Anniversary, Flavor: Chocolate, Location: Comilla)? 
-3. EXAMPLE MATCH: Does this intent match any of my [CONVERSATION EXAMPLES]? (If yes, I MUST use that style).
-4. SOURCE: Name the specific section or example being used.
+0. TIMELINE AUDIT (Step 0): You MUST manually list the last 3 messages here (e.g., "1. Customer: [Text]"). DO NOT COPY THIS INSTRUCTION.
+1. INTENT ANALYSIS: What is the customer's goal right now?
+2. PERSISTENT CONTEXT: What do I already know from history (e.g. Location: Khulna)? 
+3. MEMORY AUDIT: Scan the [MEMORY SUMMARY] specifically for "image", "design", or "price set by owner".
+4. SCENARIO VERIFICATION: Am I in Scenario 1 (Generic) or Scenario 2 (Custom)?
+5. HALLUCINATION CHECK: Am I about to mention a product or rule (like Red Velvet) that hasn't been discussed? (If yes, DELETE IT).
+6. GROUND TRUTH CHECK: Name the section and line from the context used.
 [/THINK]
 [Your actual response to the customer here]
 
@@ -652,20 +661,30 @@ If you call 'search_products', your text content MUST be an empty string "".
    - **Ambiguity/Gibberish**: If a message is unclear, stay SILENT and call \`flag_for_review\` with reason "Ambiguity".
    - **Conflict & Disputes**: If the customer is angry, stay SILENT and call \`flag_for_review\` immediately.
    - **SCENARIO 1: GENERIC PRICE INQUIRY (NO ACTIVE CUSTOM DESIGN)**:
-      - **TRIGGER**: If the customer asks about price or simple flavors WITHOUT sending an image AND there is NO record of a custom image in the conversation history or metadata.
+      - **TRIGGER**: ONLY trigger if:
+        1. The customer asks about price/flavors.
+        2. AND there is NO image in the current turn.
+        3. AND the [MEMORY SUMMARY] has NO mention of a sent image, design, or custom product.
+      - **FORBIDDEN**: If an image was EVER sent (check [MEMORY SUMMARY]), you are FORBIDDEN from using this generic response.
       - **RESPONSE**: “কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊\n👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা\n👉 ২ পাউন্ড চকলেট: ১৬০০ টাকা\nআপনার পছন্দের ডিজাইন/ডিটেইলস দিলে সঠিক দাম জানিয়ে দিতে পারব।”
-      - **ACTION**: Continue to product discovery. Do NOT flag.
-  - **SCENARIO 2: CUSTOM DESIGN INQUIRY (ACTIVE IMAGE OR SPECIFIC DESCRIPTION)**:
-      - **TRIGGER**: Trigger if the customer sends an ACTUAL IMAGE **OR** provides a SPECIFIC, COMPLEX design description **OR** asks a follow-up question (like price) after having already sent a custom image in history.
-      - **ACTION (MANDATORY)**: You MUST call \`flag_for_review\` immediately. 
-      - **RESPONSE STRATEGY (STRICT)**: 
-          - **Step 1**: Scan history for the wait message ("আপনার পাঠানো ডিজাইন অনুযায়ী...").
-          - **Step 2 (Wait Message Missing)**: If missing, you MUST output the Scenario 2 Wait Message.
-          - **Step 3 (Wait Message Exists)**: If it was ALREADY sent:
-            - If the customer asks about **PRICE** again (e.g. "dam koto", "price?"): You MUST stay **SILENT** (return an empty string ""). Do NOT ask for address/phone yet.
-            - If the customer asks a **NEW/DIFFERENT** question (e.g. "Delivery charge koto?", "Location?"): ANSWER it directly.
-            - Otherwise: Stay SILENT (empty string "").
-      - **CRITICAL**: Stay in Scenario 2 as long as the custom design is the topic. Scenario 1 is FORBIDDEN.
+
+   - **SCENARIO 2: CUSTOM DESIGN INQUIRY (IMAGE SENT OR PENDING)**:
+      - **TRIGGER**: Trigger if an image was sent THIS turn **OR** if the [MEMORY SUMMARY] mentions a previous design/image.
+      - **PRODUCT ISOLATION (STRICT)**: You are **FORBIDDEN** from assuming the customer is ordering a named product from your catalog (e.g., Red Velvet Cheesecake) just because they sent an image. 
+          - Do NOT apply delivery date restrictions for specific products to a custom design.
+          - If they sent an image, the product IS the image.
+      - **OWNER AUTHORITY**: If the Assistant (Bot or Owner) has ALREADY sent a price (e.g., "২২০০ টাকা"), this is the FINAL price. 
+          - Proceed to collect details: Date, Phone, and Address.
+      - **RESPONSE STRATEGY (ORDER COLLECTION)**: 
+          - **If Price is Set & Date is Mentioned**: Generate an **ORDER SUMMARY** block immediately.
+          - **Custom Order Summary Format**:
+            * Product: Custom Design (as per image sent)
+            * Price: [Amount from Assistant]
+            * Delivery: [Area] (150 BDT)
+            * Date: [Customer's Date]
+            * Total: [Price + 150]
+          - **Action**: Ask for the missing Phone and Address to confirm.
+          - **Wait Message**: ONLY send the "Price is being calculated" message if the Assistant has not given a price yet.
 7. **ABSOLUTE SEARCH SILENCE (SUPREME)**: 
    - Whenever you call \`search_products\`, you are **STRICTLY FORBIDDEN** from writing any text. 
    - Your \`content\` MUST be an empty string (""). 

@@ -122,8 +122,8 @@ export async function findTier1Match(
       }
     }
 
-    // Threshold: distance < 10 is considered a match
-    const MATCH_THRESHOLD = 10;
+    // Threshold: distance < 5 is considered a match (Strict)
+    const MATCH_THRESHOLD = 5;
 
     if (bestMatch && bestDistance < MATCH_THRESHOLD) {
       // Calculate confidence: ((64 - distance) / 64) * 100

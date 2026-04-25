@@ -152,42 +152,59 @@ export async function searchProductsByKeywordsWithScoring(
   try {
     const normalizedQuery = query.trim();
     
-    // Fetch products for the workspace, optionally filtering by flavor or category
+    // Build the query with keyword filtering directly in SQL to avoid fetching all products
     let queryBuilder = supabase
       .from('products')
       .select('*')
       .eq('workspace_id', workspaceId);
     
     if (flavor) {
-      // Filter by flavor specifically
       queryBuilder = queryBuilder.ilike('flavor', `%${flavor}%`);
     }
 
     if (category && category !== 'all') {
-      // Filter by category specifically
       queryBuilder = queryBuilder.ilike('category', `%${category}%`);
     }
 
-    const { data: allProducts, error } = await queryBuilder;
+    // Optimization: If there are keywords, apply them in the DB query
+    if (normalizedQuery) {
+      const keywords = normalizedQuery.toLowerCase().split(/\s+/);
+      const orConditions: string[] = [];
+      
+      keywords.forEach(keyword => {
+        if (keyword.length < 2) return; // Skip tiny keywords to avoid noise
+        orConditions.push(`name.ilike.%${keyword}%`);
+        orConditions.push(`description.ilike.%${keyword}%`);
+        orConditions.push(`category.ilike.%${keyword}%`);
+        orConditions.push(`search_keywords.cs.{${keyword}}`);
+      });
+
+      if (orConditions.length > 0) {
+        queryBuilder = queryBuilder.or(orConditions.join(','));
+      }
+    }
+
+    // Limit the initial DB fetch to a reasonable amount (e.g., 100) to keep memory low
+    // while still allowing JS-based scoring for relevance ranking
+    const { data: matchedProducts, error } = await queryBuilder.limit(100);
 
     if (error) {
       console.error('Error fetching products:', error);
       throw new Error(`Failed to fetch products: ${error.message}`);
     }
 
-    if (!allProducts || allProducts.length === 0) {
+    if (!matchedProducts || matchedProducts.length === 0) {
       return [];
     }
 
     if (!normalizedQuery) {
-      // If no query but category/flavor provided, return paginated products
-      return (allProducts as Product[]).slice(offset, offset + limit);
+      return (matchedProducts as Product[]).slice(offset, offset + limit);
     }
 
     const keywords = normalizedQuery.toLowerCase().split(/\s+/);
 
-    // Score each product based on keyword matches
-    const scoredProducts = (allProducts as Product[]).map((product) => {
+    // Score only the subset of products matched by DB
+    const scoredProducts = (matchedProducts as Product[]).map((product) => {
       let score = 0;
 
       keywords.forEach((keyword) => {
@@ -212,16 +229,16 @@ export async function searchProductsByKeywordsWithScoring(
       return { product, score };
     });
 
-    // Filter products with score > 0 and sort by score (descending)
-    const matchedProducts = scoredProducts
+    // Sort by score (descending) and return requested page
+    const finalProducts = scoredProducts
       .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(offset, offset + limit)
       .map(({ product }) => product);
 
-    console.log(`✓ Found ${matchedProducts.length} product(s) with scoring for query: "${query}"${flavor ? ` with flavor: "${flavor}"` : ''}`);
+    console.log(`✓ Found ${finalProducts.length} product(s) with optimized scoring for query: "${query}"`);
     
-    return matchedProducts;
+    return finalProducts;
   } catch (error) {
     console.error('Unexpected error in searchProductsByKeywordsWithScoring:', error);
     throw error;

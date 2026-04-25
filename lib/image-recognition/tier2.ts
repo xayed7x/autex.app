@@ -258,10 +258,10 @@ export async function findTier2Match(
           productFeatures.dominantColors[0]
         );
         
-        // If primary colors differ by more than 30 (out of ~441), REJECT MATCH
+        // If primary colors differ by more than 20 (out of ~441), REJECT MATCH
         // This prevents white cakes matching chocolate cakes based on background
-        if (primaryDistance > 30) {
-          console.log(`  ❌ [REJECT] Primary color mismatch (distance: ${Math.round(primaryDistance)}). Skipping product: ${product.name}`);
+        if (primaryDistance > 20) {
+          console.log(`  ❌ [STRICT REJECT] Primary color mismatch (distance: ${Math.round(primaryDistance)}). Skipping product: ${product.name}`);
           continue; 
         }
       }
@@ -280,8 +280,8 @@ export async function findTier2Match(
       }
     }
 
-    // Threshold: total score > 96% is considered a match (HIGH PRECISION)
-    const MATCH_THRESHOLD = 96;
+    // Threshold: total score > 98% is considered a match (ULTRA PRECISION)
+    const MATCH_THRESHOLD = 98;
 
     if (bestMatch && bestScores.totalScore > MATCH_THRESHOLD) {
       return {

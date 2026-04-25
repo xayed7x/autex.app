@@ -77,10 +77,13 @@ export interface FastLaneResult {
   matched: boolean;
   
   /** Action to take (if matched) */
-  action?: 'CONFIRM' | 'DECLINE' | 'COLLECT_NAME' | 'COLLECT_PHONE' | 'COLLECT_ADDRESS' | 'GREETING' | 'CREATE_ORDER';
+  action?: 'CONFIRM' | 'DECLINE' | 'COLLECT_NAME' | 'COLLECT_PHONE' | 'COLLECT_ADDRESS' | 'GREETING' | 'CREATE_ORDER' | 'SEARCH_PRODUCTS';
   
   /** Response message (if matched) — empty when silentExtraction=true */
   response?: string;
+
+  /** Extracted query (for search actions) */
+  query?: string;
   
   /** 
    * When true, Fast Lane extracted data silently but AI Director should generate
@@ -221,6 +224,43 @@ export function tryFastLane(
         state: 'IDLE',
       },
     };
+  }
+  
+  // ============================================
+  // PATTERN 2: FAST SEARCH (Bypass AI for simple catalog requests)
+  // ============================================
+  // If user asks for "pictures", "designs", "catalog", or a specific product type (like "cake")
+  // and we are in a state where discovery is allowed (IDLE or CONFIRMING_PRODUCT)
+  if (currentState === 'IDLE' || currentState === 'CONFIRMING_PRODUCT') {
+    const isExplicitDiscovery = /(পিকচার|ছবি|ক্যাটালগ|ডিজাইন|picture|photo|design|catalog|gallery|show me|দেখাও|দেখুন|দেখান|পিক|pic|pikk|pkk)/i.test(trimmedInput);
+    
+    // Check if it's a "silent search" (e.g., "chocolate cake", "anniversary cake", "birthday")
+    // Catching these anywhere in the string to support natural language like "I want cake for my birthday"
+    const isSilentDiscovery = settings?.businessCategory === 'food' 
+      ? /(চকলেট|ভ্যানিলা|অ্যানিভারসারি|বার্থডে|বড়|ছোট|হৃদয়|heart|cake|chocolate|vanilla|anniversary|birthday|red velvet|black forest|wedding|বিয়ে|উপহার|gift|engagement|নিবন্ধন|ভ্যালেন্টাইন|valentine|পাউন্ড|pound|kg|কেজি)/i.test(trimmedInput)
+      : false;
+
+    if (isExplicitDiscovery || isSilentDiscovery) {
+       console.log(`🚀 [FAST_LANE] Search Intent Detected: "${trimmedInput}" (Explicit: ${isExplicitDiscovery})`);
+       
+       // For silent discovery, we use the whole input as query because the SQL logic 
+       // handles keyword splitting and scoring efficiently.
+       // For explicit, we strip the trigger word to focus on the product name if any.
+       const query = isExplicitDiscovery
+         ? trimmedInput.replace(/(পিকচার|ছবি|ক্যাটালগ|ডিজাইন|picture|photo|design|catalog|gallery|show me|দেখাও|দেখুন|দেখান|পিক|pic|pikk|pkk)\s*/i, '').trim()
+         : trimmedInput;
+
+       return {
+         matched: true,
+         action: 'SEARCH_PRODUCTS',
+         query: query,
+         response: '', // Silent, tool will send cards
+         newState: 'CONFIRMING_PRODUCT',
+         updatedContext: {
+           state: 'CONFIRMING_PRODUCT',
+         },
+       };
+    }
   }
   
   // ============================================

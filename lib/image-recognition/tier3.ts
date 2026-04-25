@@ -294,8 +294,8 @@ export async function findTier3Match(
       }
     }
 
-    // Threshold: score >= 30 is considered a match (lowered to reduce false negatives)
-    const MATCH_THRESHOLD = 30;
+    // Threshold: score >= 50 is considered a match (Higher bar for AI)
+    const MATCH_THRESHOLD = 50;
 
     if (bestMatch && bestScore > MATCH_THRESHOLD) {
       console.log(`  🎯 Best match: ${bestMatch.name} (score: ${bestScore})`);

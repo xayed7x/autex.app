@@ -48,12 +48,26 @@ export default function WorkspaceConversationsPage() {
   const [outcomeFilter, setOutcomeFilter] = useState("all")
 
   useEffect(() => {
-    if (workspaceId) fetchData()
+    if (workspaceId) {
+      fetchData()
+      
+      // Real-time polling (every 5 seconds)
+      const interval = setInterval(() => {
+        fetchData(false, true) // isRefresh=false, isSilent=true
+      }, 5000)
+      
+      return () => clearInterval(interval)
+    }
   }, [workspaceId])
 
-  const fetchData = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true)
-    else setLoading(true)
+  const fetchData = async (isRefresh = false, isSilent = false) => {
+    if (isSilent) {
+      // Do nothing to UI
+    } else if (isRefresh) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
 
     try {
       const response = await fetch(`/api/admin/workspaces/${workspaceId}/conversations`)

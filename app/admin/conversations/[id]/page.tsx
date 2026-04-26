@@ -64,11 +64,20 @@ export default function ConversationDetailPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (conversationId) fetchData()
+    if (conversationId) {
+      fetchData()
+      
+      // Real-time polling (every 5 seconds)
+      const interval = setInterval(() => {
+        fetchData(true) // Pass true for silent refresh
+      }, 5000)
+      
+      return () => clearInterval(interval)
+    }
   }, [conversationId])
 
-  const fetchData = async () => {
-    setLoading(true)
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const response = await fetch(`/api/admin/conversations/${conversationId}`)
       if (!response.ok) throw new Error('Failed to fetch')
@@ -234,7 +243,7 @@ export default function ConversationDetailPage() {
                           : 'bg-primary/10 text-left'
                       }`}>
                         {/* Images */}
-                        {msg.imageUrl && (
+                        {msg.imageUrl && (!msg.attachments || !Array.isArray(msg.attachments) || !msg.attachments.some((att: any) => att.payload?.url === msg.imageUrl)) && (
                           <div className="mb-2 overflow-hidden rounded-lg">
                             <img src={msg.imageUrl} alt="Attachment" className="max-w-full h-auto" />
                           </div>

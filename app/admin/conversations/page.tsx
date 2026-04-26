@@ -42,11 +42,23 @@ export default function AdminConversationsPage() {
 
   useEffect(() => {
     fetchConversations()
+    
+    // Real-time polling (every 5 seconds)
+    const interval = setInterval(() => {
+      fetchConversations(false, true) // isRefresh=false, isSilent=true
+    }, 5000)
+    
+    return () => clearInterval(interval)
   }, [])
 
-  const fetchConversations = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true)
-    else setLoading(true)
+  const fetchConversations = async (isRefresh = false, isSilent = false) => {
+    if (isSilent) {
+      // Do nothing to UI
+    } else if (isRefresh) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
 
     try {
       const response = await fetch('/api/admin/conversations')

@@ -311,8 +311,8 @@ export async function sendProductsVertical(
   products: any[],
   businessCategory?: string
 ): Promise<SendMessageResponse[]> {
-  // Limit to max 4 products to avoid spamming
-  const limitedProducts = products.slice(0, 4);
+  // Limit to max 30 products to fulfill discovery requests as requested by owner
+  const limitedProducts = products.slice(0, 30);
   const results: SendMessageResponse[] = [];
   
   for (const product of limitedProducts) {

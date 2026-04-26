@@ -30,11 +30,15 @@ const searchProducts: ChatCompletionTool = {
       properties: {
         query: {
           type: 'string',
-          description: 'Natural language search query. Examples: "red saree", "polo t-shirt". Optional: If empty, the tool searches all products.',
+          description: 'Natural language search query. Examples: "Chocolate cake", "Anniversary design". Optional: If empty, the tool searches all products.',
         },
         category: {
           type: 'string',
           description: 'Filter by category: "Anniversary", "Birthday", "Wedding", "Baby Shower", "Engagement", "Islamic/Traditional", "Congratulation", "Gift/Love", or "Other". ALWAYS extract and pass this if mentioned.',
+        },
+        flavor: {
+          type: 'string',
+          description: 'Specific flavor requested by customer (e.g., "Chocolate", "Vanilla", "Red Velvet"). Optional.',
         },
         size: {
           type: 'string',
@@ -46,11 +50,11 @@ const searchProducts: ChatCompletionTool = {
         },
         limit: {
           type: 'number',
-          description: 'Number of products to return. Default: 20.',
+          description: 'Number of products to return. Default: 30.',
         },
         offset: {
           type: 'number',
-          description: 'Offset for pagination. For the next 20 products, use offset: 20. Default: 0.',
+          description: 'Offset for pagination. To see the next set of products, use offset: 30. Default: 0.',
         },
         sendCard: {
           type: 'boolean',

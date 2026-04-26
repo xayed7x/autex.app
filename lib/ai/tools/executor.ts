@@ -153,13 +153,14 @@ async function executeSearchProducts(
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
   const query = String(args.query || '');
+  const category = args.category ? String(args.category) : undefined;
+  const flavor = args.flavor ? String(args.flavor) : undefined;
   const size = args.size ? String(args.size) : undefined;
   const color = args.color ? String(args.color) : undefined;
-  const category = args.category ? String(args.category) : undefined;
-  const limit = Number(args.limit) || 20;
+  const limit = Number(args.limit) || 30;
   const offset = Number(args.offset) || 0;
   
-  const searchResult = await searchProducts(query, ctx.workspaceId, size, color, undefined, category, limit, offset);
+  const searchResult = await searchProducts(query, ctx.workspaceId, size, color, flavor, category, limit, offset);
 
   const sendCard = args.sendCard === true;
 

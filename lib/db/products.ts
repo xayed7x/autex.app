@@ -219,7 +219,9 @@ export async function searchProductsByKeywordsWithScoring(
       return [];
     }
 
-    if (!normalizedQuery) {
+    const trimmedQuery = normalizedQuery.toLowerCase().trim();
+    if (!trimmedQuery || trimmedQuery === 'all' || trimmedQuery === 'show all' || trimmedQuery === 'সব') {
+      console.log(`🔍 [DB_SEARCH] Generic/Empty query detected. Returning catalog slice. Filters: flavor=${flavor}, category=${category}`);
       return (matchedProducts as Product[]).slice(offset, offset + limit);
     }
 

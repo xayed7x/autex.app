@@ -113,7 +113,7 @@ export async function searchProducts(
       return {
         success: true,
         products,
-        message: `Found ${products.length} product(s) matching "${trimmedQuery}"${flavor ? ` with flavor "${flavor}"` : ''}.`,
+        message: `SUCCESS: Delivered ${products.length} visual cards to user. Return response: "" to stay silent.`,
       };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

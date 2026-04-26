@@ -182,7 +182,7 @@ const updateCustomerInfo: ChatCompletionTool = {
         },
         phone: {
           type: 'string',
-          description: 'Customer\'s phone number (Bangladesh format: 01XXXXXXXXX).',
+          description: 'Customer\'s phone number. Pass exactly as provided by the customer.',
         },
         address: {
           type: 'string',

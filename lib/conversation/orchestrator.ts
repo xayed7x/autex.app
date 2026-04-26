@@ -318,34 +318,92 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // ========================================
     let imageContext: PendingImage | null = null;
     
-    // Support debounced multi-images by picking the first one if imageUrl is missing
+    // Support debounced multi-images
+    const allImageUrls = input.imageUrls || (input.imageUrl ? [input.imageUrl] : []);
+    const isMultiImageBatch = allImageUrls.length > 1;
+    const isPendingSelection = !!currentContext.metadata?.pendingSingleImageSelection;
+
     let activeImageUrl = input.imageUrl;
-    if (!activeImageUrl && input.imageUrls && input.imageUrls.length > 0) {
-      activeImageUrl = input.imageUrls[0];
+    if (!activeImageUrl && allImageUrls.length > 0) {
+      activeImageUrl = allImageUrls[0];
     }
 
     if (activeImageUrl && (input.botEnabled !== false || input.isTestMode)) {
-      console.log('🖼️ Running Image Recognition...');
-      const formData = new FormData();
-      formData.append('imageUrl', activeImageUrl);
-      formData.append('workspaceId', input.workspaceId);
-      
-      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/image-recognition`, {
-        method: 'POST',
-        body: formData,
-      });
+      // --- MULTI-IMAGE SHORT-CIRCUIT ---
+      if (isMultiImageBatch) {
+        console.log(`📦 [MULTI-IMAGE] Detected ${allImageUrls.length} images. Short-circuiting.`);
+        const multiImageMsg = "আপনি একসাথে অনেকগুলো ছবি পাঠিয়েছেন। দয়া করে আপনি যে ডিজাইনটি অর্ডার করতে চান, শুধুমাত্র সেই একটি ছবি পাঠান। তাহলে আমি আপনাকে দাম এবং বিস্তারিত জানাতে পারব। 😊";
+        
+        if (!input.isTestMode) {
+          await sendMessage(input.pageId, input.customerPsid, multiImageMsg);
+        }
+        
+        // Log customer message
+        await supabase.from('messages').insert({
+          conversation_id: input.conversationId,
+          sender: input.customerPsid,
+          sender_type: 'customer',
+          message_text: input.messageText || `[Customer sent ${allImageUrls.length} images]`,
+          message_type: 'text',
+          image_url: activeImageUrl || null,
+          mid: input.mid || null,
+        });
 
-      const result = await response.json();
+        // Log bot message
+        await supabase.from('messages').insert({
+          conversation_id: input.conversationId,
+          sender: 'bot',
+          sender_type: 'bot',
+          message_text: multiImageMsg,
+          message_type: 'text',
+        });
+
+        // Set flag for next turn
+        if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
+        currentContext.metadata.pendingSingleImageSelection = true;
+        
+        await updateContextInDb(supabase, input.conversationId, convData.current_state, currentContext);
+        
+        return {
+          response: multiImageMsg,
+          newState: convData.current_state,
+          updatedContext: currentContext,
+        };
+      }
+
+      // --- SINGLE IMAGE PROCESSING ---
+      console.log('🖼️ Running Image Recognition...');
+      let result: any = { success: false };
+      
+      // If we were waiting for a single image, FORCE Custom Design (Inspiration) mode
+      // This satisfies the user requirement: "it will process it as the custom image"
+      let forcedCustom = false;
+      if (isPendingSelection) {
+        console.log('🎯 [FORCED CUSTOM] Processing single image as custom design due to previous multi-image batch.');
+        forcedCustom = true;
+        // Clear flag
+        currentContext.metadata.pendingSingleImageSelection = false;
+      } else {
+        const formData = new FormData();
+        formData.append('imageUrl', activeImageUrl);
+        formData.append('workspaceId', input.workspaceId);
+        
+        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/image-recognition`, {
+          method: 'POST',
+          body: formData,
+        });
+        result = await response.json();
+      }
       
       // === FOOD BUSINESS: INSPIRATION DETECTION ===
       const isFood = settings.businessCategory === 'food';
       const confidence = result.match?.confidence || 0;
-      const isInspiration = isFood && (!result.success || confidence < 85);
+      const isInspiration = forcedCustom || (isFood && (!result.success || confidence < 85));
       
       if (isInspiration) {
-        console.log('✨ [INSPIRATION DETECTED] Low confidence or no match found for food item.');
+        console.log('✨ [INSPIRATION/CUSTOM DETECTED] Forcing custom design flow.');
         if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
-        currentContext.metadata.activeInspirationUrl = input.imageUrl;
+        currentContext.metadata.activeInspirationUrl = activeImageUrl;
         currentContext.metadata.activeCustomDesign = true;
         currentContext.metadata.orderStage = 'COLLECTING_INFO';
         currentContext.metadata.activeProductId = undefined;
@@ -356,6 +414,17 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         // Only send if NOT already in history (last 10 messages)
         const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-10);
         const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
+
+        // Log customer message (ALWAYS log what the customer sent)
+        await supabase.from('messages').insert({
+          conversation_id: input.conversationId,
+          sender: input.customerPsid,
+          sender_type: 'customer',
+          message_text: input.messageText || '[Customer sent an image]',
+          message_type: 'text',
+          image_url: activeImageUrl || null,
+          mid: input.mid || null,
+        });
 
         if (!alreadySent) {
           console.log("🚀 [SHORT-CIRCUIT] Sending automated wait message.");
@@ -381,6 +450,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           context: currentContext,
           last_message_at: new Date().toISOString()
         }).eq('id', input.conversationId);
+        
         return {
           response: waitMessage,
           newState: 'COLLECTING_INFO',
@@ -480,6 +550,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       customerPsid: input.customerPsid,
       currentTime: new Date().toISOString(),
       lastOrderDate,
+      allImageUrls: input.imageUrls || (input.imageUrl ? [input.imageUrl] : []),
     };
 
     console.log(`🤖 Calling Agent... [Memory Summary: ${!!memorySummary}] [Messages Passed: ${recentMessages.length}]`);
@@ -850,8 +921,60 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       finalResponse = "";
     }
 
+    // Treat literal quotes or empty placeholders as empty (fix for AI "empty string" hallucination)
+    const normalizedResponse = (finalResponse || '').trim();
+    if (normalizedResponse === '""' || normalizedResponse === "''" || normalizedResponse === '“”') {
+      console.log('🛡️ [SILENCE GUARD] Intercepted literal quote response. Staying silent.');
+      finalResponse = "";
+    }
+
     // ========================================
-    // STEP 6.9: SEND TEXT RESPONSE
+    // STEP 6.95: GLOBAL SEMANTIC REPETITION SHIELD (90% Similarity)
+    // ========================================
+    if (finalResponse && finalResponse.trim().length > 0) {
+      const recentAssistantMsgs = chatHistory
+        .filter(m => m.role === 'assistant')
+        .slice(-3)
+        .map(m => typeof m.content === 'string' ? m.content : '');
+
+      // Normalization: Remove ALL non-alphanumeric/non-Bangla-char content
+      const normalize = (text: string) => {
+        return text
+          .replace(/[^\u0980-\u09FFa-zA-Z0-0]/g, '') // Keep only Bangla and Alphanumeric
+          .replace(/[টাটি]/g, '')                   // Remove common suffixes
+          .trim();
+      };
+
+      const normalizedNew = normalize(finalResponse);
+
+      const isSemanticRepetition = recentAssistantMsgs.some(oldMsg => {
+        const normalizedOld = normalize(oldMsg);
+        
+        // Exact normalized match
+        if (normalizedOld === normalizedNew && normalizedNew.length > 10) return true;
+        
+        // Simple similarity check for long messages (if 90% of the characters match in order)
+        if (normalizedNew.length > 20 && normalizedOld.length > 20) {
+          const longer = normalizedNew.length > normalizedOld.length ? normalizedNew : normalizedOld;
+          const shorter = normalizedNew.length > normalizedOld.length ? normalizedOld : normalizedNew;
+          
+          if (longer.includes(shorter) || (longer.length - shorter.length) < (longer.length * 0.1)) {
+             // If one contains the other or they are very close in length after normalization, block it
+             return true;
+          }
+        }
+        return false;
+      });
+
+      if (isSemanticRepetition) {
+        console.log(`🛡️ [REPETITION SHIELD] Suppressing response (90%+ match).`);
+        console.log(`   New (Norm): "${normalizedNew.substring(0, 50)}..."`);
+        finalResponse = '';
+      }
+    }
+
+    // ========================================
+    // STEP 7: PERSIST STATE & FINALIZE RESPONSE
     // ========================================
     if (finalResponse) {
       if (!input.isTestMode) {

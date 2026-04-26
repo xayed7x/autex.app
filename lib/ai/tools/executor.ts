@@ -443,15 +443,15 @@ async function executeUpdateCustomerInfo(
       normalizedPhone = '0' + normalizedPhone.slice(3);
     }
     
-    // Any 11 digit number starting with 01 is valid for BD
-    const isValid = normalizedPhone.length === 11 && normalizedPhone.startsWith('01');
+    // Any number is valid as long as it has digits
+    const isValid = normalizedPhone.length >= 7;
     
     if (!isValid) {
       return {
         result: {
           success: false,
           data: { invalidField: 'phone' },
-          message: `Phone number "${phone}" is invalid. Please give a valid 11-digit number (e.g. 01712345678).`,
+          message: `Phone number "${phone}" is invalid. Please give a valid contact number.`,
         },
         sideEffects: {},
       };

@@ -129,8 +129,9 @@ export interface FastLaneResult {
 // REGEX PATTERNS
 // ============================================
 
-// Phone number patterns (Bangladesh)
+// Phone number patterns (Relaxed)
 const PHONE_PATTERNS = [
+  /^\d{7,15}$/,               // generic 7-15 digits
   /^01[3-9]\d{8}$/,           // 01XXXXXXXXX
   /^\+8801[3-9]\d{8}$/,       // +8801XXXXXXXXX
   /^8801[3-9]\d{8}$/,         // 8801XXXXXXXXX

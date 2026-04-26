@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, waitUntil } from 'next/server';
 import {
   verifySignature,
   generateEventId,
@@ -123,10 +123,9 @@ export async function POST(request: NextRequest) {
       for (const entry of payload.entry) {
         if (isInstagram) {
           // Instagram events: entry.id is the Instagram Business Account ID
-          if (entry.messaging) {
-            // Process all events in background for Instagram
-            entry.messaging.map(event => processInstagramMessagingEvent(supabase, entry.id, event));
-          }
+            entry.messaging.map(event => {
+              waitUntil(processInstagramMessagingEvent(supabase, entry.id, event));
+            });
           
           // Handle Instagram changes (e.g., comments)
           if (entry.changes) {
@@ -138,16 +137,14 @@ export async function POST(request: NextRequest) {
           }
         } else {
           // Facebook Messenger events: entry.id is the Facebook Page ID
-          if (entry.messaging) {
-            // Process all events in background so debouncing lock can work correctly
-            entry.messaging.map(event => processMessagingEvent(supabase, entry.id, event));
-          }
+            entry.messaging.map(event => {
+              waitUntil(processMessagingEvent(supabase, entry.id, event));
+            });
           
           // Handle Standby events (messages sent while our app is not the primary receiver)
-          if (entry.standby) {
-            // Process all standby events in background
-            entry.standby.map(event => processMessagingEvent(supabase, entry.id, event));
-          }
+            entry.standby.map(event => {
+              waitUntil(processMessagingEvent(supabase, entry.id, event));
+            });
           
           // Handle changes (e.g., comments) — Messenger only
           if (entry.changes) {

@@ -103,6 +103,16 @@ function isResponseRepetitive(finalResponse: string, allMessages: any[]): boolea
 
 export async function processMessage(input: ProcessMessageInput): Promise<ProcessMessageResult> {
   const startTime = Date.now();
+
+  // ========================================
+  // STEP 0: IMMEDIATE MARK SEEN & TYPING
+  // ========================================
+  if (!input.isTestMode) {
+    const { markSeen, typingOn } = await import('@/lib/facebook/messenger');
+    // Fire and forget to keep orchestrator fast
+    markSeen(input.pageId, input.customerPsid).catch(e => console.error("⚠️ Failed to mark seen:", e));
+    typingOn(input.pageId, input.customerPsid).catch(e => console.error("⚠️ Failed to turn on typing:", e));
+  }
   
   console.log('\n🎭 ORCHESTRATOR STARTED (AGENTIC)');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

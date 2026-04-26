@@ -211,8 +211,8 @@ export default function ConversationsPage() {
   const [thumbTop, setThumbTop] = useState(0)
   const [thumbHeight, setThumbHeight] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
-  const [uploadingMedia, setUploadingMedia] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const uploadingMedia = pendingAttachments.some(a => a.status === 'uploading')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -227,12 +227,12 @@ export default function ConversationsPage() {
     selectedIdRef.current = selectedConversation?.id || null
   }, [selectedConversation?.id])
 
-  // Auto-reset textarea height when message is cleared
+  // Auto-reset textarea height when message or attachments are cleared
   useEffect(() => {
-    if (newMessage === '' && textareaRef.current) {
+    if (newMessage === '' && pendingAttachments.length === 0 && textareaRef.current) {
       textareaRef.current.style.height = '40px'
     }
-  }, [newMessage])
+  }, [newMessage, pendingAttachments.length])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -412,11 +412,12 @@ export default function ConversationsPage() {
                 ...conv,
                 last_message: newMessage,
                 last_message_at: newMessage.created_at,
-                message_count: (conv.message_count || 0) + 1
+                message_count: (conv.message_count || 0) + 1,
+                is_read: false // Mark as unread locally immediately
               }
             }
             return conv
-          }).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime())
+          }).sort((a, b) => new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime())
         })
 
         // If this message belongs to the selected conversation, refresh it
@@ -668,11 +669,20 @@ export default function ConversationsPage() {
 
   const handleSelectConversation = async (conv: Conversation) => {
     setMobileView("chat")
-    // Optimistically set the basic info so the header can show immediately
+    // Optimistically set the basic info and mark as read
     setSelectedConversation(prev => ({
       ...conv,
-      messages: prev?.id === conv.id ? prev.messages : [] // keep messages if same ID, else clear to avoid flash
+      is_read: true,
+      messages: prev?.id === conv.id ? prev.messages : []
     }))
+    
+    // Update is_read in Supabase
+    const supabase = createClient()
+    await supabase
+      .from('conversations')
+      .update({ is_read: true })
+      .eq('id', conv.id)
+
     await fetchConversationDetail(conv.id)
   }
 
@@ -703,27 +713,27 @@ export default function ConversationsPage() {
     const hasPending = pendingAttachments.length > 0
     const hasText = messageText.length > 0
 
-    if (!hasText && !attachmentUrl && !hasPending || !selectedConversation || sendingMessage) {
+    if ((!hasText && !attachmentUrl && !hasPending) || !selectedConversation || sendingMessage) {
       return
     }
 
     setSendingMessage(true)
     
     // Helper to send a single message (with optional attachment)
-    const sendSingleMessage = async (text: string | null, url?: string, type?: string) => {
+    const sendSingleMessage = async (textToPost: string | null, urlToPost?: string, typeToPost?: string) => {
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
     
       // Optimistic UI update
       const optimisticMessage: Message = {
         id: tempId,
         sender: 'human',
-        message_text: text || '',
-        message_type: type === 'video' ? 'video' : type === 'image' ? 'image' : 'text',
+        message_text: textToPost || '',
+        message_type: typeToPost === 'video' ? 'video' : typeToPost === 'image' ? 'image' : 'text',
         created_at: new Date().toISOString(),
-        image_url: type === 'image' ? url : null,
-        attachments: url ? [{ 
-          type: type || 'image', 
-          payload: { url: url } 
+        image_url: typeToPost === 'image' ? urlToPost : null,
+        attachments: urlToPost ? [{ 
+          type: typeToPost || 'image', 
+          payload: { url: urlToPost } 
         }] : null
       }
  
@@ -735,26 +745,23 @@ export default function ConversationsPage() {
         }
       })
  
-    if (!attachmentUrl) setNewMessage('')
-    setSendingMessage(true)
+      try {
+        const response = await fetch(`/api/conversations/${selectedConversation.id}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            text: textToPost,
+            attachment_url: urlToPost,
+            attachment_type: typeToPost
+          }),
+        })
  
-    try {
-      const response = await fetch(`/api/conversations/${selectedConversation.id}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          text: messageText,
-          attachment_url: attachmentUrl,
-          attachment_type: attachmentType
-        }),
-      })
- 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to send message')
-      }
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Failed to send message')
+        }
  
         const data = await response.json()
         
@@ -787,6 +794,7 @@ export default function ConversationsPage() {
 
     try {
       if (attachmentUrl) {
+        setNewMessage('')
         await sendSingleMessage(messageText, attachmentUrl, attachmentType)
       } else if (hasPending) {
         const readyAttachments = pendingAttachments.filter(a => a.status === 'ready')
@@ -797,8 +805,10 @@ export default function ConversationsPage() {
           return
         }
 
+        setNewMessage('')
         for (let i = 0; i < readyAttachments.length; i++) {
           const att = readyAttachments[i]
+          // Only send text with the first attachment to avoid duplication
           await sendSingleMessage(i === 0 ? messageText : null, att.url, att.type)
         }
         
@@ -808,10 +818,10 @@ export default function ConversationsPage() {
         
         setPendingAttachments([])
       } else {
+        setNewMessage('')
         await sendSingleMessage(messageText)
       }
-
-      setNewMessage('')
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
     } finally {
       setSendingMessage(false)
     }
@@ -855,10 +865,8 @@ export default function ConversationsPage() {
         ))
       } catch (error) {
         console.error('Upload failed for file:', attachment.file.name, error)
-        setPendingAttachments(prev => prev.map(a => 
-          a.id === attachment.id ? { ...a, status: 'error' } : a
-        ))
         toast.error(`Failed to upload ${attachment.file.name}`)
+        setPendingAttachments(prev => prev.filter(a => a.id !== attachment.id))
       }
     })
 
@@ -1094,12 +1102,32 @@ export default function ConversationsPage() {
                               </span>
                             </div>
                             
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <p className={cn("text-xs truncate max-w-[140px]", isSelected ? "text-zinc-600 dark:text-zinc-400" : "text-zinc-500")}>
-                                {conv.last_message?.sender === 'page' || conv.last_message?.sender_type === 'bot' ? 'You: ' : ''}
-                                {conv.last_message?.message_text || "No messages"}
+                            <div className="flex items-center gap-2 mt-0.5 relative">
+                              <p className={cn(
+                                "text-xs truncate max-w-[170px]", 
+                                isSelected ? "text-zinc-600 dark:text-zinc-400" : (conv.is_read === false ? "text-zinc-900 dark:text-white font-bold" : "text-zinc-500")
+                              )}>
+                                {(() => {
+                                  const lastMsg = conv.last_message;
+                                  if (!lastMsg) return "No messages";
+                                  
+                                  const isMe = lastMsg.sender === 'page' || lastMsg.sender_type === 'bot' || lastMsg.sender_type === 'owner';
+                                  const prefix = isMe ? "You: " : "";
+                                  
+                                  if (lastMsg.message_type === 'image') return `${prefix}sent a photo`;
+                                  if (lastMsg.message_type === 'video') return `${prefix}sent a video`;
+                                  if (lastMsg.message_type === 'audio') return `${prefix}sent a voice message`;
+                                  if (lastMsg.message_type === 'attachment') return `${prefix}sent an attachment`;
+                                  
+                                  return `${prefix}${lastMsg.message_text || "Sent an attachment"}`;
+                                })()}
                               </p>
                               
+                              {/* Unread Indicator (Blue Dot) */}
+                              {conv.is_read === false && !isSelected && (
+                                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-[#0084FF] rounded-full shadow-[0_0_10px_rgba(0,132,255,0.5)]" />
+                              )}
+
                               {/* Control Mode Mini Badge */}
                               <span className={cn(
                                   "ml-auto text-[9px] px-1.5 py-[1px] rounded flex-shrink-0 uppercase tracking-wider font-bold border",
@@ -1516,11 +1544,11 @@ export default function ConversationsPage() {
                        variant="ghost"
                        className={cn(
                          "h-10 w-10 rounded-full transition-all duration-300",
-                         newMessage.trim() 
+                         (newMessage.trim() || (pendingAttachments.length > 0 && !uploadingMedia))
                            ? "text-[#0084FF] hover:bg-zinc-100 dark:hover:bg-white/5" 
                            : "text-zinc-300 dark:text-zinc-700"
                        )}
-                       disabled={sendingMessage || uploadingMedia || (!newMessage.trim() && pendingAttachments.filter(a => a.status === 'ready').length === 0)}
+                       disabled={sendingMessage || uploadingMedia || (newMessage.trim().length === 0 && pendingAttachments.length === 0)}
                      >
                         <Send className="h-5 w-5 fill-current" />
                      </Button>

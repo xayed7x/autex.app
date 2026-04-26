@@ -39,11 +39,13 @@ export async function GET(request: Request) {
         messages (
           id,
           sender,
+          sender_type,
           message_text,
           message_type,
           created_at
         )
       `, { count: 'exact' })
+      .order('created_at', { foreignTable: 'messages', ascending: false })
       .eq('workspace_id', workspace.id)
       .order('last_message_at', { ascending: false })
       .range(offset, offset + limit - 1)

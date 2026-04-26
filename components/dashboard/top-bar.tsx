@@ -39,6 +39,9 @@ import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { playNotificationSound } from "@/lib/notification-sound"
 import { NotificationToast, type CustomNotification } from "@/components/dashboard/notification-toast"
+import { useNotifications } from "@/hooks/use-notifications"
+import { usePWAInstall } from "@/hooks/use-pwa-install"
+import { Download, BellOff } from "lucide-react"
 
 interface TopBarProps {
   title?: string
@@ -120,10 +123,13 @@ export function TopBar({ title }: TopBarProps) {
   const [userData, setUserData] = useState<UserData | null>(null)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [customQueue, setCustomQueue] = useState<CustomNotification[]>([])
-  const { needsReplyCount, pendingOrdersCount, loading: workspaceLoading } = useWorkspace()
+  const { needsReplyCount, unreadConversationsCount, pendingOrdersCount, loading: workspaceLoading } = useWorkspace()
   const pathname = usePathname()
   const router = useRouter()
   const { toast } = useToast()
+  
+  const { isSubscribed, subscribe, permission } = useNotifications()
+  const { isInstallable, installApp, isIos } = usePWAInstall()
 
   // Auto-dismiss custom notifications after 5 seconds
   useEffect(() => {
@@ -144,9 +150,9 @@ export function TopBar({ title }: TopBarProps) {
     setCustomQueue((prev) => prev.filter((n) => n.id !== id))
   }
   
-  // Combined count for the bell badge: Actionable Conversations + Unread Notifications
-  const unreadCount = notifications.filter((n) => n.unread).length
-  const totalNotifications = needsReplyCount + unreadCount
+  // Combined count for the bell badge: Actionable Conversations + Unread Notifications + Unread Conversations
+  const unreadSystemNotifsCount = notifications.filter((n) => n.unread).length
+  const totalNotifications = needsReplyCount + unreadSystemNotifsCount + unreadConversationsCount
 
   useEffect(() => {
     fetchData()
@@ -434,6 +440,21 @@ export function TopBar({ title }: TopBarProps) {
               </p>
             </SheetContent>
           </Sheet>
+
+
+
+          {/* Enable Notifications Button (If not subscribed and permission not denied) */}
+          {!isSubscribed && permission !== 'denied' && (
+             <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-9 w-9 rounded-full bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 border border-orange-500/20 transition-all duration-300 group"
+              onClick={subscribe}
+              title="Enable Desktop Notifications"
+            >
+              <BellOff className="h-4 w-4" />
+            </Button>
+          )}
 
           {/* Notifications */}
           <DropdownMenu>

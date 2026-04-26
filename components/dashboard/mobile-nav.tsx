@@ -17,7 +17,7 @@ const mobileNav = [
 
 export function MobileNav() {
   const pathname = usePathname()
-  const { needsReplyCount, pendingOrdersCount } = useWorkspace()
+  const { needsReplyCount, unreadConversationsCount, pendingOrdersCount } = useWorkspace()
 
   // Hide bottom navbar on conversation page to maximize space
   if (pathname === '/dashboard/conversations') return null
@@ -32,11 +32,23 @@ export function MobileNav() {
               key={item.name}
               href={item.href}
               className={cn(
-                "flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors",
+                "flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors relative",
                 isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <item.icon className="h-5 w-5" />
+              <div className="relative">
+                <item.icon className="h-5 w-5" />
+                {item.name === "Chats" && unreadConversationsCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-background">
+                    {unreadConversationsCount > 9 ? '9+' : unreadConversationsCount}
+                  </span>
+                )}
+                {item.name === "Orders" && pendingOrdersCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white ring-2 ring-background">
+                    {pendingOrdersCount > 9 ? '9+' : pendingOrdersCount}
+                  </span>
+                )}
+              </div>
               <span className="text-xs font-medium">{item.name}</span>
             </Link>
           )

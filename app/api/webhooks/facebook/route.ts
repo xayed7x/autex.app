@@ -11,6 +11,7 @@ import { processingLock } from '@/lib/conversation/processing-lock';
 import { logApiUsage } from '@/lib/ai/usage-tracker';
 import { transcribeVoiceMessage } from '@/lib/ai/voice-transcription';
 import { decryptToken } from '@/lib/facebook/crypto-utils';
+import { notifyAdmins } from '@/lib/notifications/push';
 
 
 export const maxDuration = 60;
@@ -921,7 +922,10 @@ export async function processMessagingEvent(
       // Update last_message_at
       await supabase
         .from('conversations')
-        .update({ last_message_at: new Date(timestamp).toISOString() })
+        .update({ 
+        last_message_at: new Date(timestamp).toISOString(),
+        is_read: false 
+      })
         .eq('id', conversation.id);
       
       console.log('✅ Customer message saved, but bot blocked due to subscription status');
@@ -949,7 +953,10 @@ export async function processMessagingEvent(
       // Update last_message_at
       await supabase
         .from('conversations')
-        .update({ last_message_at: new Date(timestamp).toISOString() })
+        .update({ 
+        last_message_at: new Date(timestamp).toISOString(),
+        is_read: false 
+      })
         .eq('id', conversation.id);
       
       console.log('✅ Customer message saved, but bot will not respond');
@@ -971,10 +978,21 @@ export async function processMessagingEvent(
       mid: messageId || null,
     });
     
+    // Trigger PWA Push Notification
+    await notifyAdmins(supabase, fbPage.workspace_id, {
+      title: conversation.customer_name || 'New Customer Message',
+      body: modifiedMessageText || 'Sent an attachment',
+      url: `/dashboard/conversations?id=${conversation.id}`,
+      data: { conversationId: conversation.id, url: `/dashboard/conversations?id=${conversation.id}` }
+    });
+    
     // Update last_message_at for customer messages
     await supabase
       .from('conversations')
-      .update({ last_message_at: new Date(timestamp).toISOString() })
+      .update({ 
+        last_message_at: new Date(timestamp).toISOString(),
+        is_read: false 
+      })
       .eq('id', conversation.id);
 
     // ========================================
@@ -1486,7 +1504,10 @@ export async function processInstagramMessagingEvent(
 
       await supabase
         .from('conversations')
-        .update({ last_message_at: new Date(timestamp).toISOString() })
+        .update({ 
+        last_message_at: new Date(timestamp).toISOString(),
+        is_read: false 
+      })
         .eq('id', conversation.id);
 
       return;
@@ -1510,7 +1531,10 @@ export async function processInstagramMessagingEvent(
 
       await supabase
         .from('conversations')
-        .update({ last_message_at: new Date(timestamp).toISOString() })
+        .update({ 
+        last_message_at: new Date(timestamp).toISOString(),
+        is_read: false 
+      })
         .eq('id', conversation.id);
 
       return;
@@ -1531,9 +1555,20 @@ export async function processInstagramMessagingEvent(
       mid: messageId || null,
     });
 
+    // Trigger PWA Push Notification
+    await notifyAdmins(supabase, fbPage.workspace_id, {
+      title: conversation.customer_name || 'New Instagram Message',
+      body: modifiedMessageText || 'Sent an attachment',
+      url: `/dashboard/conversations?id=${conversation.id}`,
+      data: { conversationId: conversation.id, url: `/dashboard/conversations?id=${conversation.id}` }
+    });
+
     await supabase
       .from('conversations')
-      .update({ last_message_at: new Date(timestamp).toISOString() })
+      .update({ 
+        last_message_at: new Date(timestamp).toISOString(),
+        is_read: false 
+      })
       .eq('id', conversation.id);
 
     // ========================================

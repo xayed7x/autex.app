@@ -38,6 +38,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
+import { PWAInitializer } from "@/components/pwa-initializer"
+import { PwaInstallButton } from "@/components/dashboard/pwa-install-button"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -45,6 +48,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#000000" />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
@@ -52,6 +59,8 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <PWAInitializer />
+          <PwaInstallButton />
           {children}
           <Toaster />
         </ThemeProvider>

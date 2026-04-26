@@ -56,7 +56,7 @@ export function createProductCard(
     buttons = [
       {
         type: 'postback' as const,
-        title: 'এটা order করব',
+        title: 'Order now',
         payload: `ORDER_NOW_${product.id}`,
       },
     ];
@@ -67,7 +67,7 @@ export function createProductCard(
     buttons = [
       {
         type: 'postback' as const,
-        title: '🛒 Order Now',
+        title: 'Order now',
         payload: `ORDER_NOW_${product.id}`,
       },
       {
@@ -122,7 +122,7 @@ export function createProductCarousel(
       buttons = [
         {
           type: 'postback' as const,
-          title: 'এটা order করব',
+          title: 'Order now',
           payload: `ORDER_NOW_${product.id}`,
         },
       ];
@@ -133,7 +133,7 @@ export function createProductCarousel(
       buttons = [
         {
           type: 'postback' as const,
-          title: '🛒 Order Now',
+          title: 'Order now',
           payload: `ORDER_NOW_${product.id}`,
         },
         {
@@ -203,7 +203,7 @@ export function createProductDetailsCard(
             buttons: [
               {
                 type: 'postback' as const,
-                title: isFood ? 'এটা order করব' : '🛒 Order Now',
+                title: 'Order now',
                 payload: `ORDER_NOW_${product.id}`,
               },
               {

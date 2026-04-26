@@ -176,8 +176,8 @@ Your response MUST:
 
 Example response style:
 "এটা আমাদের [product name]! দাম ৳[price]। 
-অর্ডার করতে চাইলে ওপরের কার্ডের 
-'Order now 🛒' বাটনে ক্লিক করুন 😊"`;
+অর্ডার করতে চাইলে এখনই 🛍️ 
+'Order now' বাটনে ক্লিক করুন 😊"`;
   } else if (input.imageRecognitionResult?.recognitionResult?.aiAnalysis) {
     const ai = input.imageRecognitionResult.recognitionResult.aiAnalysis;
     const isInspiration = input.imageRecognitionResult.recognitionResult.isInspiration;

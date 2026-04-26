@@ -638,11 +638,9 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     if (hasProducts && !orderCreated && !flowLocked && !finalResponse) {
       const productCount = currentContext.metadata.identifiedProducts.length;
       if (settings.businessCategory === 'food') {
-        finalResponse = productCount === 1
-          ? `উপরের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👆`
-          : `সবগুলো ডিজাইন দেখতে ডান দিকে সোয়াইপ করুন 👉 এবং আপনার পছন্দের ডিজাইনটির 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👆`;
+        finalResponse = `পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন`;
       } else {
-        finalResponse = `অর্ডার করতে চাইলে উপরের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊`;
+        finalResponse = `পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন`;
       }
     }
 

@@ -88,7 +88,7 @@ Order collection ONLY begins when the customer sends a CONFIRMED ORDER INTENT.
 **CONFIRMED INTENT TRIGGERS** (detect in any language):
 - "অর্ডার করব", "অর্ডার দিতে চাই", "order করব", "বুক করতে চাই", "এটা order করব"
 - "I want to order", "I want to place an order", "order please", "এটা order দিব"
-- Clicking the "Order Now" / "এটা order করব" button (system auto-triggers)
+- Clicking the "Order now" button (system auto-triggers)
 
 **ON CONFIRMED INTENT**:
 - Call \`trigger_quick_form\` to send the official order form.

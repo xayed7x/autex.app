@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse, waitUntil } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import {
   verifySignature,
   generateEventId,

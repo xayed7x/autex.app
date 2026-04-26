@@ -124,9 +124,11 @@ export async function POST(request: NextRequest) {
       for (const entry of payload.entry) {
         if (isInstagram) {
           // Instagram events: entry.id is the Instagram Business Account ID
+          if (entry.messaging) {
             entry.messaging.map(event => {
               waitUntil(processInstagramMessagingEvent(supabase, entry.id, event));
             });
+          }
           
           // Handle Instagram changes (e.g., comments)
           if (entry.changes) {
@@ -138,14 +140,18 @@ export async function POST(request: NextRequest) {
           }
         } else {
           // Facebook Messenger events: entry.id is the Facebook Page ID
+          if (entry.messaging) {
             entry.messaging.map(event => {
               waitUntil(processMessagingEvent(supabase, entry.id, event));
             });
+          }
           
           // Handle Standby events (messages sent while our app is not the primary receiver)
+          if (entry.standby) {
             entry.standby.map(event => {
               waitUntil(processMessagingEvent(supabase, entry.id, event));
             });
+          }
           
           // Handle changes (e.g., comments) — Messenger only
           if (entry.changes) {

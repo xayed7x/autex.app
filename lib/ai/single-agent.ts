@@ -259,21 +259,14 @@ Rules for this turn:
     const thinkRegex = /\[THINK\]([\s\S]*?)\[\/THINK\]/gi;
     const hasThink = responseMessage.content && responseMessage.content.match(thinkRegex);
 
-    if (!hasThink && toolLoops < 2) {
+    // FIX: Only force retry if AI skipped thinking AND called no tools. 
+    // If it called a tool, it's making progress, so we let it through.
+    if (!hasThink && !responseMessage.tool_calls && toolLoops < 2) {
        console.warn(`⚠️ [RETRY] AI skipped [THINK] tags. Nudging for logical pass...`);
        
-       // Clean the message to remove unauthorized tool calls before pushing
-       // ENSURE content is a string (never null) to satisfy OpenAI API requirements
-       const cleanedMessage = { 
-          ...responseMessage, 
-          tool_calls: undefined,
-          content: responseMessage.content || "" 
-       };
-       messages.push(cleanedMessage);
-
        messages.push({ 
           role: 'system', 
-          content: "CRITICAL ERROR: You MUST analyze the [PERSISTENT CONTEXT], [TIME CONTEXT], and [BUSINESS CONTEXT] inside [THINK] tags BEFORE writing your response or calling any tools. You cannot call a tool without thinking first. Start your next message with [THINK]." 
+          content: "You MUST analyze the context inside [THINK] tags BEFORE responding. Think about the customer's intent and which business rules apply. If the customer wants to order, check the state machine. If they want to see designs, call search_products. Start your response with [THINK]." 
        });
        toolLoops++;
        continue;

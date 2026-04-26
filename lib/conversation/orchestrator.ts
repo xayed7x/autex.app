@@ -640,7 +640,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       if (settings.businessCategory === 'food') {
         finalResponse = productCount === 1
           ? `উপরের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👆`
-          : `উপরের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👆`;
+          : `সবগুলো ডিজাইন দেখতে ডান দিকে সোয়াইপ করুন 👉 এবং আপনার পছন্দের ডিজাইনটির 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👆`;
       } else {
         finalResponse = `অর্ডার করতে চাইলে উপরের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊`;
       }
@@ -746,40 +746,19 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                attachments: { type: 'product_card', productIds: [mappedProducts[0].id] }
              });
           } else {
-             if (settings.businessCategory === 'food') {
-                // FIX 2: Vertical delivery for cakes
-                const { sendProductsVertical } = await import('@/lib/facebook/messenger');
-                const results = await sendProductsVertical(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
-                
-                // Log each vertical card mapping individually
-                for (let i = 0; i < results.length; i++) {
-                  if (results[i]?.message_id) {
-                    await supabase.from('messages').insert({
-                      conversation_id: input.conversationId,
-                      sender: 'bot',
-                      sender_type: 'bot',
-                      message_text: `[Sent Vertical Card (${i+1}): ${mappedProducts[i].name}]`,
-                      message_type: 'template',
-                      mid: results[i].message_id,
-                      attachments: { type: 'product_card', productIds: [mappedProducts[i].id] }
-                    });
-                  }
-                }
-             } else {
-                // Keep horizontal carousel for clothing
-                const result = await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
-                
-                // Log carousel mapping
-                await supabase.from('messages').insert({
-                   conversation_id: input.conversationId,
-                   sender: 'bot',
-                   sender_type: 'bot',
-                   message_text: `[Sent Carousel: ${mappedProducts.length} products]`,
-                   message_type: 'template',
-                   mid: result.message_id,
-                   attachments: { type: 'product_card', productIds: mappedProducts.map(p => p.id) }
-                });
-             }
+             // Use horizontal carousel for all businesses
+             const result = await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+             
+             // Log carousel mapping
+             await supabase.from('messages').insert({
+                conversation_id: input.conversationId,
+                sender: 'bot',
+                sender_type: 'bot',
+                message_text: `[Sent Carousel: ${mappedProducts.length} products]`,
+                message_type: 'template',
+                mid: result.message_id,
+                attachments: { type: 'product_card', productIds: mappedProducts.map(p => p.id) }
+             });
           }
         }
 

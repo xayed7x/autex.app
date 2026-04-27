@@ -261,10 +261,6 @@ Rules for this turn:
     const thinkRegex = /\[THINK\]([\s\S]*?)\[\/THINK\]/gi;
     const hasThink = responseMessage.content && responseMessage.content.match(thinkRegex);
 
-<<<<<<< HEAD
-    if (!hasThink) {
-       console.log(`ℹ️ AI skipped [THINK] tags. Proceeding...`);
-=======
     // FIX: Only force retry if AI skipped thinking AND called no tools. 
     // If it called a tool, it's making progress, so we let it through.
     if (!hasThink && !responseMessage.tool_calls && toolLoops < 2) {
@@ -276,7 +272,6 @@ Rules for this turn:
        });
        toolLoops++;
        continue;
->>>>>>> 0e2ca9432ab6bc7ebb2022fa323d096a49c2a934
     }
     
     // CRITICAL: Always push the message to history BEFORE processing tools

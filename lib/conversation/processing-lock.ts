@@ -17,7 +17,7 @@ interface LockInfo {
 class ProcessingLockManager {
   private locks: Map<string, LockInfo> = new Map()
   private cleanupInterval: NodeJS.Timeout | null = null
-  private readonly DEFAULT_TTL = 10000 // 10 seconds default
+  private readonly DEFAULT_TTL = 3000 // 3 seconds default
   private readonly CLEANUP_INTERVAL = 5000 // Run cleanup every 5 seconds
 
   constructor() {

@@ -136,7 +136,7 @@ export async function POST(
     }
 
     // Acquire lock for owner sending
-    const lockAcquired = processingLock.acquireLock(conversationId, 'owner_sending', 10000)
+    const lockAcquired = processingLock.acquireLock(conversationId, 'owner_sending', 3000)
     if (!lockAcquired) {
       console.log('⚠️ [DASHBOARD SEND] Could not acquire lock, proceeding anyway')
     }

@@ -141,9 +141,9 @@ export function TopBar({ title }: TopBarProps) {
     }
   }, [customQueue])
 
-  const addCustomNotification = (notif: CustomNotification) => {
+  const addCustomNotification = (notif: CustomNotification, silent = false) => {
     setCustomQueue((prev) => [...prev, notif])
-    playNotificationSound()
+    if (!silent) playNotificationSound()
   }
 
   const handleDismiss = (id: string) => {
@@ -289,8 +289,77 @@ export function TopBar({ title }: TopBarProps) {
           })
           .subscribe()
 
+        // 7. Subscribe to Realtime Conversations for Manual Flags
+        const convChannel = supabase
+          .channel(`realtime-conv-flags-${page.id}`)
+          .on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'conversations',
+            filter: `fb_page_id=eq.${page.id}`
+          }, (payload) => {
+            const oldConv = payload.old as any
+            const newConv = payload.new as any
+            
+            // Detect if needs_manual_response was just set to true
+            const wasJustFlagged = !oldConv.needs_manual_response && newConv.needs_manual_response === true
+            
+            if (wasJustFlagged) {
+              console.log('🚨 [REALTIME] Conversation flagged for manual review:', newConv.id)
+              
+              addCustomNotification({
+                id: `flag-${newConv.id}-${Date.now()}`,
+                type: "attention",
+                title: "অ্যাটেনশন প্রয়োজন! ⚠️",
+                subtitle: `${newConv.customer_name} এর জন্য ম্যানুয়াল রিপ্লাই প্রয়োজন।`,
+                href: `/dashboard/conversations?id=${newConv.id}`
+              }, true) // SILENT = true (No sound for flags)
+
+              toast({
+                title: "Manual Attention Required ⚠️",
+                description: `${newConv.customer_name} needs a manual response.`,
+                action: (
+                  <div 
+                    className="h-full w-full absolute inset-0 cursor-pointer" 
+                    onClick={() => router.push(`/dashboard/conversations?id=${newConv.id}`)}
+                  />
+                ),
+              })
+            }
+          })
+          .subscribe()
+
+        // 8. Subscribe to Realtime Messages for Global Toast Notifications
+        const msgChannel = supabase
+          .channel(`realtime-msgs-global-${page.id}`)
+          .on('postgres_changes', {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages'
+          }, (payload) => {
+            const newMsg = payload.new as any
+            
+            // Only notify for CUSTOMER messages
+            if (newMsg.sender_type === 'customer') {
+              console.log('💬 [REALTIME] New customer message:', newMsg.id)
+              
+              // We don't have customer name here easily without fetching, 
+              // but we can show the text snippet.
+              addCustomNotification({
+                id: `msg-${newMsg.id}-${Date.now()}`,
+                type: "attention",
+                title: "নতুন মেসেজ! 💬",
+                subtitle: newMsg.message_text || "নতুন মেসেজ পাঠিয়েছেন",
+                href: `/dashboard/conversations?id=${newMsg.conversation_id}`
+              }, true) // SILENT = true
+            }
+          })
+          .subscribe()
+
         return () => {
           supabase.removeChannel(channel)
+          supabase.removeChannel(convChannel)
+          supabase.removeChannel(msgChannel)
         }
       } else {
         setNotifications([]) // Clear notifications if no page connected

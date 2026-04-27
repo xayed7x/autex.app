@@ -1102,13 +1102,13 @@ export async function processMessagingEvent(
       // [DEBOUNCE] MESSAGE BUFFERING
       // ========================================
       // Wait a short period to see if more messages arrive (e.g. Image + Text)
-      console.log('⏳ [DEBOUNCE] Waiting 10,000ms for near-simultaneous messages...');
+      console.log('⏳ [DEBOUNCE] Waiting 3,000ms for near-simultaneous messages...');
       
-      // Send typing indicator immediately to engage the customer during the longer wait
+      // Send typing indicator immediately to engage the customer during the shorter wait
       const { typingOn } = await import('@/lib/facebook/messenger');
       await typingOn(pageId, customerPsid);
       
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
       // After waiting, fetch the last bot message timestamp to ensure we don't re-process
       // messages that the bot has already responded to.
@@ -1122,10 +1122,10 @@ export async function processMessagingEvent(
         .single();
 
       const lastBotTime = lastBotMsg?.created_at || new Date(0).toISOString();
-      const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+      const threeSecondsAgo = new Date(Date.now() - 3000).toISOString();
       
-      // Use the LATEST of (10 seconds ago, last bot response time) as the starting point
-      const startTime = lastBotTime > tenSecondsAgo ? lastBotTime : tenSecondsAgo;
+      // Use the LATEST of (3 seconds ago, last bot response time) as the starting point
+      const startTime = lastBotTime > threeSecondsAgo ? lastBotTime : threeSecondsAgo;
 
       const { data: recentMsgs } = await supabase
         .from('messages')
@@ -1643,10 +1643,10 @@ export async function processInstagramMessagingEvent(
         .single();
 
       const lastBotTime = lastBotMsg?.created_at || new Date(0).toISOString();
-      const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+      const threeSecondsAgo = new Date(Date.now() - 3000).toISOString();
       
-      // Use the LATEST of (10 seconds ago, last bot response time) as the starting point
-      const startTime = lastBotTime > tenSecondsAgo ? lastBotTime : tenSecondsAgo;
+      // Use the LATEST of (3 seconds ago, last bot response time) as the starting point
+      const startTime = lastBotTime > threeSecondsAgo ? lastBotTime : threeSecondsAgo;
 
       const { data: recentMsgs } = await supabase
         .from('messages')

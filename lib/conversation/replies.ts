@@ -238,6 +238,7 @@ Product খুঁজতে:
     description?: string;
     stock: number;
     category?: string;
+    flavor?: string;
     colors?: string[];
     sizes?: string[];
     variations?: {
@@ -254,7 +255,9 @@ Product খুঁজতে:
     message += `💰 Price: ৳${product.price.toLocaleString()}\n`;
     message += `📊 Stock: ${product.stock} units available\n`;
     
-    if (product.category) {
+    if (product.flavor) {
+      message += `🍰 Flavor: ${product.flavor}\n`;
+    } else if (product.category) {
       message += `🏷️ Category: ${product.category}\n`;
     }
     

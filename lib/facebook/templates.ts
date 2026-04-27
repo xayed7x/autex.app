@@ -56,7 +56,7 @@ export function createProductCard(
     buttons = [
       {
         type: 'postback' as const,
-        title: 'এটা order করব',
+        title: 'Order Now',
         payload: `ORDER_NOW_${product.id}`,
       },
     ];
@@ -67,7 +67,7 @@ export function createProductCard(
     buttons = [
       {
         type: 'postback' as const,
-        title: '🛒 Order Now',
+        title: 'Order Now',
         payload: `ORDER_NOW_${product.id}`,
       },
       {
@@ -88,7 +88,7 @@ export function createProductCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: `2 pound — ${product.price.toLocaleString('en-BD')}`,
+            title: isFood ? `2 Pound — ${product.price.toLocaleString('en-BD')}` : product.name,
             subtitle: isFood ? undefined : subtitle,
             image_url: imageUrl,
             buttons: buttons,
@@ -122,7 +122,7 @@ export function createProductCarousel(
       buttons = [
         {
           type: 'postback' as const,
-          title: 'এটা order করব',
+          title: 'Order Now',
           payload: `ORDER_NOW_${product.id}`,
         },
       ];
@@ -133,7 +133,7 @@ export function createProductCarousel(
       buttons = [
         {
           type: 'postback' as const,
-          title: '🛒 Order Now',
+          title: 'Order Now',
           payload: `ORDER_NOW_${product.id}`,
         },
         {
@@ -147,7 +147,7 @@ export function createProductCarousel(
     const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
     
     return {
-      title: `2 pound — ${product.price.toLocaleString('en-BD')}`,
+      title: isFood ? `2 Pound — ${product.price.toLocaleString('en-BD')}` : product.name,
       subtitle: isFood ? undefined : subtitle,
       image_url: imageUrl,
       buttons: buttons,
@@ -203,7 +203,7 @@ export function createProductDetailsCard(
             buttons: [
               {
                 type: 'postback' as const,
-                title: isFood ? 'এটা order করব' : '🛒 Order Now',
+                title: 'Order Now',
                 payload: `ORDER_NOW_${product.id}`,
               },
               {

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
 import {
   verifySignature,
   generateEventId,
@@ -12,7 +11,6 @@ import { processingLock } from '@/lib/conversation/processing-lock';
 import { logApiUsage } from '@/lib/ai/usage-tracker';
 import { transcribeVoiceMessage } from '@/lib/ai/voice-transcription';
 import { decryptToken } from '@/lib/facebook/crypto-utils';
-import { notifyAdmins } from '@/lib/notifications/push';
 
 
 export const maxDuration = 60;
@@ -125,9 +123,8 @@ export async function POST(request: NextRequest) {
         if (isInstagram) {
           // Instagram events: entry.id is the Instagram Business Account ID
           if (entry.messaging) {
-            entry.messaging.map(event => {
-              waitUntil(processInstagramMessagingEvent(supabase, entry.id, event));
-            });
+            // Process all events in parallel for Instagram too
+            await Promise.all(entry.messaging.map(event => processInstagramMessagingEvent(supabase, entry.id, event)));
           }
           
           // Handle Instagram changes (e.g., comments)
@@ -141,16 +138,14 @@ export async function POST(request: NextRequest) {
         } else {
           // Facebook Messenger events: entry.id is the Facebook Page ID
           if (entry.messaging) {
-            entry.messaging.map(event => {
-              waitUntil(processMessagingEvent(supabase, entry.id, event));
-            });
+            // Process all events in parallel so debouncing lock can work correctly
+            await Promise.all(entry.messaging.map(event => processMessagingEvent(supabase, entry.id, event)));
           }
           
           // Handle Standby events (messages sent while our app is not the primary receiver)
           if (entry.standby) {
-            entry.standby.map(event => {
-              waitUntil(processMessagingEvent(supabase, entry.id, event));
-            });
+            // Process all standby events in parallel
+            await Promise.all(entry.standby.map(event => processMessagingEvent(supabase, entry.id, event)));
           }
           
           // Handle changes (e.g., comments) — Messenger only
@@ -417,7 +412,7 @@ export async function processMessagingEvent(
         // Fetch full product details including image
         const { data: product } = await supabase
           .from('products')
-          .select('id, name, price, flavor, flavors, category, image_urls')
+          .select('id, name, price, flavors, category, image_urls')
           .eq('id', productId)
           .single();
 
@@ -472,20 +467,11 @@ export async function processMessagingEvent(
               const context = conversation.context as any || {};
               const metadata = context.metadata || {};
 
-              // Add to cart (Essential for save_order tool)
-              context.cart = [{
-                productId: product.id,
-                productName: product.name,
-                productPrice: product.price,
-                quantity: 1,
-                imageUrl: product.image_urls?.[0]
-              }];
-
-              // Update conversation context with selected product metadata
+              // Update conversation context with selected product
               metadata.activeProductId = product.id;
               metadata.activeProductName = product.name;
               metadata.activeProductPrice = product.price;
-              metadata.flavor = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors.join(', ') : 'Default');
+              metadata.flavor = (product.flavors && product.flavors.length > 0) ? product.flavors[0] : (product.category || 'Default');
               metadata.orderStage = 'COLLECTING_INFO';
               context.metadata = metadata;
 
@@ -518,7 +504,7 @@ export async function processMessagingEvent(
 
               // STEP 2: Send product confirmation message
               const weightLabel = '২ পাউন্ড'; // Default for now
-              const flavorLabel = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors.join(', ') : 'বিশেষ ডিজাইন');
+              const flavorLabel = (product.flavors && product.flavors.length > 0) ? product.flavors[0] : (product.category || 'বিশেষ ডিজাইন');
               const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 নাম: ${product.name}\n💰 দাম: ${product.price.toLocaleString('en-BD')} টাকা\n🍫 ফ্লেভার: ${flavorLabel}\n⚖️ ওজন: ${weightLabel}\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
               await sendMessage(pageId, customerPsid, confirmationMsg);
 
@@ -935,16 +921,13 @@ export async function processMessagingEvent(
       // Update last_message_at
       await supabase
         .from('conversations')
-        .update({ 
-        last_message_at: new Date(timestamp).toISOString(),
-        is_read: false 
-      })
+        .update({ last_message_at: new Date(timestamp).toISOString() })
         .eq('id', conversation.id);
       
       console.log('✅ Customer message saved, but bot blocked due to subscription status');
       return;
     }
-    
+
     // ========================================
     // CHECK GLOBAL BOT TOGGLE (Redundant check for regular messages)
     // ========================================
@@ -966,10 +949,7 @@ export async function processMessagingEvent(
       // Update last_message_at
       await supabase
         .from('conversations')
-        .update({ 
-        last_message_at: new Date(timestamp).toISOString(),
-        is_read: false 
-      })
+        .update({ last_message_at: new Date(timestamp).toISOString() })
         .eq('id', conversation.id);
       
       console.log('✅ Customer message saved, but bot will not respond');
@@ -991,80 +971,193 @@ export async function processMessagingEvent(
       mid: messageId || null,
     });
     
-    // Trigger PWA Push Notification
-    await notifyAdmins(supabase, fbPage.workspace_id, {
-      title: conversation.customer_name || 'New Customer Message',
-      body: modifiedMessageText || 'Sent an attachment',
-      url: `/dashboard/conversations?id=${conversation.id}`,
-      data: { conversationId: conversation.id, url: `/dashboard/conversations?id=${conversation.id}` }
-    });
+    // Update last_message_at for customer messages
+    await supabase
+      .from('conversations')
+      .update({ last_message_at: new Date(timestamp).toISOString() })
+      .eq('id', conversation.id);
 
     // ========================================
-    // [DEBOUNCE] MESSAGE BUFFERING (Messenger)
+    // CHECK HYBRID CONTROL MODE
     // ========================================
-    // Try to acquire DB lock for bot processing to prevent multiple timers for the same batch
+    
+    const controlMode = conversation.control_mode || 'bot';
+    const lastManualReplyAt = conversation.last_manual_reply_at;
+    const currentState = conversation.current_state || 'IDLE';
+    const isProtectedState = PROTECTED_STATES.includes(currentState as any);
+    
+    console.log(`🎛️ [CONTROL MODE] Current mode: ${controlMode}`);
+    console.log(`🎛️ [CONTROL MODE] Current state: ${currentState}`);
+    console.log(`🎛️ [CONTROL MODE] Is protected state: ${isProtectedState}`);
+    console.log(`🎛️ [CONTROL MODE] Last manual reply: ${lastManualReplyAt || 'never'}`);
+    
+    // If fully manual mode, skip bot entirely (unless in protected state)
+    if (controlMode === 'manual' && !isProtectedState) {
+      console.log('⏭️ [CONTROL MODE] Manual mode - skipping bot processing');
+      return;
+    } else if (controlMode === 'manual' && isProtectedState) {
+      console.log('🛡️ [CONTROL MODE] Manual mode but in protected state - bot continues for order flow');
+      // Set flag so bot can acknowledge owner message after order completes
+      const context = conversation.context || {};
+      context.owner_interrupted = true;
+      await supabase
+        .from('conversations')
+        .update({ context })
+        .eq('id', conversation.id);
+    }
+    
+    // If hybrid mode, check if owner replied recently (within 30 minutes)
+    if (controlMode === 'hybrid' && lastManualReplyAt) {
+      const HYBRID_PAUSE_MINUTES = 30;
+      const lastReplyTime = new Date(lastManualReplyAt).getTime();
+      const now = Date.now();
+      const minutesSinceLastReply = (now - lastReplyTime) / (1000 * 60);
+      
+      console.log(`🎛️ [CONTROL MODE] Minutes since last manual reply: ${minutesSinceLastReply.toFixed(1)}`);
+      
+      if (minutesSinceLastReply < HYBRID_PAUSE_MINUTES) {
+        // Check if in protected state - if so, don't pause
+        if (isProtectedState) {
+          console.log(`🛡️ [CONTROL MODE] In protected state (${currentState}) - bot continues despite owner reply`);
+          // Set flag so bot can acknowledge owner message after order completes
+          const context = conversation.context || {};
+          context.owner_interrupted = true;
+          await supabase
+            .from('conversations')
+            .update({ context })
+            .eq('id', conversation.id);
+          // Continue to orchestrator (don't return)
+        } else {
+          console.log(`⏭️ [CONTROL MODE] Owner replied ${minutesSinceLastReply.toFixed(1)} mins ago - skipping bot`);
+          return;
+        }
+      } else {
+        console.log(`✅ [CONTROL MODE] ${minutesSinceLastReply.toFixed(1)} mins since last reply - bot can respond`);
+        
+        // Reset to bot mode since pause period has passed
+        await supabase
+          .from('conversations')
+          .update({ control_mode: 'bot' })
+          .eq('id', conversation.id);
+        console.log('🔄 [CONTROL MODE] Reset to bot mode after pause period');
+      }
+    }
+    
+    // Check if bot_pause_until is set (but respect protected states)
+    if (conversation.bot_pause_until && !isProtectedState) {
+      const pauseUntil = new Date(conversation.bot_pause_until).getTime();
+      const now = Date.now();
+      
+      if (now < pauseUntil) {
+        const minutesRemaining = ((pauseUntil - now) / (1000 * 60)).toFixed(1);
+        console.log(`⏭️ [CONTROL MODE] Bot paused for ${minutesRemaining} more minutes - skipping`);
+        return;
+      } else {
+        // Clear expired pause
+        await supabase
+          .from('conversations')
+          .update({ bot_pause_until: null })
+          .eq('id', conversation.id);
+        console.log('🔄 [CONTROL MODE] Bot pause expired, cleared');
+      }
+    } else if (conversation.bot_pause_until && isProtectedState) {
+      console.log('🛡️ [CONTROL MODE] Bot pause ignored due to protected state');
+    }
+
+    // ========================================
+    // CALL ORCHESTRATOR (Bot Processing)
+    // ========================================
+    
+    console.log('🎭 Calling Orchestrator...');
+    
+    // Try to acquire DB lock for bot processing
     const dbLockAcquired = await processingLock.acquireDbLock(supabase, conversation.id, 'bot_processing', 20);
     
     if (!dbLockAcquired) {
-      console.log('⏭️ [DEBOUNCE] Already processing this conversation, skipping duplicate timer');
+      console.log('⏭️ [BOT] Could not acquire DB lock (already processing elsewhere), skipping');
       return;
     }
 
-    console.log('⏳ [DEBOUNCE] Waiting 10,000ms for near-simultaneous messages...');
-    
-    // Send typing indicator immediately to engage the customer during the longer wait
-    const { typingOn } = await import('@/lib/facebook/messenger');
-    await typingOn(pageId, customerPsid);
-
-    await new Promise(resolve => setTimeout(resolve, 10000));
-
-    // After waiting, fetch the last bot message timestamp to ensure we don't re-process
-    // messages that the bot has already responded to.
-    const { data: lastBotMsg } = await supabase
-      .from('messages')
-      .select('created_at')
-      .eq('conversation_id', conversation.id)
-      .eq('sender_type', 'bot')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    const lastBotTime = lastBotMsg?.created_at || new Date(0).toISOString();
-    const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
-    
-    // Use the LATEST of (10 seconds ago, last bot response time) as the starting point
-    const startTime = lastBotTime > tenSecondsAgo ? lastBotTime : tenSecondsAgo;
-
-    const { data: recentMsgs } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('conversation_id', conversation.id)
-      .eq('sender_type', 'customer')
-      .gt('created_at', startTime)
-      .order('created_at', { ascending: true });
-
-    let combinedText = modifiedMessageText || '';
-    let combinedImageUrls: string[] = imageUrl ? [imageUrl] : [];
-
-    if (recentMsgs && recentMsgs.length > 1) {
-      console.log(`📦 [DEBOUNCE] Found ${recentMsgs.length} messages in buffer. Combining...`);
-      const texts = recentMsgs
-        .map((m: any) => (m.message_text || '').trim())
-        .filter((t: string, i: number, arr: string[]) => t && arr.indexOf(t) === i);
-      
-      combinedText = texts.join(' ').trim();
-
-      const images = recentMsgs
-        .map((m: any) => m.image_url)
-        .filter((url: string, i: number, arr: string[]) => url && arr.indexOf(url) === i);
-      
-      combinedImageUrls = images;
-    }
-
-    // Show typing indicator again
-    await typingOn(pageId, customerPsid);
-
     try {
+      // Check one more time if owner replied while we were waiting
+      const { data: freshConv } = await supabase
+        .from('conversations')
+        .select('control_mode, last_manual_reply_at')
+        .eq('id', conversation.id)
+        .single();
+      
+      if (freshConv?.control_mode === 'hybrid' || freshConv?.control_mode === 'manual') {
+        const lastManualReply = freshConv.last_manual_reply_at;
+        if (lastManualReply) {
+          const timeSinceReply = Date.now() - new Date(lastManualReply).getTime();
+          if (timeSinceReply < 5000) { // Owner replied in last 5 seconds
+            console.log('⏭️ [BOT] Owner just replied, aborting bot response');
+            return;
+          }
+        }
+      }
+
+      // ========================================
+      // [DEBOUNCE] MESSAGE BUFFERING
+      // ========================================
+      // Wait a short period to see if more messages arrive (e.g. Image + Text)
+      console.log('⏳ [DEBOUNCE] Waiting 10,000ms for near-simultaneous messages...');
+      
+      // Send typing indicator immediately to engage the customer during the longer wait
+      const { typingOn } = await import('@/lib/facebook/messenger');
+      await typingOn(pageId, customerPsid);
+      
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
+      // After waiting, fetch the last bot message timestamp to ensure we don't re-process
+      // messages that the bot has already responded to.
+      const { data: lastBotMsg } = await supabase
+        .from('messages')
+        .select('created_at')
+        .eq('conversation_id', conversation.id)
+        .eq('sender_type', 'bot')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      const lastBotTime = lastBotMsg?.created_at || new Date(0).toISOString();
+      const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+      
+      // Use the LATEST of (10 seconds ago, last bot response time) as the starting point
+      const startTime = lastBotTime > tenSecondsAgo ? lastBotTime : tenSecondsAgo;
+
+      const { data: recentMsgs } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversation.id)
+        .eq('sender_type', 'customer')
+        .gt('created_at', startTime)
+        .order('created_at', { ascending: true });
+
+      let combinedText = (modifiedMessageText || '').replace(/^\[Voice: (.*)\]$/i, '$1');
+      let combinedImageUrls: string[] = imageUrl ? [imageUrl] : [];
+
+      if (recentMsgs && recentMsgs.length > 1) {
+        console.log(`📦 [DEBOUNCE] Found ${recentMsgs.length} messages in buffer. Combining...`);
+        
+        // Combine text from all recent messages, avoiding exact duplicates
+        const texts = recentMsgs
+          .map((m: any) => (m.message_text || '').replace(/^\[Voice: (.*)\]$/i, '$1').trim())
+          .filter((t: string, i: number, arr: string[]) => t && arr.indexOf(t) === i);
+        
+        combinedText = texts.join(' ').trim();
+
+        // Collect all unique image URLs
+        const images = recentMsgs
+          .map((m: any) => m.image_url)
+          .filter((url: string, i: number, arr: string[]) => url && arr.indexOf(url) === i);
+        
+        combinedImageUrls = images;
+      }
+
+      // Show typing indicator again to ensure it stays visible during processing
+      await typingOn(pageId, customerPsid);
+
       await processMessage({
         pageId,
         customerPsid,
@@ -1393,10 +1486,7 @@ export async function processInstagramMessagingEvent(
 
       await supabase
         .from('conversations')
-        .update({ 
-        last_message_at: new Date(timestamp).toISOString(),
-        is_read: false 
-      })
+        .update({ last_message_at: new Date(timestamp).toISOString() })
         .eq('id', conversation.id);
 
       return;
@@ -1420,10 +1510,7 @@ export async function processInstagramMessagingEvent(
 
       await supabase
         .from('conversations')
-        .update({ 
-        last_message_at: new Date(timestamp).toISOString(),
-        is_read: false 
-      })
+        .update({ last_message_at: new Date(timestamp).toISOString() })
         .eq('id', conversation.id);
 
       return;
@@ -1444,20 +1531,9 @@ export async function processInstagramMessagingEvent(
       mid: messageId || null,
     });
 
-    // Trigger PWA Push Notification
-    await notifyAdmins(supabase, fbPage.workspace_id, {
-      title: conversation.customer_name || 'New Instagram Message',
-      body: modifiedMessageText || 'Sent an attachment',
-      url: `/dashboard/conversations?id=${conversation.id}`,
-      data: { conversationId: conversation.id, url: `/dashboard/conversations?id=${conversation.id}` }
-    });
-
     await supabase
       .from('conversations')
-      .update({ 
-        last_message_at: new Date(timestamp).toISOString(),
-        is_read: false 
-      })
+      .update({ last_message_at: new Date(timestamp).toISOString() })
       .eq('id', conversation.id);
 
     // ========================================

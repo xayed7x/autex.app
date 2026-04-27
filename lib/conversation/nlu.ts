@@ -123,16 +123,14 @@ export function isDhaka(address: string): boolean {
  * @returns true if valid Bangladesh phone number
  */
 export function isValidPhone(phone: string): boolean {
+  // Remove spaces, dashes, and +88
   const cleaned = phone.replace(/[\s\-+]/g, '');
   
-  // Normalization for common formats
-  let normalized = cleaned;
-  if (cleaned.startsWith('880')) {
-    normalized = '0' + cleaned.substring(2);
-  }
+  // Remove country code if present
+  const normalized = cleaned.startsWith('88') ? cleaned.substring(2) : cleaned;
   
-  // Relaxed validation: 7-15 digits
-  const phoneRegex = /^\d{7,15}$/;
+  // Check if it's 11 digits starting with 01
+  const phoneRegex = /^01[0-9]{9}$/;
   return phoneRegex.test(normalized);
 }
 

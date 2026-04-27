@@ -129,16 +129,14 @@ export const VALID_STATE_TRANSITIONS: Record<ConversationState, ConversationStat
 export function isValidBangladeshPhone(phone: string): boolean {
   if (!phone) return false;
   
-  // Remove spaces, dashes, and common prefixes
+  // Remove spaces, dashes, and country codes
   const cleaned = phone
     .replace(/[\s-]/g, '')
-    .replace(/^\+?880/, '')
-    .replace(/^88/, '')
-    .replace(/^00/, '');
+    .replace(/^\+?880/, '0')
+    .replace(/^880/, '0');
   
-  // PERMISSIVE: Any number with 7 to 15 digits is accepted.
-  // The system prompt handles context-specific validation.
-  const phoneRegex = /^\d{7,15}$/;
+  // Must be 11 digits starting with 01, followed by 3-9, then 8 more digits
+  const phoneRegex = /^01[3-9]\d{8}$/;
   return phoneRegex.test(cleaned);
 }
 

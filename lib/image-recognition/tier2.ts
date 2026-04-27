@@ -58,11 +58,9 @@ export async function extractVisualFeatures(
     
     try {
       // Get palette of 3 colors using dynamic require for Node compatibility
-      const ColorThiefModule = require('colorthief');
-      const colorThief = ColorThiefModule.default || ColorThiefModule;
-      
+      const ColorThief = require('colorthief');
       // ColorThief.getPalette expects a path or a buffer
-      const palette = await colorThief.getPalette(imageBuffer, 3);
+      const palette = await ColorThief.getPalette(imageBuffer, 3);
       
       if (palette && Array.isArray(palette)) {
         // Convert to RGB objects

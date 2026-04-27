@@ -30,15 +30,11 @@ const searchProducts: ChatCompletionTool = {
       properties: {
         query: {
           type: 'string',
-          description: 'Natural language search query. Examples: "Chocolate cake", "Anniversary design". Optional: If empty, the tool searches all products.',
+          description: 'Natural language search query. Examples: "red saree", "polo t-shirt". Optional: If empty, the tool searches all products.',
         },
         category: {
           type: 'string',
           description: 'Filter by category: "Anniversary", "Birthday", "Wedding", "Baby Shower", "Engagement", "Islamic/Traditional", "Congratulation", "Gift/Love", or "Other". ALWAYS extract and pass this if mentioned.',
-        },
-        flavor: {
-          type: 'string',
-          description: 'Specific flavor requested by customer (e.g., "Chocolate", "Vanilla", "Red Velvet"). Optional.',
         },
         size: {
           type: 'string',
@@ -50,11 +46,11 @@ const searchProducts: ChatCompletionTool = {
         },
         limit: {
           type: 'number',
-          description: 'Number of products to return. Default: 30.',
+          description: 'Number of products to return. Default: 20.',
         },
         offset: {
           type: 'number',
-          description: 'Offset for pagination. To see the next set of products, use offset: 30. Default: 0.',
+          description: 'Offset for pagination. For the next 20 products, use offset: 20. Default: 0.',
         },
         sendCard: {
           type: 'boolean',
@@ -182,7 +178,7 @@ const updateCustomerInfo: ChatCompletionTool = {
         },
         phone: {
           type: 'string',
-          description: 'Customer\'s phone number. Pass exactly as provided by the customer.',
+          description: 'Customer\'s phone number (Bangladesh format: 01XXXXXXXXX).',
         },
         address: {
           type: 'string',
@@ -376,25 +372,25 @@ const calculateDelivery: ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'calculate_delivery',
-      description:
-        'Calculate delivery charge for an address. ' +
-        'CALL WHEN: Customer provides their delivery address. ' +
-        'CRITICAL: Always try to identify if the zone is "জেলা সদর" or "উপজেলা" and pass it in delivery_zone for accurate pricing. ' +
-        'DO NOT estimate or guess delivery charge under any circumstance.',
-      parameters: {
-        type: 'object',
-        properties: {
-          address: {
-            type: 'string',
-            description: 'The delivery address to calculate shipping cost for.',
-          },
-          delivery_zone: {
-            type: 'string',
-            description: 'MANDATORY if known: The selected delivery zone label (e.g., "জেলা সদর", "উপজেলা").',
-          },
+    description:
+      'Calculate delivery charge for an address. ' +
+      'CALL WHEN: Customer provides their delivery address during order flow. ' +
+      'CALL BEFORE showing the order summary — the delivery charge MUST come from this tool result, never from memory or assumption. ' +
+      'DO NOT estimate or guess delivery charge under any circumstance.',
+    parameters: {
+      type: 'object',
+      properties: {
+        address: {
+          type: 'string',
+          description: 'The delivery address to calculate shipping cost for.',
         },
-        required: ['address'],
+        delivery_zone: {
+          type: 'string',
+          description: 'Optional: The selected delivery zone label (e.g., জেলা সদর, উপজেলা). Use this to ensure accuracy if the address is ambiguous.',
+        },
       },
+      required: ['address'],
+    },
   },
 };
 

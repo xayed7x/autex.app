@@ -273,7 +273,7 @@ Product খুঁজতে:
     message += `\n✅ Stock: ${product.stock > 0 ? 'In Stock' : 'Out of Stock'}\n`;
     message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
     message += `অর্ডার করতে:\n`;
-    message += `🔘 ‘Order Now’ বাটনে ক্লিক করুন\n`;
+    message += `🔘 'Order Now' বাটনে ক্লিক করুন\n`;
     message += `অথবা\n`;
     message += `✍️ টাইপ করুন: "order korbo" বা "nibo"`;
     

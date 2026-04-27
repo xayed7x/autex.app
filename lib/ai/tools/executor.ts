@@ -153,14 +153,13 @@ async function executeSearchProducts(
   ctx: ToolExecutionContext
 ): Promise<ToolExecutionOutput> {
   const query = String(args.query || '');
-  const category = args.category ? String(args.category) : undefined;
-  const flavor = args.flavor ? String(args.flavor) : undefined;
   const size = args.size ? String(args.size) : undefined;
   const color = args.color ? String(args.color) : undefined;
-  const limit = Number(args.limit) || 30;
+  const category = args.category ? String(args.category) : undefined;
+  const limit = Number(args.limit) || 20;
   const offset = Number(args.offset) || 0;
   
-  const searchResult = await searchProducts(query, ctx.workspaceId, size, color, flavor, category, limit, offset);
+  const searchResult = await searchProducts(query, ctx.workspaceId, size, color, undefined, category, limit, offset);
 
   const sendCard = args.sendCard === true;
 
@@ -432,14 +431,6 @@ async function executeUpdateCustomerInfo(
   const size = args.size ? String(args.size).trim() : undefined;
   const color = args.color ? String(args.color).trim() : undefined;
   const quantity = args.quantity ? Number(args.quantity) : undefined;
-  
-  // Food specific fields
-  const flavor = args.flavor ? String(args.flavor).trim() : undefined;
-  const delivery_date = args.delivery_date ? String(args.delivery_date).trim() : undefined;
-  const delivery_time = args.delivery_time ? String(args.delivery_time).trim() : undefined;
-  const custom_message = args.custom_message ? String(args.custom_message).trim() : undefined;
-  const pounds_ordered = args.pounds_ordered ? Number(args.pounds_ordered) : undefined;
-  const weight = args.weight ? String(args.weight).trim() : undefined;
 
   // Validate and normalize phone if provided
   if (phone) {
@@ -451,15 +442,15 @@ async function executeUpdateCustomerInfo(
       normalizedPhone = '0' + normalizedPhone.slice(3);
     }
     
-    // Any number is valid as long as it has digits
-    const isValid = normalizedPhone.length >= 7;
+    // Any 11 digit number starting with 01 is valid for BD
+    const isValid = normalizedPhone.length === 11 && normalizedPhone.startsWith('01');
     
     if (!isValid) {
       return {
         result: {
           success: false,
           data: { invalidField: 'phone' },
-          message: `Phone number "${phone}" is invalid. Please give a valid contact number.`,
+          message: `Phone number "${phone}" is invalid. Please give a valid 11-digit number (e.g. 01712345678).`,
         },
         sideEffects: {},
       };
@@ -530,23 +521,6 @@ async function executeUpdateCustomerInfo(
   if (name) updatedFields.push(`name: "${name}"`);
   if (phone) updatedFields.push(`phone: "${normalizePhone(phone)}"`);
   if (address) updatedFields.push(`address: "${address}" (delivery: ৳${deliveryCharge})`);
-  if (flavor) updatedFields.push(`flavor: "${flavor}"`);
-  if (delivery_date) updatedFields.push(`delivery_date: "${delivery_date}"`);
-  if (delivery_time) updatedFields.push(`delivery_time: "${delivery_time}"`);
-  if (custom_message) updatedFields.push(`custom_message: "${custom_message}"`);
-  if (pounds_ordered) updatedFields.push(`pounds_ordered: ${pounds_ordered}`);
-  if (weight) updatedFields.push(`weight: "${weight}"`);
-
-  // Update metadata with food specific info
-  const updatedMetadata = {
-    ...(ctx.conversationContext.metadata || {}),
-    ...(flavor && { flavor }),
-    ...(delivery_date && { delivery_date }),
-    ...(delivery_time && { delivery_time }),
-    ...(custom_message && { custom_message }),
-    ...(pounds_ordered && { pounds_ordered }),
-    ...(weight && { weight }),
-  };
 
   let updatedCart = ctx.conversationContext.cart ? [...ctx.conversationContext.cart] : [];
   if (updatedCart.length > 0 && (size || color || quantity)) {
@@ -637,11 +611,7 @@ async function executeUpdateCustomerInfo(
       message: `Updated: ${updatedFields.join(', ')}.`,
     },
     sideEffects: {
-      updatedContext: { 
-        checkout: updatedCheckout, 
-        cart: updatedCart,
-        metadata: updatedMetadata 
-      },
+      updatedContext: { checkout: updatedCheckout, cart: updatedCart },
     },
   };
 }

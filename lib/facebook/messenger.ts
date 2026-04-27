@@ -838,9 +838,15 @@ export async function takeThreadControl(
     if (!response.ok) {
       const errorData = await response.json();
       // Code 10: User already has control. Subcode 2018048: Conversation is already controlled by this app.
-      // We ignore these as they mean we are already in control.
-      if (errorData.error?.code !== 10 && errorData.error?.error_subcode !== 2018048) {
+      // Code 27: Take thread control is not supported when Conversation Routing is not enabled.
+      // We ignore these as they mean we either already have control or handover isn't configured.
+      const errorCode = errorData.error?.code;
+      const errorSubcode = errorData.error?.error_subcode;
+      
+      if (errorCode !== 10 && errorSubcode !== 2018048 && errorCode !== 27) {
         console.warn('⚠️ [HANDOVER] Could not take thread control:', errorData.error?.message);
+      } else if (errorCode === 27) {
+        console.log('ℹ️ [HANDOVER] Thread control not supported for this page (Conversation Routing disabled)');
       }
     } else {
       console.log(`✅ [HANDOVER] Successfully took thread control for ${psid}`);

@@ -12,6 +12,7 @@ export interface FacebookWebhookEntry {
   id: string;
   time: number;
   messaging?: MessagingEvent[];
+  standby?: MessagingEvent[];
   changes?: ChangeEvent[];
 }
 

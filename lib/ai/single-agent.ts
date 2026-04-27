@@ -177,8 +177,8 @@ Your response MUST:
 
 Example response style:
 "এটা আমাদের [product name]! দাম ৳[price]। 
-অর্ডার করতে চাইলে ওপরের কার্ডের 
-'Order now 🛒' বাটনে ক্লিক করুন 😊"`;
+অর্ডার করতে চাইলে এখনই 🛍️ 
+'Order now' বাটনে ক্লিক করুন 😊"`;
   } else if (input.imageRecognitionResult?.recognitionResult?.aiAnalysis) {
     const ai = input.imageRecognitionResult.recognitionResult.aiAnalysis;
     const isInspiration = input.imageRecognitionResult.recognitionResult.isInspiration;
@@ -261,8 +261,22 @@ Rules for this turn:
     const thinkRegex = /\[THINK\]([\s\S]*?)\[\/THINK\]/gi;
     const hasThink = responseMessage.content && responseMessage.content.match(thinkRegex);
 
+<<<<<<< HEAD
     if (!hasThink) {
        console.log(`ℹ️ AI skipped [THINK] tags. Proceeding...`);
+=======
+    // FIX: Only force retry if AI skipped thinking AND called no tools. 
+    // If it called a tool, it's making progress, so we let it through.
+    if (!hasThink && !responseMessage.tool_calls && toolLoops < 2) {
+       console.warn(`⚠️ [RETRY] AI skipped [THINK] tags. Nudging for logical pass...`);
+       
+       messages.push({ 
+          role: 'system', 
+          content: "You MUST analyze the context inside [THINK] tags BEFORE responding. Think about the customer's intent and which business rules apply. If the customer wants to order, check the state machine. If they want to see designs, call search_products. Start your response with [THINK]." 
+       });
+       toolLoops++;
+       continue;
+>>>>>>> 0e2ca9432ab6bc7ebb2022fa323d096a49c2a934
     }
     
     // CRITICAL: Always push the message to history BEFORE processing tools
@@ -592,11 +606,14 @@ You are a Moderator for this page. You are NOT lazy; you are highly proactive an
 4. **SILENCE IS GOLDEN**: If you do not find the exact answer in the context or tools, you are STRICTLY FORBIDDEN from guessing. You MUST return an empty string ("") as your response. 
 - **NO HALLUCINATION**: If you aren't 100% sure, say nothing.
 - **EMOJI SILENCE (CRITICAL)**: If the customer sends ONLY an emoji, you are FORBIDDEN from replying. Return an empty string.
+- **PAST ORDER SILENCE (CRITICAL)**: If the customer is asking about a past order (e.g., status, delivery update, asking for photos of a cake already delivered/made), you are STRICTLY FORBIDDEN from responding. Your text response content MUST be completely empty.
 
 [THINKING PROTOCOL]
 1. INTENT: What is the customer's goal?
 2. CONTEXT: What is the delivery address/zone?
 3. ACTION: Should I call a tool or ask for info?
+4. TIMELINE AUDIT: List the last 3 messages to orient yourself.
+5. REPETITION AUDIT: Scan the last 20 messages. Have I already asked this or given this info? (If yes, STAY SILENT).
 [/THINK]
 [Your actual response to the customer here]
 
@@ -662,10 +679,10 @@ If you call 'search_products', your text content MUST be completely empty.
    - If 'Cash on Delivery' is enabled in settings, confirm that we take it. 
    - If a policy says "No upfront/advance money needed," NEVER say "payment is required at the time of ordering."
 10. **INTENT-BASED SILENCE & HANDOVER (CRITICAL)**: 
-   - **Acknowledgement Check**: If the customer's message contains NO NEW actionable intent (e.g., just "Okay", "I see"), stay SILENT by returning an empty string.
-   - **Ambiguity/Gibberish**: If a message is unclear, stay SILENT and call \`flag_for_review\` with reason "Ambiguity".
-   - **Conflict & Disputes**: If the customer is angry, stay SILENT and call \`flag_for_review\` immediately.
-   - **SCENARIO 1: GENERIC PRICE INQUIRY (NO ACTIVE CUSTOM DESIGN)**:
+    - **Acknowledgement Check**: If the customer's message contains NO NEW actionable intent (e.g., just "Okay", "I see"), stay SILENT by returning an empty string.
+    - **Ambiguity/Gibberish**: If a message is unclear, stay SILENT and call \`flag_for_review\` with reason "Ambiguity".
+    - **Conflict & Disputes**: If the customer is angry, stay SILENT and call \`flag_for_review\` immediately.
+    - **SCENARIO 1: GENERIC PRICE INQUIRY (NO ACTIVE CUSTOM DESIGN)**:
       - **TRIGGER**: ONLY trigger if:
         1. The customer asks about price/flavors.
         2. AND there is NO image in the current turn.
@@ -795,6 +812,7 @@ CRITICAL: If you fail to wrap your thoughts in [THINK] tags, the system will cra
    - **TIME LOGIC (CRITICAL)**: If a rule is an "Ordering Deadline" (e.g., "Orders after 8 PM"), you MUST compare that deadline to the CURRENT TIME in \`[TIME CONTEXT]\`. If the current time is BEFORE the deadline, that rule DOES NOT APPLY and cannot be used as an excuse.
    - Does the request violate ANY rule? (e.g., delivery time is past closing, insufficient notice given, location not served).
    - *If a rule is violated, you MUST politely refuse the request ("No") and explain the specific reason based on the context. NEVER let the customer "argue" you into breaking a rule.*
+3.5. **PAST ORDER SILENCE**: Check if the customer is asking for an update, status, or photos of an order already placed or delivered. If so, your decision MUST be to stay SILENT (empty response).
 4. **HISTORY SCOUTING**: Scan the entire history. What do we ALREADY know? (Phone, Address, Flavor, etc.)
 5. **MISSING INFO**: What do we still need to collect to complete the order?
 6. **DECISION**: What is the most natural next step toward the goal?
@@ -814,6 +832,7 @@ CRITICAL: If you fail to wrap your thoughts in [THINK] tags, the system will cra
 - *If you show products, your text response must ONLY be a warm discovery question (e.g., "See which one you like!").*
 - **sendCard Rule**: DEFAULT TO FALSE. ONLY set true for first-time discovery.
 - **NO JSON LEAKAGE**: NEVER write '{"query": ...}' or any JSON in your response. Tools are called SILENTLY.
+- **PAST ORDER SILENCE (TOOLS)**: Even if you call \`track_order\` or find info about a past order, you are STRICTLY FORBIDDEN from reporting it to the customer. Stay SILENT (empty response).
 
 `.trim();
 

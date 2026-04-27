@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { invalidateSettingsCache } from '@/lib/workspace/settings-cache'
+import { generateAndStoreExampleEmbeddings } from '@/lib/ai/embeddings/example-embeddings'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { Database } from '@/types/supabase'
 
 export async function GET(request: Request) {
   try {
@@ -115,6 +118,20 @@ export async function POST(request: Request) {
 
     // Invalidate cache so the bot gets the new settings immediately
     invalidateSettingsCache(workspace.id)
+
+    // Trigger embedding generation for conversation examples (fire-and-forget)
+    if (body.conversationExamples && body.conversationExamples.length > 0) {
+      const serviceClient = createServiceClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+      generateAndStoreExampleEmbeddings(
+        workspace.id,
+        body.conversationExamples,
+        serviceClient
+      ).catch(err => console.error('[SETTINGS] Embedding generation failed:', err.message));
+    }
 
     return NextResponse.json({ success: true, settings: data })
   } catch (error) {

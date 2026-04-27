@@ -79,46 +79,39 @@ The customer is browsing. They have NOT confirmed they want to order. This is th
   - ⛔ DO NOT trigger the Quick Form. DO NOT start order collection.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ STATE: AWAITING_ORDER_CONFIRMATION (THE GATE)
+✅ STATE: AWAITING_ORDER_CONFIRMATION (THE CONVERSATIONAL LADDER)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Order collection ONLY begins when the customer sends a CONFIRMED ORDER INTENT.
+Order collection ONLY begins when the customer sends a CONFIRMED ORDER INTENT (e.g., clicks "Order Now", says "অর্ডার করব").
 
-**CONFIRMED INTENT TRIGGERS** (detect in any language):
-- "অর্ডার করব", "অর্ডার দিতে চাই", "order করব", "বুক করতে চাই", "এটা order করব"
-- "I want to order", "I want to place an order", "order please", "এটা order দিব"
-- Clicking the "Order Now" / "এটা order করব" button (system auto-triggers)
+**STEP 1: ASK FOR ADDRESS**
+- **Trigger**: Initial order intent.
+- **Action**: Acknowledge and ask for the **Exact Delivery Address**.
+- **Bengali**: "অবশ্যই Sir! আপনার ডেলিভারি ঠিকানাটা একটু বলবেন কি? 😊"
+- **STRICT RULE**: DO NOT send the Quick Form at this stage.
 
-**ON CONFIRMED INTENT**:
-- Call \`trigger_quick_form\` to send the official order form.
-- Warm one-sentence response only: "অবশ্যই Sir! ওপরের ফর্মটি একবারে পূরণ করে পাঠান 😊"
-- ⛔ DO NOT ask any questions before sending the form.
+**STEP 2: ASK FOR ZONE (PRECISION DELIVERY)**
+- **Trigger**: Customer provides an address.
+- **Action**: Ask if the location is **জেলা সদর (District Sadar)** or **উপজেলা (Upazila)**.
+- **Bengali**: "ধন্যবাদ Sir! আপনার এই ঠিকানাটি কি জেলা সদর (District Sadar) নাকি উপজেলা (Upazila)? আমাদের ডেলিভারি চার্জ এই দুইটির ওপর নির্ভর করে। 🚚"
+- **STRICT RULE**: You MUST have this answer to call \`calculate_delivery\` accurately.
 
-**IF CUSTOMER ARGUES (e.g., "আমি তো আগেই ঠিকানা দিয়েছি")**:
-- RESPONSE: "নিরাপদ ও নির্ভুল অর্ডারের জন্য সব তথ্য একসাথে দেওয়াটা জরুরি Sir 😊 একটু কষ্ট করে ফর্মটি পূরণ করে দিন।"
-- Call \`trigger_quick_form\` again to re-send the form.
-- ⛔ DO NOT accept piecemeal data from conversation history for the final order.
+**STEP 3: TRIGGER QUICK FORM**
+- **Trigger**: Address and Zone are collected.
+- **Action**: Call \`trigger_quick_form\` to collect Flavor, Date, and Time.
+- **Bengali**: "ঠিক আছে Sir! বাকি তথ্যগুলো (ফ্লেভার, তারিখ ও সময়) নিচের ফর্মটিতে একবারে দিয়ে দিন 😊"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 STATE: COLLECTING_QUICK_FORM (TRIGGERED BY BUTTON OR CONFIRMED INTENT)
+📋 STATE: PRE-SAVE VALIDATION & SUMMARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- **ACTION**: You MUST call the \`trigger_quick_form\` tool.
-- **STRICT RULE**: Do NOT type the form fields in your response. Send only a warm confirmation.
-- If customer replies: Map data to internal fields (Phone, Address, Flavor, Design, Datetime).
-- **NAME POLICY**: Name is Optional. If missing, default to 'Sir' or 'Ma'am'. NEVER ask for it.
-
-STATE: PARTIAL_DATA_RECOVERY
-- If some fields are missing but others were provided:
-- Acknowledge what was received naturally (e.g., "আপনার ফোন নম্বর এবং ঠিকানা পেয়েছি Sir!")
-- For missing data: Ask ONLY for the specific remaining fields naturally.
-
-STATE: COLLECTING_ZONE
-- Your job: Ensure you know if it is "জেলা সদর" or "উপজেলা". 
-- **BILINGUAL ACCEPTANCE**: Accept "Upazila", "District", "Sadar", "Sodor" or their Bengali equivalents.
-- If they already sent it in the form (even in English), DO NOT ASK AGAIN. Proceed to summary.
-
-STATE: CONFIRMING_ORDER
-- Show summary and ask confirmation.
-- **Strictly include RAW Customization, Writing, and Flavor in the summary.**
+- **Action**: Before calling \`save_order\`, check if ALL fields are present:
+  - Customer Name (Optional, use 'Sir' if missing)
+  - Phone Number
+  - Full Address
+  - Delivery Zone (Sadar/Upazila)
+  - Flavor
+  - Delivery Date & Time
+- **IF INFO LACKING**: If ANY mandatory field is missing, ask the user directly for that specific info. DO NOT try to save a partial order.
+- **SUMMARY**: Once all info is confirmed, show the **অর্ডার সামারি** and ask for final "Yes" before calling \`save_order\`.
 `.trim();
 
 export const FOOD_CUSTOM_ORDER_FLAGS = `
@@ -186,14 +179,19 @@ ${FOOD_CUSTOM_ORDER_FLAGS}
 
 export const FOOD_ORDER_SUMMARY_RULES = `
 8. MANDATORY SUMMARY BEFORE SAVE:
-   📋 অর্ডার সামারি Sir:
-   🎂 প্রোডাক্ট: [প্রোডাক্টের নাম]
-   📝 কাস্টমাইজেশন: [customer_description]
+   ✅ আপনি কি এই কেকটি অর্ডার করতে চান?
+
+   🎂 নাম: [প্রোডাক্টের নাম]
+   💰 দাম: [প্রোডাক্টের দাম] টাকা
+   🍫 ফ্লেভার: [প্রোডাক্টের ফ্লেভার]
+   ⚖️ ওজন: ২ পাউন্ড
    ✍️ কেকের লেখা: [custom_message]
    📅 ডেলিভারি তারিখ ও সময়: [delivery_date] [delivery_time]
+   📍 ঠিকানা: [ঠিকানা] ([জেলা সদর/উপজেলা])
+   📱 ফোন: [ফোন]
    💵 মোট: ৳[subtotal] + ৳[delivery_charge] = ৳[total]
-   📱 [ফোন]
-   📍 [ঠিকানা] ([জেলা সদর/উপজেলা])
+
+   অর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅
    
    ⚠️ STRICT RULE: Replace ALL brackets with REAL data.
 `.trim();

@@ -54,7 +54,7 @@ const searchProducts: ChatCompletionTool = {
         },
         sendCard: {
           type: 'boolean',
-          description: 'MANDATORY: Set to TRUE to send visual product cards to the customer. NEVER set to false during discovery.',
+          description: 'Set to TRUE only if the customer explicitly asked to SEE designs, products, or pictures. Set to FALSE if you are searching to answer a price/availability question only. If FALSE, results will be used internally but NO card will be shown to customer.',
         },
       },
       required: [],

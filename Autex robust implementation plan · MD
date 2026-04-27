@@ -1,0 +1,485 @@
+# AUTEX AI — Implementation Plan
+**Last Updated:** April 27, 2026  
+**Author:** Zayed Bin Hamid  
+**Status:** Active Development
+
+---
+
+## CURRENT ARCHITECTURE STATE (As of April 27, 2026)
+
+### What Is Done ✅
+- Two-pass reasoning system (Think → Act)
+- Clothing / Food agent separation (`lib/ai/agents/`)
+- Thin router in `single-agent.ts` (25 lines)
+- Shared blocks in `lib/ai/shared/`
+- Comment auto-reply feature
+- Conversation examples moved to Position 2 (before constraints)
+- Orchestrator-level product card text override (`isDiscoveryTurn`)
+- Phone validation fully server-side
+- Negotiation 4-round system
+- coreBehavior human-first foundation
+- Dual concurrency locking (in-memory Map + webhook_events DB lock)
+- Memory compression after 10 messages
+
+### File Structure (Current)
+```
+lib/ai/
+├── agents/
+│   ├── clothing-agent.ts    ✅ Complete standalone clothing logic
+│   └── food-agent.ts        ✅ Complete standalone food logic
+├── shared/
+│   ├── types.ts             ✅ All shared types/interfaces
+│   ├── prompt-blocks.ts     ✅ Shared prompt sections
+│   └── base-runner.ts       ✅ Tool loop + brain report
+└── single-agent.ts          ✅ Router only (25 lines)
+
+lib/conversation/
+└── orchestrator.ts          ✅ Main entry, dual locking, isDiscoveryTurn fix
+```
+
+---
+
+## PHASE 1 — CRITICAL (Do First)
+
+### 1.1 — Semantic Example Retrieval via pgvector
+**Priority:** 🔴 CRITICAL  
+**Why:** 50 examples inject every turn = ~15,000 chars wasted.  
+"Tool bypass" bug caused by irrelevant examples being in context.  
+**Impact:** Token cost -70%, hallucination from example mimicking reduced.
+
+#### What needs to happen:
+1. Enable pgvector extension in Supabase
+2. Add `embedding vector(1536)` column to a new `conversation_example_embeddings` table
+3. When owner saves/updates examples → generate embedding via OpenAI `text-embedding-3-small`
+4. At runtime → embed customer message → cosine similarity search → return top 3-5 examples
+5. Inject ONLY those 3-5 into prompt instead of all 50
+
+#### Files to create/modify:
+- `lib/ai/embeddings/example-embeddings.ts` — embedding generation + storage
+- `lib/ai/embeddings/example-retrieval.ts` — cosine similarity search at runtime
+- `lib/ai/agents/clothing-agent.ts` — replace static examples injection with retrieval
+- `lib/ai/agents/food-agent.ts` — same
+- `app/api/settings/examples/route.ts` — trigger embedding on save
+- Supabase migration — pgvector extension + embeddings table
+
+#### AI Code Editor Prompt:
+```
+We need to implement semantic retrieval for conversation examples
+using pgvector in Supabase. Currently all 50 examples are injected
+into every prompt. We need to inject only the top 3-5 most relevant.
+
+Step 1 — Create Supabase migration:
+File: supabase/migrations/[timestamp]_add_example_embeddings.sql
+
+Content:
+-- Enable pgvector
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Embeddings table
+CREATE TABLE conversation_example_embeddings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  example_index INTEGER NOT NULL,
+  customer_text TEXT NOT NULL,
+  agent_text TEXT NOT NULL,
+  embedding vector(1536),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for fast similarity search
+CREATE INDEX ON conversation_example_embeddings 
+  USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+
+Step 2 — Create lib/ai/embeddings/example-embeddings.ts:
+Export a function: generateAndStoreExampleEmbeddings(
+  workspaceId: string,
+  examples: Array<{customer: string, agent: string}>,
+  supabase: SupabaseClient
+)
+
+This function should:
+- Delete existing embeddings for this workspace
+- For each example, call OpenAI embeddings API:
+  model: "text-embedding-3-small"
+  input: example.customer (we embed the customer side only)
+- Store in conversation_example_embeddings table
+- Handle errors gracefully, log failures
+
+Step 3 — Create lib/ai/embeddings/example-retrieval.ts:
+Export a function: getRelevantExamples(
+  customerMessage: string,
+  workspaceId: string,
+  supabase: SupabaseClient,
+  topK: number = 4
+): Promise<Array<{customer: string, agent: string}>>
+
+This function should:
+- Embed the customer message using text-embedding-3-small
+- Run cosine similarity search in Supabase using pgvector:
+  SELECT customer_text, agent_text,
+  1 - (embedding <=> '[vector]') as similarity
+  FROM conversation_example_embeddings
+  WHERE workspace_id = $1
+  ORDER BY embedding <=> '[vector]'
+  LIMIT $2;
+- Return top K results as {customer, agent} objects
+- If pgvector fails or returns 0 results → return [] (graceful fallback)
+
+Step 4 — Modify lib/ai/agents/clothing-agent.ts and food-agent.ts:
+In buildSystemPrompt (or equivalent), replace the static
+examplesBlock construction with:
+const relevantExamples = await getRelevantExamples(
+  input.customerMessage,
+  input.workspaceId,
+  supabase,
+  4
+);
+Then build examplesBlock from relevantExamples only.
+
+Step 5 — Trigger embedding generation on example save:
+In app/api/settings/route.ts (or wherever workspace_settings
+is updated), after saving conversation_examples to DB,
+call generateAndStoreExampleEmbeddings with the new examples.
+
+Do not break existing example injection if pgvector is not
+yet enabled — add a try/catch fallback to use all examples.
+```
+
+---
+
+### 1.2 — FAQ vs Flow Example Separation
+**Priority:** 🔴 CRITICAL  
+**Why:** "BYPASS CONSTRAINTS" causes agent to answer from examples  
+instead of calling tools. search_products being skipped.  
+**Impact:** Tool calling reliability restored. Zero-hallucination on stock enforced.
+
+#### What needs to happen:
+1. Add a `type` field to each example: `"faq"` or `"flow"`
+2. Update dashboard UI to let owner tag each example
+3. In prompt: FAQ examples → "answer directly", Flow examples → "call tool first"
+4. Separate injection: FAQ block before constraints, Flow block near tool guide
+
+#### Files to create/modify:
+- `components/dashboard/settings/examples-editor.tsx` — add type toggle UI
+- `lib/ai/agents/clothing-agent.ts` — split examplesBlock into faqBlock + flowBlock
+- `lib/ai/agents/food-agent.ts` — same
+- `lib/ai/shared/prompt-blocks.ts` — new buildFaqBlock() and buildFlowBlock() functions
+
+#### AI Code Editor Prompt:
+```
+We need to split conversation_examples into two types:
+"faq" (direct answer, no tool needed) and
+"flow" (tool call required).
+
+Step 1 — Update example data structure:
+Current: { customer: string, agent: string }
+New:     { customer: string, agent: string, type: "faq" | "flow" }
+
+Default existing examples to type: "faq" since most are Q&A.
+
+Step 2 — In lib/ai/shared/prompt-blocks.ts, create two functions:
+
+buildFaqExamplesBlock(examples: Example[]) — for faq type:
+Returns block with header:
+"[FAQ EXAMPLES — DIRECT ANSWER]
+These are business-specific questions with direct answers.
+If customer message matches these → respond directly.
+Do NOT call any tool for these."
+
+buildFlowExamplesBlock(examples: Example[]) — for flow type:
+Returns block with header:
+"[FLOW EXAMPLES — TOOL REQUIRED]
+These show how to handle product/order queries.
+Always call the appropriate tool first before responding.
+Never simulate tool outputs."
+
+Step 3 — In clothing-agent.ts and food-agent.ts:
+Split examples by type before building prompt:
+const faqExamples = relevantExamples.filter(e => e.type === 'faq');
+const flowExamples = relevantExamples.filter(e => e.type === 'flow');
+
+Inject faqExamplesBlock at position 2 (after businessContext).
+Inject flowExamplesBlock at position 9 (near block4Tools).
+
+Step 4 — Dashboard UI update:
+In the examples editor component, add a toggle per example:
+[ FAQ — Direct Answer ] [ Flow — Uses Tools ]
+Default to FAQ for new examples.
+Save type field to JSONB in workspace_settings.conversation_examples.
+
+Do not break existing examples that have no type field —
+treat missing type as "faq".
+```
+
+---
+
+## PHASE 2 — IMPORTANT (Do Second)
+
+### 2.1 — OpenAI Prompt Caching
+**Priority:** 🟡 IMPORTANT  
+**Why:** Static blocks re-sent every turn. Cost reduction ~50%.  
+Latency reduction up to 80% on cache hits.  
+**Impact:** Direct cost saving. Faster responses.
+
+#### What needs to happen:
+1. Restructure prompt so static content comes FIRST (cacheable prefix)
+2. Dynamic content (cart, memory, customer info) comes LAST
+3. Use markdown headers as attention anchors
+4. Static blocks: Persona, Core Constraints, Tool Guide, Order Flow
+5. Dynamic blocks: Cart state, Memory summary, Customer info, Examples (after semantic retrieval)
+
+#### Current prompt order vs Target order:
+```
+CURRENT (bad for caching):          TARGET (cache-friendly):
+1. businessContext (dynamic)   →    1. [STATIC] Persona + Identity
+2. examplesBlock (dynamic)     →    2. [STATIC] Core Constraints
+3. coreConstraints             →    3. [STATIC] Tool Usage Guide
+4. deliveryZones               →    4. [STATIC] Order Flow Rules
+5. faqsBlock                   →    5. [SEMI-STATIC] Business Context
+6. block1Identity              →    6. [SEMI-STATIC] FAQ Examples (retrieved)
+7. block2Thinking              →    7. [SEMI-STATIC] Delivery Zones
+8. block3Rules                 →    8. [DYNAMIC] Cart + Memory State
+9. block4Tools                 →    9. [DYNAMIC] Flow Examples (retrieved)
+10. block5OrderFlow            →    10. [DYNAMIC] Customer Message Context
+11. block6Settings
+12. block7Dynamic (dynamic)
+13. block8InfoRetrieval
+```
+
+#### AI Code Editor Prompt:
+```
+Restructure the system prompt assembly in both
+lib/ai/agents/clothing-agent.ts and lib/ai/agents/food-agent.ts
+to maximize OpenAI prompt caching.
+
+Prompt caching works by keeping a stable prefix. The more
+identical the beginning of the prompt is across requests
+for the same business, the higher the cache hit rate.
+
+New sections array order:
+
+CACHEABLE PREFIX (identical across turns for same business):
+1. block1Identity      — Meem persona (never changes)
+2. block2Thinking      — Thinking protocol (never changes)
+3. block3Rules         — Category rules (never changes)
+4. block4Tools         — Tool guide (never changes)
+5. block5OrderFlow     — Order flow (never changes)
+6. block6Settings      — Payment/delivery settings (changes rarely)
+7. coreConstraints     — Core logic (never changes)
+
+SEMI-STATIC (changes when owner updates settings):
+8. businessContextBlock  — Owner business description
+9. faqExamplesBlock      — Retrieved FAQ examples
+10. deliveryZonesBlock   — Delivery pricing
+
+DYNAMIC (changes every turn — must be at end):
+11. block7Dynamic        — Cart state, memory, customer info
+12. flowExamplesBlock    — Retrieved flow examples
+13. block8InfoRetrieval  — Final guardrails
+
+Important: Do not change the content of any block.
+Only reorder the sections array. Verify the new order
+does not break any cross-references between blocks.
+```
+
+---
+
+### 2.2 — Voice Message Pipeline
+**Priority:** 🟡 IMPORTANT  
+**Why:** Bangladeshi customers frequently send voice messages.  
+Currently these are ignored (black box).  
+**Impact:** New capability. Significant UX improvement.
+
+#### What needs to happen:
+1. Detect audio attachment in webhook (`audio`, `voice` type)
+2. Download m4a/mp4 file from Facebook CDN
+3. Send to ElevenLabs Scribe API (3.1% WER on Bangla)
+4. Inject transcription as `[Voice Message]: {text}` into conversation
+5. Agent responds normally to transcribed text
+
+#### Files to create/modify:
+- `lib/voice/transcribe.ts` — ElevenLabs Scribe integration
+- `app/api/webhooks/facebook/route.ts` — detect audio attachment type
+- `lib/conversation/orchestrator.ts` — inject transcription into message
+
+#### AI Code Editor Prompt:
+```
+Implement voice message handling for Facebook Messenger.
+
+Step 1 — In app/api/webhooks/facebook/route.ts:
+In the message processing section, check for audio attachments:
+if (event.message?.attachments) {
+  const audioAttachment = event.message.attachments.find(
+    a => a.type === 'audio'
+  );
+  if (audioAttachment) {
+    // pass audioAttachment.payload.url to transcription
+  }
+}
+
+Step 2 — Create lib/voice/transcribe.ts:
+Export async function transcribeVoiceMessage(
+  audioUrl: string
+): Promise<string | null>
+
+This function should:
+- Download audio file from Facebook CDN URL using fetch
+- Send to ElevenLabs Scribe API:
+  POST https://api.elevenlabs.io/v1/speech-to-text
+  Headers: xi-api-key: process.env.ELEVENLABS_API_KEY
+  Body: FormData with audio file and model_id: "scribe_v1"
+- Return transcribed text
+- On failure → return null (graceful fallback, skip voice)
+- Log: [VOICE] Transcribed: {text preview}
+
+Step 3 — In lib/conversation/orchestrator.ts:
+If transcription succeeds, prepend to the message text:
+const finalMessage = transcription
+  ? `[Voice Message]: ${transcription}`
+  : input.messageText;
+Pass finalMessage to runAgent instead of raw messageText.
+
+Add ELEVENLABS_API_KEY to .env.local and .env.example.
+
+Do not block normal text message processing if voice fails.
+```
+
+---
+
+## PHASE 3 — OPTIMIZATION (Do Later)
+
+### 3.1 — Product Catalog Filtering (Sort by Price)
+**Priority:** 🟢 OPTIMIZATION  
+**Why:** Customer asks "সবচেয়ে সস্তা কেক দেখান" — no sort support yet.
+
+#### What needs to happen:
+Add `sortBy: "price_asc" | "price_desc"` and `maxResults: number`  
+parameters to `search_products` tool definition and executor.
+
+#### AI Code Editor Prompt:
+```
+In lib/ai/tools/definitions.ts, add to search_products parameters
+:
+- sortBy: enum ["price_asc", "price_desc", "newest"]
+  description: "Sort order for results. Use price_asc when 
+  customer asks for cheapest, price_desc for most expensive."
+- maxResults: number (min: 1, max: 10, default: 4 for food, 6 for clothing)
+
+In lib/ai/tools/executor.ts, in the search_products handler:
+Apply sorting to the Supabase query:
+if (sortBy === 'price_asc') query = query.order('price', { ascending: true });
+if (sortBy === 'price_desc') query = query.order('price', { ascending: false });
+Apply .limit(maxResults) to the query.
+
+In lib/ai/agents/food-agent.ts and clothing-agent.ts,
+update the tool usage guide to tell the AI:
+"When customer asks for cheapest → sortBy: price_asc
+When customer asks for most expensive → sortBy: price_desc
+When customer asks to see all options → maxResults: 10"
+```
+
+---
+
+### 3.2 — Multi-Model Strategy (Claude Haiku for Action Pass)
+**Priority:** 🟢 OPTIMIZATION  
+**Why:** Research shows Claude 3.5 Haiku has superior instruction  
+following for complex tool calls vs GPT-4o-mini.
+
+#### What needs to happen:
+- Pass 1 (Reasoning): Keep GPT-4o-mini (cheap, fast)
+- Pass 2 (Action/Tools): Try Claude 3.5 Haiku (better tool reliability)
+- A/B test for 1 week, compare hallucination rate
+
+#### Note:
+Do NOT implement until Phase 1 and 2 are complete and stable.  
+This is an experiment, not a guaranteed improvement.
+
+---
+
+### 3.3 — Semantic Response Caching for FAQ
+**Priority:** 🟢 OPTIMIZATION  
+**Why:** Repetitive FAQ questions (delivery policy, return policy)  
+can be answered without LLM call.
+
+#### What needs to happen:
+- Cache FAQ responses in Supabase with embeddings
+- On FAQ-type message → similarity search first
+- If >95% similarity match → return cached response
+- Skip LLM call entirely for cached FAQs
+
+---
+
+## KNOWN ISSUES (Not Yet Fixed)
+
+| Issue | Severity | Notes |
+|---|---|---|
+| "ভাইয়া" still appears occasionally | Medium | Sir/Ma'am rule inconsistent |
+| 200 OK returned after processing | High | Should return immediately, process async |
+| No checkpoint/resume on timeout | High | If Vercel times out, conversation breaks |
+| Instagram integration | Low | Planned, not scoped |
+
+---
+
+## ENVIRONMENT VARIABLES NEEDED
+
+```bash
+# Existing
+OPENAI_API_KEY=
+NEXT_PUBLIC_SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+FACEBOOK_APP_SECRET=
+
+# To Add (Phase 1)
+# None needed — uses existing OpenAI key for embeddings
+
+# To Add (Phase 2 — Voice)
+ELEVENLABS_API_KEY=
+```
+
+---
+
+## QUICK REFERENCE — FILE MAP
+
+```
+lib/ai/
+├── agents/
+│   ├── clothing-agent.ts     # Clothing prompt + tool config
+│   └── food-agent.ts         # Food prompt + tool config
+├── shared/
+│   ├── types.ts              # AgentInput, AgentOutput, all types
+│   ├── prompt-blocks.ts      # Shared prompt section builders
+│   └── base-runner.ts        # Tool loop, brain report, reasoning pass
+├── embeddings/               # TO CREATE (Phase 1.1)
+│   ├── example-embeddings.ts # Generate + store embeddings on save
+│   └── example-retrieval.ts  # Cosine similarity search at runtime
+├── voice/                    # TO CREATE (Phase 2.2)
+│   └── transcribe.ts         # ElevenLabs Scribe integration
+└── single-agent.ts           # Router only (25 lines)
+
+lib/conversation/
+└── orchestrator.ts           # Main entry, locking, isDiscoveryTurn
+
+app/api/
+├── webhooks/facebook/
+│   └── route.ts              # Webhook handler, voice detection
+└── settings/
+    └── route.ts              # Trigger embedding on example save
+
+components/dashboard/settings/
+└── examples-editor.tsx       # Add FAQ/Flow type toggle (Phase 1.2)
+
+supabase/migrations/
+└── [timestamp]_add_example_embeddings.sql  # TO CREATE (Phase 1.1)
+```
+
+---
+
+## SESSION LOG
+
+| Date | What Was Done |
+|---|---|
+| April 4, 2026 | coreBehavior, sendCard flag, payment digit fix, terminal logging |
+| April 6, 2026 | UUID fix, negative response detection, phone server-side validation, price rounding |
+| April 20, 2026 | Multi-category system (food), pricing finalized |
+| April 27, 2026 | Clothing/food agent separation, router pattern, example position fix, isDiscoveryTurn text override |

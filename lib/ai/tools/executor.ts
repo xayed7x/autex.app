@@ -175,7 +175,7 @@ async function executeSearchProducts(
           ...ctx.conversationContext.metadata,
           identifiedProducts: sendCard 
             ? searchResult.products 
-            : ctx.conversationContext.metadata?.identifiedProducts,
+            : undefined,
           // If sendCard true: a new product search replaces prior active product
           ...(sendCard && {
             activeProductId: undefined,

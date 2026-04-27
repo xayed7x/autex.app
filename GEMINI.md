@@ -61,4 +61,24 @@ When something seems impossible, that's the cue to **ultrathink harder**. The pe
 
 ---
 
+## Technical Excellence (Antigravity Standards)
+
+### 1. Next.js & React
+- **App Router Mastery**: Default to Server Components. Use Client Components (`'use client'`) only for state, effects, or browser APIs.
+- **Data Flow**: Use Server Actions for mutations. Fetch data in the closest layout/page to where it's needed.
+- **Resilience**: Implement `loading.tsx` and `error.tsx` for every route segment.
+- **Type Safety**: Use Zod for all API payloads and environment variables.
+
+### 2. Supabase & Database
+- **RLS First**: Every table must have Row Level Security. Never use the service role key on the client.
+- **Type Generation**: Always use generated Supabase types (`types/supabase.ts`).
+- **Logic Placement**: Prefer Postgres functions/triggers for complex data integrity over application code.
+
+### 3. AI & Agentic Behavior
+- **Context Preservation**: Always read `GEMINI.md` and `CLAUDE.md` at the start of a session.
+- **Tool Reliability**: When using tools, verify the output before proceeding. If a tool fails, diagnose the root cause instead of retrying blindly.
+- **Validation**: Every AI-generated UI component must be audited against the "Ultrathink" Aesthetic.
+
+---
+
 **Don't just tell me how you'll solve it. Show me why this solution is the only solution that makes sense. Make me see the future you're creating.**

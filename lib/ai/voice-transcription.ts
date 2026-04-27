@@ -30,6 +30,12 @@ export async function transcribeVoiceMessage(
     // 2. Refine transcript with LLM (Step 2)
     console.log('✨ [WHISPER] Refining transcript with LLM...');
     const refinedTranscript = await refineTranscriptWithLLM(rawTranscript);
+
+    // Handle [unclear] case
+    if (refinedTranscript.trim() === '[unclear]') {
+      console.log('⚠️ [WHISPER] Transcription is too unclear to process.');
+      return null;
+    }
     
     return refinedTranscript;
   } catch (error) {
@@ -47,10 +53,8 @@ async function processAudioResponse(response: Response): Promise<string | null> 
   const file = new File([audioBlob], 'audio.m4a', { type: 'audio/m4a' });
   formData.append('file', file);
   formData.append('model', 'whisper-1');
-  // Note: OpenAI API currently returns an error if 'bn' is passed explicitly in the language parameter.
-  // We rely on auto-detection + prompt to ensure Bengali transcription.
   formData.append('temperature', '0');
-  formData.append('prompt', 'এটা একটা বাংলিশ কথোপকথন। কেক অর্ডার, ফ্লেভার এবং ডেলিভারি সম্পর্কে কথা হচ্ছে।');
+  formData.append('prompt', 'বাংলা এবং বাংলিশ কথোপকথন। পোশাক অর্ডার, কেক অর্ডার, দাম জিজ্ঞেস, সাইজ, রং, ডেলিভারি, বিকাশ, নগদ সম্পর্কে কথা হচ্ছে। সাধারণ শব্দ: ভাই, আপু, দাম কত, আছে, নাই, অর্ডার করব, কনফার্ম, পাঠান, L সাইজ, M সাইজ, লাল, নীল, সাদা, কালো।');
 
   // 3. Call OpenAI Transcription API
   const openaiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -83,7 +87,18 @@ async function refineTranscriptWithLLM(rawText: string): Promise<string> {
       messages: [
         {
           role: 'system',
-          content: 'You are a professional transcription refiner. Your task is to clean up Bengali/Banglish transcripts. Remove filler words like "um", "ah", "ইয়ে", "মানে", and redundant repetitions. Fix broken sentences and grammar while strictly preserving the original meaning and emotional tone. Output ONLY the cleaned text.'
+          content: `তুমি একটা Bangla e-commerce voice message transcription editor।
+তোমার কাজ হলো Whisper এর raw transcription টা ঠিক করা।
+
+নিয়ম:
+1. ইয়ে, মানে, উম, আহ, এই এই — এগুলো remove করো
+2. Product names ঠিক করো: 'জাম দানি' → 'জামদানি', 'সেলওয়ার' → 'সালোয়ার'
+3. Numbers এবং sizes ঠিক রাখো: L, M, XL, ৫০০, ১০০০
+4. bKash, Nagad, COD — এগুলো exact রাখো
+5. Customer এর মূল intent কখনো বদলাবে না
+6. যদি transcription এতটাই unclear যে মানে বোঝা যাচ্ছে না, তাহলে শুধু '[unclear]' return করো
+
+Output: শুধু cleaned text। কোনো explanation নয়।`
         },
         {
           role: 'user',

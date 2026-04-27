@@ -376,25 +376,25 @@ const calculateDelivery: ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'calculate_delivery',
-    description:
-      'Calculate delivery charge for an address. ' +
-      'CALL WHEN: Customer provides their delivery address during order flow. ' +
-      'CALL BEFORE showing the order summary — the delivery charge MUST come from this tool result, never from memory or assumption. ' +
-      'DO NOT estimate or guess delivery charge under any circumstance.',
-    parameters: {
-      type: 'object',
-      properties: {
-        address: {
-          type: 'string',
-          description: 'The delivery address to calculate shipping cost for.',
+      description:
+        'Calculate delivery charge for an address. ' +
+        'CALL WHEN: Customer provides their delivery address. ' +
+        'CRITICAL: Always try to identify if the zone is "জেলা সদর" or "উপজেলা" and pass it in delivery_zone for accurate pricing. ' +
+        'DO NOT estimate or guess delivery charge under any circumstance.',
+      parameters: {
+        type: 'object',
+        properties: {
+          address: {
+            type: 'string',
+            description: 'The delivery address to calculate shipping cost for.',
+          },
+          delivery_zone: {
+            type: 'string',
+            description: 'MANDATORY if known: The selected delivery zone label (e.g., "জেলা সদর", "উপজেলা").',
+          },
         },
-        delivery_zone: {
-          type: 'string',
-          description: 'Optional: The selected delivery zone label (e.g., জেলা সদর, উপজেলা). Use this to ensure accuracy if the address is ambiguous.',
-        },
+        required: ['address'],
       },
-      required: ['address'],
-    },
   },
 };
 

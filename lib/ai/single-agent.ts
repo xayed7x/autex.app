@@ -58,6 +58,7 @@ export interface AgentOutput {
   flagReason?: string;
   toolsCalled: string[];
   toolCallsMade: number;
+  shouldTriggerQuickForm?: boolean;
 }
 
 // ============================================
@@ -219,6 +220,7 @@ Rules for this turn:
   let toolLoops = 0;
   let finalResponse = '';
   let shouldFlag = false;
+  let shouldTriggerQuickForm = false;
   let toolsCalledLog: string[] = [];
   let flaggedForManual = false;
   let flagReason = '';
@@ -259,27 +261,12 @@ Rules for this turn:
     const thinkRegex = /\[THINK\]([\s\S]*?)\[\/THINK\]/gi;
     const hasThink = responseMessage.content && responseMessage.content.match(thinkRegex);
 
-    if (!hasThink && toolLoops < 2) {
-       console.warn(`⚠️ [RETRY] AI skipped [THINK] tags. Nudging for logical pass...`);
-       
-       // Clean the message to remove unauthorized tool calls before pushing
-       // ENSURE content is a string (never null) to satisfy OpenAI API requirements
-       const cleanedMessage = { 
-          ...responseMessage, 
-          tool_calls: undefined,
-          content: responseMessage.content || "" 
-       };
-       messages.push(cleanedMessage);
-
-       messages.push({ 
-          role: 'system', 
-          content: "CRITICAL ERROR: You MUST analyze the [PERSISTENT CONTEXT], [TIME CONTEXT], and [BUSINESS CONTEXT] inside [THINK] tags BEFORE writing your response or calling any tools. You cannot call a tool without thinking first. Start your next message with [THINK]." 
-       });
-       toolLoops++;
-       continue;
+    if (!hasThink) {
+       console.log(`ℹ️ AI skipped [THINK] tags. Proceeding...`);
     }
-
-    // Thinking present, proceed normally
+    
+    // CRITICAL: Always push the message to history BEFORE processing tools
+    // to maintain the role order (assistant -> tool).
     messages.push(responseMessage);
 
     if (responseMessage.content) {
@@ -309,7 +296,7 @@ Rules for this turn:
       // --- HALLUCINATION GUARD: BLOCK ALL TEXTUAL TOOL CALLS & JSON LEAKAGE ---
       // Detect ANY brackets [] or curly braces {} in the text response as it indicates a hallucinated tool call or JSON leak
       const content = responseMessage.content || "";
-      const hasHallucinatedTool = content.match(/\[/i) || content.trim().startsWith('{');
+      const hasHallucinatedTool = content.match(/\[(ACTION|TOOL|CALL|TRIGGER):/i) || content.trim().startsWith('{');
       
       if (hasHallucinatedTool) {
          console.warn(`⚠️ [REJECTION] AI tried to use brackets or JSON in text (Loop ${toolLoops}). Forcing real tool pass...`);
@@ -322,9 +309,12 @@ Rules for this turn:
             break;
          }
 
-         // To prevent OpenAI 400 errors, we must strip tool_calls from the rejected message
-         // if we are going to continue the loop without providing tool responses.
-         responseMessage.tool_calls = undefined;
+         // CRITICAL: If we are rejecting a message that has tool_calls, 
+         // we MUST strip them from the history, otherwise OpenAI will throw a 400 error
+         // (role 'tool' must follow 'tool_calls', and no other roles can be in between).
+         if (responseMessage.tool_calls) {
+            responseMessage.tool_calls = undefined;
+         }
 
          messages.push({ 
             role: 'system', 
@@ -419,6 +409,10 @@ Rules for this turn:
           Object.assign(input.context, sideEffects.updatedContext);
         }
 
+        if ((sideEffects as any)?.shouldTriggerQuickForm) {
+          shouldTriggerQuickForm = true;
+        }
+
         if ((sideEffects as any)?.shouldFlag) {
           shouldFlag = true;
           flaggedForManual = true;
@@ -465,13 +459,13 @@ Rules for this turn:
   console.log(`    ${intentAnalysis}\n`);
 
   console.log(`[3] CONTEXT FED TO AI`);
-  console.log(`    - Business Context: ${input.settings.businessContext ? 'Yes (' + input.settings.businessContext.length + ' chars)' : 'No'}`);
-  console.log(`    - Memory Summary:   ${input.memorySummary ? 'Present' : 'None'}`);
-  console.log(`    - Cart State:       ${input.context.cart?.length ? input.context.cart.length + ' items' : 'Empty'}`);
-  console.log(`    - Order Stage:      ${(input.context.metadata as any)?.orderStage || 'discovery'}\n`);
+  console.log(`    - Business Context: ${input.settings.businessContext ? `Yes (${input.settings.businessContext.length} chars)` : 'No'}`);
+  console.log(`    - Memory Summary:   ${input.memorySummary ? 'Yes' : 'None'}`);
+  console.log(`    - Cart State:       ${input.context.cart?.length ? `${input.context.cart.length} items` : 'Empty'}`);
+  console.log(`    - Order Stage:      ${(input.context.metadata as any)?.orderStage || 'IDLE'}\n`);
 
   console.log(`[4] REASONING SUMMARY (Pass 1)`);
-  console.log(`    ${firstPassReasoning ? firstPassReasoning.split('\n').join('\n    ') : 'No [THINK] block generated.'}\n`);
+  console.log(`    ${firstPassReasoning ? firstPassReasoning.substring(0, 500) + (firstPassReasoning.length > 500 ? '...' : '') : 'No [THINK] block generated.'}\n`);
 
   console.log(`[5] TOOLS CALLED`);
   if (detailedToolsLog.length === 0) {
@@ -480,14 +474,12 @@ Rules for this turn:
     detailedToolsLog.forEach((t, i) => {
       console.log(`    ${i + 1}. ${t.name}`);
       console.log(`       Args: ${JSON.stringify(t.args)}`);
-      // Truncate result to avoid massive terminal spam
-      const resStr = JSON.stringify(t.result);
-      console.log(`       Result: ${resStr ? (resStr.length > 150 ? resStr.substring(0, 150) + '...' : resStr) : 'undefined'}\n`);
+      console.log(`       Result: ${JSON.stringify(t.result)}\n`);
     });
   }
 
   console.log(`[6] RESPONSE DECISION`);
-  console.log(`    ${finalResponse ? '"' + finalResponse + '"' : '[No Text Response]'}\n`);
+  console.log(`    "${finalResponse || '(Empty response)'}"\n`);
 
   console.log(`[7] RED FLAGS (Auto-Detected)`);
   const redFlags: string[] = [];
@@ -557,6 +549,7 @@ Rules for this turn:
     flagReason: flagReason || undefined,
     toolsCalled: toolsCalledLog,
     toolCallsMade: toolLoops,
+    shouldTriggerQuickForm,
   };
 }
 
@@ -591,22 +584,19 @@ function generateSystemPrompt(
   const coreConstraints = `
 ${timeContext}
 
-[STRICT CONTEXT ADHERENCE - NO GUESSING]
-- **DO NOT BE PROACTIVE**: Never offer information or rules for products that the customer has NOT mentioned. 
-- **NO PRODUCT LEAKS**: If a customer is ordering a custom design (image), you are FORBIDDEN from mentioning catalog items (like Red Velvet) or their specific rules.
-- **STAY IN YOUR LANE**: If you don't have enough info, call flag_for_review. DO NOT guess a reason or a date.
-- **EMOJI SILENCE (CRITICAL)**: If the customer sends ONLY an emoji (Like, Thumbs up, Heart, etc.), you are STATEDLY FORBIDDEN from replying. Your text response content MUST be completely empty (a zero-length string).
-- **NO PHONE VALIDATION**: Accept any phone number format provided by the customer. Do NOT ask for 11 digits or provide examples. Just record the number they give.
+[IDENTITY: METICULOUS PAGE MODERATOR]
+You are a Moderator for this page. You are NOT lazy; you are highly proactive and meticulous. Before answering, you must follow this process:
+1. **AUDIT**: Review the [TIME CONTEXT], conversation history, and the new message.
+2. **INTENT**: Compare the new message with the history to identify the customer's goal.
+3. **GROUND TRUTH**: Fetch the relevant facts from the [BUSINESS CONTEXT] and [CONVERSATION EXAMPLES].
+4. **SILENCE IS GOLDEN**: If you do not find the exact answer in the context or tools, you are STRICTLY FORBIDDEN from guessing. You MUST return an empty string ("") as your response. 
+- **NO HALLUCINATION**: If you aren't 100% sure, say nothing.
+- **EMOJI SILENCE (CRITICAL)**: If the customer sends ONLY an emoji, you are FORBIDDEN from replying. Return an empty string.
 
-[THINK]
-0. TIMELINE AUDIT (Step 0): You MUST manually list the last 3 messages here (e.g., "1. Customer: [Text]"). DO NOT COPY THIS INSTRUCTION.
-1. INTENT ANALYSIS: What is the customer's goal right now?
-2. PERSISTENT CONTEXT: What do I already know from history (e.g. Location: Khulna)? 
-3. MEMORY AUDIT: Scan the [MEMORY SUMMARY] specifically for "image", "design", or "price set by owner".
-4. SCENARIO VERIFICATION: Am I in Scenario 1 (Generic) or Scenario 2 (Custom)?
-5. REPETITION AUDIT: Scan the last 20 messages. Have I already asked this question or given this info? (If yes, DELETE or SILENCE).
-6. HALLUCINATION CHECK: Am I about to mention a product or rule (like Red Velvet) that hasn't been discussed? (If yes, DELETE IT).
-7. GROUND TRUTH CHECK: Name the section and line from the context used.
+[THINKING PROTOCOL]
+1. INTENT: What is the customer's goal?
+2. CONTEXT: What is the delivery address/zone?
+3. ACTION: Should I call a tool or ask for info?
 [/THINK]
 [Your actual response to the customer here]
 
@@ -642,12 +632,12 @@ If you call 'search_products', your text content MUST be completely empty.
    - **RESULT ONLY**: If a condition is met, say "Yes" and the follow-up. 
 3. **SINGLE-WORD BINARY (CRITICAL)**:
    - If the customer asks a Yes/No question, start with "হ্যাঁ" (Yes) or "না" (No). 
-    - **PRECEDENCE**: If an example in [CONVERSATION EXAMPLES] matches the intent, IGNORE the brevity/binary rules and use the example's full response style and length.
-    - **ZERO EXPLANATION**: If no example matches, avoid justifying the result. Just state it.
-3. **ZERO HALLUCINATION & GROUND TRUTH**:
+   - **PRECEDENCE**: If an example in [CONVERSATION EXAMPLES] matches the intent, IGNORE the brevity/binary rules and use the example's full response style and length.
+   - **ZERO EXPLANATION**: If no example matches, avoid justifying the result. Just state it.
+4. **ZERO HALLUCINATION & GROUND TRUTH**:
    - If information isn't in the context/DB, you must NOT invent it.
    - Refusal over guessing: If the answer is missing, say: "আমি বিষয়টি জেনে আপনাকে জানাচ্ছি 😊"
-1. **STRICT EXPLICIT DISCOVERY (CRITICAL)**: 
+5. **STRICT EXPLICIT DISCOVERY (CRITICAL)**: 
    - You are **FORBIDDEN** from calling \`search_products\` unless the customer explicitly asks to see visual content (e.g., "ছবি দেখান", "Show me pictures").
    - **SCENARIO 2 OVERRIDE (CRITICAL)**: If the customer describes a **CUSTOM DESIGN** (e.g., "মানুষের ছবি থাকবে", "Guitar on top", "Custom design") or sends an inspiration image, you MUST **NOT** call \`search_products\`. You MUST proceed with information collection (Phone, Address, Date) and ONLY flag for review at the very end of the collection process.
    - **Differentiate Intent**: 
@@ -665,7 +655,8 @@ If you call 'search_products', your text content MUST be completely empty.
 8. **HISTORY & REPETITION AWARENESS (CRITICAL)**: 
    - Scan the entire conversation history (up to 20 messages). 
    - If a fact was provided previously (e.g., Phone: 017...), DO NOT ask for it again.
-   - **NO DUPLICATE QUESTIONS**: If you already asked "When do you need it?" or "What is your address?", and the customer hasn't answered yet, do NOT ask again in every turn. Just wait or acknowledge their current message.
+   - Use the existing information to fill the gaps.
+   - If you already asked "When do you need it?" or "What is your address?", and the customer hasn't answered yet, do NOT ask again in every turn. Just wait or acknowledge their current message.
    - **SEMANTIC REPETITION**: If you are about to say almost the same thing you said in the last 3 turns, stay SILENT (empty string).
 9. **LOGICAL INTEGRITY (PAYMENT)**: 
    - If 'Cash on Delivery' is enabled in settings, confirm that we take it. 

@@ -413,7 +413,7 @@ export async function processMessagingEvent(
         // Fetch full product details including image
         const { data: product } = await supabase
           .from('products')
-          .select('id, name, price, flavors, category, image_urls')
+          .select('id, name, price, flavor, flavors, category, image_urls')
           .eq('id', productId)
           .single();
 
@@ -468,11 +468,20 @@ export async function processMessagingEvent(
               const context = conversation.context as any || {};
               const metadata = context.metadata || {};
 
-              // Update conversation context with selected product
+              // Add to cart (Essential for save_order tool)
+              context.cart = [{
+                productId: product.id,
+                productName: product.name,
+                productPrice: product.price,
+                quantity: 1,
+                imageUrl: product.image_urls?.[0]
+              }];
+
+              // Update conversation context with selected product metadata
               metadata.activeProductId = product.id;
               metadata.activeProductName = product.name;
               metadata.activeProductPrice = product.price;
-              metadata.flavor = (product.flavors && product.flavors.length > 0) ? product.flavors[0] : (product.category || 'Default');
+              metadata.flavor = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors.join(', ') : 'Default');
               metadata.orderStage = 'COLLECTING_INFO';
               context.metadata = metadata;
 
@@ -505,7 +514,7 @@ export async function processMessagingEvent(
 
               // STEP 2: Send product confirmation message
               const weightLabel = '২ পাউন্ড'; // Default for now
-              const flavorLabel = (product.flavors && product.flavors.length > 0) ? product.flavors[0] : (product.category || 'বিশেষ ডিজাইন');
+              const flavorLabel = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors.join(', ') : 'বিশেষ ডিজাইন');
               const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 নাম: ${product.name}\n💰 দাম: ${product.price.toLocaleString('en-BD')} টাকা\n🍫 ফ্লেভার: ${flavorLabel}\n⚖️ ওজন: ${weightLabel}\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
               await sendMessage(pageId, customerPsid, confirmationMsg);
 

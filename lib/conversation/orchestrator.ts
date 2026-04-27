@@ -625,14 +625,12 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     
     const hasProducts = currentContext.metadata?.identifiedProducts && currentContext.metadata.identifiedProducts.length > 0;
     
-    if (hasProducts && !orderCreated && !flowLocked && !finalResponse) {
-      const productCount = currentContext.metadata.identifiedProducts.length;
-      if (settings.businessCategory === 'food') {
-        finalResponse = productCount === 1
-          ? `উপরের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👆`
-          : `উপরের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👆`;
-      } else {
-        finalResponse = `অর্ডার করতে চাইলে উপরের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊`;
+    if (hasProducts && !orderCreated && !flowLocked) {
+      const universalMsg = `পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন`;
+      if (!finalResponse) {
+        finalResponse = universalMsg;
+      } else if (!finalResponse.includes(universalMsg)) {
+        finalResponse = `${finalResponse}\n\n${universalMsg}`;
       }
     }
 
@@ -736,40 +734,20 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                attachments: { type: 'product_card', productIds: [mappedProducts[0].id] }
              });
           } else {
-             if (settings.businessCategory === 'food') {
-                // FIX 2: Vertical delivery for cakes
-                const { sendProductsVertical } = await import('@/lib/facebook/messenger');
-                const results = await sendProductsVertical(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
-                
-                // Log each vertical card mapping individually
-                for (let i = 0; i < results.length; i++) {
-                  if (results[i]?.message_id) {
-                    await supabase.from('messages').insert({
-                      conversation_id: input.conversationId,
-                      sender: 'bot',
-                      sender_type: 'bot',
-                      message_text: `[Sent Vertical Card (${i+1}): ${mappedProducts[i].name}]`,
-                      message_type: 'template',
-                      mid: results[i].message_id,
-                      attachments: { type: 'product_card', productIds: [mappedProducts[i].id] }
-                    });
-                  }
-                }
-             } else {
-                // Keep horizontal carousel for clothing
-                const result = await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
-                
-                // Log carousel mapping
-                await supabase.from('messages').insert({
-                   conversation_id: input.conversationId,
-                   sender: 'bot',
-                   sender_type: 'bot',
-                   message_text: `[Sent Carousel: ${mappedProducts.length} products]`,
-                   message_type: 'template',
-                   mid: result.message_id,
-                   attachments: { type: 'product_card', productIds: mappedProducts.map(p => p.id) }
-                });
-             }
+             // Use horizontal carousel for all categories
+             const { sendProductCarousel } = await import('@/lib/facebook/messenger');
+             const result = await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+             
+             // Log carousel mapping
+             await supabase.from('messages').insert({
+                conversation_id: input.conversationId,
+                sender: 'bot',
+                sender_type: 'bot',
+                message_text: `[Sent Carousel: ${mappedProducts.length} products]`,
+                message_type: 'template',
+                mid: result.message_id,
+                attachments: { type: 'product_carousel', productIds: mappedProducts.map(p => p.id) }
+             });
           }
         }
 
@@ -950,16 +928,12 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       const isSemanticRepetition = recentAssistantMsgs.some(oldMsg => {
         const normalizedOld = normalize(oldMsg);
         
-        // Exact normalized match
-        if (normalizedOld === normalizedNew && normalizedNew.length > 10) return true;
+        // Exact normalized match (only for meaningful messages)
+        if (normalizedOld === normalizedNew && normalizedNew.length > 5) return true;
         
-        // Simple similarity check for long messages (if 90% of the characters match in order)
-        if (normalizedNew.length > 20 && normalizedOld.length > 20) {
-          const longer = normalizedNew.length > normalizedOld.length ? normalizedNew : normalizedOld;
-          const shorter = normalizedNew.length > normalizedOld.length ? normalizedOld : normalizedNew;
-          
-          if (longer.includes(shorter) || (longer.length - shorter.length) < (longer.length * 0.1)) {
-             // If one contains the other or they are very close in length after normalization, block it
+        // Inclusion check: if the new message is exactly contained in an old one or vice versa
+        if (normalizedNew.length > 15 && normalizedOld.length > 15) {
+          if (normalizedNew.includes(normalizedOld) || normalizedOld.includes(normalizedNew)) {
              return true;
           }
         }

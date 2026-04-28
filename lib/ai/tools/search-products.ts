@@ -52,7 +52,6 @@ export interface SearchProductsOutput {
 // CONSTANTS
 // ============================================
 
-const MAX_RESULTS = 5;
 const MAX_DESCRIPTION_LENGTH = 120;
 
 // ============================================
@@ -77,7 +76,7 @@ export async function searchProducts(
   requestedColor?: string,
   flavor?: string,
   category?: string,
-  limit: number = 20,
+  limit: number = 50,
   offset: number = 0
 ): Promise<SearchProductsOutput> {
   const trimmedQuery = query.trim();

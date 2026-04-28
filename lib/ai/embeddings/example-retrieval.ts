@@ -65,6 +65,7 @@ export async function getRelevantExamples(
 
     if (!data || data.length === 0) {
       console.log(`[SEMANTIC EXAMPLES] No matching examples found for workspace ${workspaceId}`);
+      console.log(`[SEMANTIC EXAMPLES] No match found — agent will be silent for this question`);
       return [];
     }
 
@@ -74,7 +75,13 @@ export async function getRelevantExamples(
       type: row.type || 'faq',
     }));
 
-    console.log(`[SEMANTIC EXAMPLES] Retrieved ${results.length} examples (similarities: ${data.map((r: any) => r.similarity?.toFixed(3)).join(', ')})`);
+    console.log(`[SEMANTIC EXAMPLES] Customer message: "${customerMessage}"`);
+    console.log(`[SEMANTIC EXAMPLES] Found ${results.length} matches:`);
+    results.forEach((ex, i) => {
+      console.log(`  Match ${i+1} [similarity: ${data[i].similarity?.toFixed(3)}]`);
+      console.log(`  Customer: "${ex.customer}"`);
+      console.log(`  Agent: "${ex.agent.substring(0, 80)}..."`);
+    });
 
     return results;
   } catch (error: any) {

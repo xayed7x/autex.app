@@ -74,7 +74,7 @@ export async function generateAndStoreExampleEmbeddings(
       example_index: index,
       customer_text: examples[index].customer,
       agent_text: examples[index].agent,
-      type: examples[index].type || 'faq',
+      type: 'example',
       embedding: JSON.stringify(item.embedding),
     }));
 

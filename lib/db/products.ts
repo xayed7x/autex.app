@@ -208,7 +208,7 @@ export async function searchProductsByKeywordsWithScoring(
 
     // Limit the initial DB fetch to a reasonable amount (e.g., 100) to keep memory low
     // while still allowing JS-based scoring for relevance ranking
-    const { data: matchedProducts, error } = await queryBuilder.limit(100);
+    const { data: matchedProducts, error } = await queryBuilder.limit(200);
 
     if (error) {
       console.error('Error fetching products:', error);

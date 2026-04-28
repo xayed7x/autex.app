@@ -74,7 +74,7 @@ export async function runAgentLoop(
       });
     }
 
-    const responseMessage = completion.choices[0].message;
+    let responseMessage = completion.choices[0].message;
 
     // --- MANDATORY THINKING VALIDATION ---
     const thinkRegex = /\[THINK\]([\s\S]*?)\[\/THINK\]/gi;
@@ -116,8 +116,78 @@ export async function runAgentLoop(
     }
 
     if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
-        finalResponse = (responseMessage.content || '').trim();
-        break;
+        // ========================================
+        // 🚀 LAZY TOOL DETECTOR (SUPREME INTENT GUARD)
+        // ========================================
+        // If no tools were called, check if the reasoning intended to call one.
+        if (firstPassReasoning && lazyRetries < 1) {
+          const intentCheck = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            max_tokens: 100,
+            response_format: { type: 'json_object' },
+            messages: [
+              {
+                role: 'system',
+                content: `Analyze the following AI reasoning and extract the intended tool call. 
+                Return JSON: { "should_call_tool": boolean, "tool_name": "search_products" | "calculate_delivery" | "save_order" | null }
+                Set should_call_tool: true ONLY if the reasoning explicitly says it will call the tool.`
+              },
+              { role: 'user', content: firstPassReasoning }
+            ]
+          });
+
+          const intent = JSON.parse(intentCheck.choices[0].message.content || '{}');
+          
+          if (intent.should_call_tool && intent.tool_name) {
+            console.log(`🛡️ [LAZY DETECTOR] AI intended to call ${intent.tool_name} but skipped. Forcing retry...`);
+            lazyRetries++;
+            
+            // Force the specific tool call in the next completion
+            const retryCompletion = await openai.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: messages.slice(0, -1), // Remove the lazy response
+              tools: tools,
+              tool_choice: { type: 'function', function: { name: intent.tool_name } },
+              temperature: 0.1, // Low temperature for precision
+            });
+
+            // Log usage for retry
+            if (retryCompletion.usage) {
+              logApiUsage({
+                workspaceId: input.workspaceId,
+                conversationId: input.conversationId,
+                model: 'gpt-4o-mini',
+                featureName: 'agent_response', // Still part of response generation
+                usage: {
+                  promptTokens: retryCompletion.usage.prompt_tokens,
+                  completionTokens: retryCompletion.usage.completion_tokens,
+                  totalTokens: retryCompletion.usage.total_tokens,
+                  cachedPromptTokens: (retryCompletion.usage as any).prompt_tokens_details?.cached_tokens,
+                }
+              });
+            }
+
+            const retryMessage = retryCompletion.choices[0].message;
+            if (retryMessage.tool_calls && retryMessage.tool_calls.length > 0) {
+              console.log(`✅ [LAZY DETECTOR] Retry successful. Tool call captured.`);
+              // Replace the lazy response with the forced tool call in history
+              messages.pop(); 
+              messages.push(retryMessage);
+              
+              // CRITICAL FIX: Overwrite responseMessage so the loop proceeds to execute the tools
+              responseMessage = retryMessage;
+            } else {
+              finalResponse = (responseMessage.content || '').trim();
+              break;
+            }
+          } else {
+            finalResponse = (responseMessage.content || '').trim();
+            break;
+          }
+        } else {
+          finalResponse = (responseMessage.content || '').trim();
+          break;
+        }
     }
 
     toolLoops++;
@@ -153,6 +223,11 @@ export async function runAgentLoop(
           shouldTriggerQuickForm = true;
         }
 
+        if (sideEffects?.shouldFlag) {
+          flaggedForManual = true;
+          if (sideEffects.flagReason) flagReason = sideEffects.flagReason;
+        }
+
         if (sideEffects?.updatedContext) {
           Object.assign(input.context, sideEffects.updatedContext);
         }
@@ -173,8 +248,15 @@ export async function runAgentLoop(
   console.log(`[4] RESPONSE: "${finalResponse}"`);
   console.log(`══════════════════════════════════════════════════════════════════════════════\n`);
 
+  // --- FINAL RESPONSE CLEANUP ---
+  // If the AI sent literal quotation marks as its response, strip them.
+  let cleanedResponse = finalResponse.trim();
+  if (cleanedResponse === '""' || cleanedResponse === "''" || cleanedResponse === '""' || cleanedResponse === '""') {
+    cleanedResponse = '';
+  }
+
   return {
-    response: finalResponse,
+    response: cleanedResponse,
     shouldFlag: shouldFlag || flaggedForManual,
     flagReason: flagReason || undefined,
     toolsCalled: toolsCalledLog,

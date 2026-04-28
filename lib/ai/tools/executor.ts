@@ -809,6 +809,24 @@ async function executeFlagForReview(
 
     const finalReason = reason;
 
+    // --- BAKERY SAFETY GUARD ---
+    const isBakeryRelated = reason.toLowerCase().includes('design') || 
+                           reason.toLowerCase().includes('image') || 
+                           reason.toLowerCase().includes('cake') ||
+                           reason.toLowerCase().includes('custom');
+    
+    if (isBakeryRelated && ctx.settings.businessCategory === 'food') {
+      console.warn(`🛡️ [SAFETY GUARD] Blocked attempt to flag a bakery-related design request. Reason: ${reason}`);
+      return {
+        result: {
+          success: false,
+          data: { error: "FORBIDDEN_FLAG" },
+          message: "You are FORBIDDEN from flagging for custom designs. Please follow Scenario 2 and ask for customer details (phone/location/flavor) instead."
+        },
+        sideEffects: {},
+      };
+    }
+
     await supabase.from('conversations').update({
       control_mode: 'manual',
       needs_manual_response: true,

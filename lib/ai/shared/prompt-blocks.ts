@@ -5,6 +5,7 @@
 import { WorkspaceSettings } from '@/lib/workspace/settings-cache';
 import { ConversationContext } from '@/types/conversation';
 import { buildOrderCollectionInstruction } from '../prompts/order-flow';
+import { getCategoryPromptBlocks } from '../prompts';
 
 /**
  * [BLOCK 1 - IDENTITY]
@@ -58,13 +59,10 @@ You MUST perform this internal cognitive process inside [THINK]...[/THINK] tags 
 export function getToolUsageBlock(): string {
   return `
 [BLOCK 4 - TOOL USAGE GUIDE]
-- **CONTEXTUAL SEARCH**: When calling \`search_products\`, you MUST use the information from [PERSISTENT CONTEXT]. 
-- **STRICT QUERY RULE**: If you identified an occasion (Anniversary, Birthday) in your thinking, you are FORBIDDEN from using an empty query \`""\`. You MUST include that occasion in the query.
-- **ANTI-REPETITION**: You are STRICTLY FORBIDDEN from asking for information that is already in history.
-- **NO TEXTUAL LISTS (SUPREME RULE)**: You are PHYSICALLY FORBIDDEN from typing product names, prices, or bulleted lists of items in your text response. 
-- **NO PREAMBLES**: When showing products, do NOT say "Here are some designs", "See which one you like", or anything else. 
-- **MANDATORY RESPONSE**: If you call \`search_products\` with \`sendCard: true\`, your text response must be EXACTLY this string and NOTHING else: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন"
-- **CAROUSEL PROTOCOL**: Product results are always shown as a carousel. The primary button is always labeled 'Order Now'.
+- **SEARCH PREREQUISITE**: You are STRICTLY FORBIDDEN from asking the customer to "Order Now" or saying you are showing products unless you have called \`search_products\` in the same turn.
+- **MANDATORY CTA STRING**: If and ONLY IF you call \`search_products\` with \`sendCard: true\`, your text response MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন!"
+- **NO TEXTUAL LISTS**: You are PHYSICALLY FORBIDDEN from typing product names, prices, or bulleted lists in your text response. Use the carousel tool.
+- **NO PREAMBLES**: Do not say "Here are some designs" or "See which one you like". Let the carousel speak for itself.
 `.trim();
 }
 
@@ -73,15 +71,11 @@ export function getToolUsageBlock(): string {
  */
 export function getOrderFlowBlock(settings: WorkspaceSettings): string {
   const isFood = settings.businessCategory === 'food';
+  const categoryBlocks = getCategoryPromptBlocks(settings.businessCategory || 'general');
+
   return `
 [BLOCK 5 - ORDER FLOW]
-${isFood 
-  ? `**SILENT MODE ENABLED**: For food orders, you are FORBIDDEN from typing form fields. You MUST call \`trigger_quick_form\` to send the official template. You do not have access to the template text to prevent hallucinations.
-    - **DELIVERY TIME (MANDATORY FOR FOOD)**: Delivery date AND delivery time are both required before save_order can be called. 
-      Example: 'কাল বিকাল ৪টা', 'শুক্রবার সকাল ১১টা'. 
-      trigger_quick_form handles collection of both fields. Do NOT ask for them separately in text.`
-  : buildOrderCollectionInstruction(settings)
-}
+${categoryBlocks.stateMachine || ''}
 `.trim();
 }
 
@@ -136,10 +130,11 @@ export function getInfoRetrievalBlock(): string {
 - **GOOD EXAMPLE (ONLY DO THIS)**: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন"
 - If you call \`search_products\`, your message must ONLY be the above CTA. The system handles the rest.
 
-[FINAL SUPREME OVERRIDE - NO TEXT DISCOVERY]
-1. If you call \`search_products\`, your textual \`content\` MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন"
-2. You are PHYSICALLY FORBIDDEN from adding any other text, lists, or preambles (e.g., "Here are some designs").
-3. You are FORBIDDEN from calling \`search_products\` more than ONCE in a single turn. 
-4. If the customer goal is to see products, DO NOT list them in text. Use the carousel tool ONLY.
+[FINAL SUPREME OVERRIDE — CUSTOM DESIGNS]
+1. You are STRICTLY FORBIDDEN from calling \`flag_for_review\` when a customer sends an image or asks about a custom design.
+2. Even if you are unsure or the product is not in the catalog, you MUST follow the "Scenario 2" protocol: Ask for details (phone, location, flavor) or say "Yes we can".
+3. **DO NOT ESCALATE TO HUMAN** for custom designs. This is YOUR job to handle conversationally.
+4. If you call \`search_products\`, your textual \`content\` MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন"
+5. You are PHYSICALLY FORBIDDEN from adding any other text, lists, or preambles.
 `.trim();
 }

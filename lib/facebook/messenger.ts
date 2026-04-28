@@ -298,6 +298,49 @@ export async function sendProductCarousel(
 }
 
 /**
+ * Sends a large set of products by chunking them into multiple carousel messages.
+ * Each carousel message contains max 10 products.
+ * 
+ * @param pageId - The Facebook Page ID
+ * @param recipientPsid - The recipient's Page-Scoped ID
+ * @param products - Array of products to display (up to 50)
+ * @param businessCategory - The category of the business
+ * @returns Promise with the last send message response
+ */
+export async function sendChunkedProductDiscovery(
+  pageId: string,
+  recipientPsid: string,
+  products: any[],
+  businessCategory?: string
+): Promise<SendMessageResponse> {
+  const CHUNK_SIZE = 10;
+  let lastResult: SendMessageResponse | null = null;
+
+  // Split products into chunks of 10
+  const chunks = [];
+  for (let i = 0; i < products.length; i += CHUNK_SIZE) {
+    chunks.push(products.slice(i, i + CHUNK_SIZE));
+  }
+
+  console.log(`📦 [CHUNKED DISCOVERY] Sending ${products.length} products in ${chunks.length} carousel(s).`);
+
+  for (const chunk of chunks) {
+    lastResult = await sendProductCarousel(pageId, recipientPsid, chunk, businessCategory);
+    
+    // Small delay to ensure correct order in Messenger
+    if (chunks.indexOf(chunk) < chunks.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  }
+
+  if (!lastResult) {
+    throw new Error('No products were provided for chunked discovery.');
+  }
+
+  return lastResult;
+}
+
+/**
  * Sends multiple products as individual cards one after another (Vertical Feel)
  * Specifically for food businesses to give more prominence to each cake.
  * @param pageId - Facebook Page ID

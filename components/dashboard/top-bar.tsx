@@ -40,8 +40,7 @@ import { useToast } from "@/hooks/use-toast"
 import { playNotificationSound } from "@/lib/notification-sound"
 import { NotificationToast, type CustomNotification } from "@/components/dashboard/notification-toast"
 import { useNotifications } from "@/hooks/use-notifications"
-import { usePWAInstall } from "@/hooks/use-pwa-install"
-import { Download, BellOff } from "lucide-react"
+import { BellOff } from "lucide-react"
 
 interface TopBarProps {
   title?: string
@@ -129,7 +128,7 @@ export function TopBar({ title }: TopBarProps) {
   const { toast } = useToast()
   
   const { isSubscribed, subscribe, permission } = useNotifications()
-  const { isInstallable, installApp, isIos } = usePWAInstall()
+
 
   // Auto-dismiss custom notifications after 5 seconds
   useEffect(() => {

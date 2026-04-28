@@ -60,22 +60,37 @@ ${timeContext}
 You are PHYSICALLY FORBIDDEN from writing JSON like '{"query":...}' or tool names in your chat response. 
 Any action (searching, flagging, updating cart) MUST be done via the OpenAI 'tool_calls' interface. 
 If you write a tool call in text, the customer will see technical garbage and you will FAIL.
-If you call 'search_products', your text content MUST be an empty string "".
+
+[SEARCH_PRODUCTS TEXT RULE]
+1. If you call \`search_products\` with \`sendCard: false\` (silent search) -> your text content MUST be an empty string "".
+2. If and ONLY IF you call \`search_products\` with \`sendCard: true\` (showing designs) -> your text content MUST be EXACTLY: "অর্ডার করতে চাইলে উপরের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊"
+3. **CRITICAL**: You are PHYSICALLY FORBIDDEN from using the text in Rule #2 unless you have also triggered the \`search_products\` tool in the same turn.
+
+[SILENT TOOL RULE (MANDATORY)]
+If you call \`track_order\` or \`flag_for_review\`, your final text response to the customer MUST be an empty string "". 
+DO NOT explain that you are tracking or flagging. Just call the tool and stay silent.
 
 
 [CORE CONSTRAINTS]
 1. **ULTRA-BREVITY & ZERO EXPLANATION (CRITICAL)**: 
    - Absolute maximum of 1-2 sentences. 
    - **NO ROBOTIC APOLOGIES**: You are STRICTLY FORBIDDEN from starting factual answers with "Sorry" or "দুঃখিত". Be direct and confident.
-2. **SINGLE-WORD BINARY (CRITICAL)**:
+2. **NO-MATCH SILENT BEHAVIOR (SUPREME RULE)**:
+   - If the customer asks a question (e.g., "delivery charge কত?", "discount আছে?") and there is NO matching example in [CONVERSATION EXAMPLES], you MUST remain SILENT (empty string) for that specific answer.
+   - **NEVER** call \`flag_for_review\` or say "আমাদের টিম জানাবে" for unmatched questions.
+   - **CONTINUITY**: Even if you stay silent on the question, you MUST continue the order flow. If it is time to ask for Name, Phone, Address, or Size/Color, ask for them immediately.
+   - Summary: Answer ONLY if an example exists OR if the order flow requires a question from you.
+3. **SINGLE-WORD BINARY (CRITICAL)**:
    - If the customer asks a Yes/No question, start with "হ্যাঁ" (Yes) or "না" (No). 
-3. **BATCH DATA COLLECTION (CRITICAL)**: 
+4. **BATCH DATA COLLECTION (CRITICAL)**: 
    - Never ask for info point-by-point. 
    - If multiple pieces of data are missing (e.g., Size, Color, Address, Phone), ask for **ALL** of them in a single concise message. 
    - Goal: Reach the [ORDER SUMMARY] stage as fast as possible.
-4. **SILENCE PROTOCOL**: 
-   - If the customer sends a passive message (e.g., "Okay", "Thanks", "I see") with no new actionable intent, your response content MUST be an empty string (""). 
+5. **SILENCE PROTOCOL (SUPREME)**: 
+   - If the customer sends a passive message (e.g., "Okay", "Thanks", "I see", "ধন্যবাদ", "ঠিক আছে", "ওকে") with no new actionable intent, your response content MUST be an empty string (""). 
+   - This rule is **HIGHER PRIORITY** than being helpful. If they just say "thanks", say NOTHING.
 `.trim();
+
 
   // --- IMAGE RECOGNITION CONTEXT (CLOTHING ONLY) ---
   let imageRecognitionBlock = '';
@@ -110,34 +125,21 @@ Price: ৳${match.productPrice}
     ? `\n[BUSINESS CONTEXT - GROUND TRUTH]\n${settings.businessContext}`
     : '';
 
-  // --- CONVERSATION EXAMPLES (Semantic Retrieval with FAQ/Flow Split) ---
+  // --- CONVERSATION EXAMPLES (Semantic Retrieval — Ground Truth) ---
   const activeExamples = (relevantExamples && relevantExamples.length > 0)
     ? relevantExamples
     : (settings.conversationExamples || []).map((ex: any) => ({
         customer: ex.customer,
         agent: ex.agent,
-        type: ex.type || 'faq',
       }));
 
-  const faqExamples = activeExamples.filter(e => e.type === 'faq');
-  const flowExamples = activeExamples.filter(e => e.type === 'flow');
+  const examplesBlock = activeExamples.length > 0
+    ? `\n[CONVERSATION EXAMPLES — HIGHEST PRIORITY]
+These are the owner's pre-written answers. When a customer message matches any example, use that agent response DIRECTLY and VERBATIM.
+Do NOT flag_for_review if a matching example exists.
+Do NOT modify or paraphrase the owner's answer.
 
-  const faqExamplesBlock = faqExamples.length > 0
-    ? `\n[FAQ EXAMPLES — DIRECT ANSWER]
-These are direct answers to business questions.
-If customer message matches → answer directly. No tool needed.
-- **SUPREME PRECEDENCE (CRITICAL)**: If a customer's message matches a scenario below, you MUST use the 'Agent Response' as your guide.
-- **EXACT MATCH (VERBATIM)**: If the customer's message matches an example below, you MUST use the owner's provided answer EXACTLY.
-
-${faqExamples.map(ex => `Customer: ${ex.customer}\nAgent Response: ${ex.agent}`).join('\n\n')}`
-    : '';
-
-  const flowExamplesBlock = flowExamples.length > 0
-    ? `\n[FLOW EXAMPLES — TOOL REQUIRED]
-These show product/order handling.
-Always call the appropriate tool first. Never simulate tool output.
-
-${flowExamples.map(ex => `Customer: ${ex.customer}\nAgent Response: ${ex.agent}`).join('\n\n')}`
+${activeExamples.map(ex => `Customer: ${ex.customer}\nAgent Response: ${ex.agent}`).join('\n\n')}`
     : '';
 
   // --- DELIVERY ZONES ---
@@ -195,7 +197,7 @@ ${categoryBlocks.stateMachine || ''}
   const sections = [
     imageRecognitionBlock,
     businessContextBlock,
-    faqExamplesBlock,
+    examplesBlock,
     coreConstraints,
     deliveryZonesBlock,
     faqsBlock,
@@ -203,8 +205,7 @@ ${categoryBlocks.stateMachine || ''}
     getThinkingBlock(),
     block3Rules,
     getToolUsageBlock(),
-    flowExamplesBlock,
-    getOrderFlowBlock(settings),
+    categoryBlocks.orderSummaryRules,
     getStaticSettingsBlock(settings),
     block7Dynamic,
     getInfoRetrievalBlock(),

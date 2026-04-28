@@ -8,7 +8,9 @@
     "lint": "eslint .",
     "start": "next start",
     "setup:messenger": "tsx scripts/setup-messenger-profile.ts",
-    "backfill:usernames": "tsx scripts/backfill-page-usernames.ts"
+    "backfill:usernames": "tsx scripts/backfill-page-usernames.ts",
+    "regenerate:embeddings": "tsx scripts/regenerate-all-embeddings.ts",
+    "reset:manual": "tsx scripts/reset-manual-to-ai.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -88,6 +90,7 @@
     "postcss": "^8.5",
     "supabase": "^2.63.1",
     "tailwindcss": "^4.1.9",
+    "tsx": "^4.21.0",
     "tw-animate-css": "1.3.3",
     "typescript": "^5"
   }

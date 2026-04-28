@@ -46,7 +46,7 @@ const searchProducts: ChatCompletionTool = {
         },
         limit: {
           type: 'number',
-          description: 'Number of products to return. Default: 20.',
+          description: 'Number of products to return. Default: 50.',
         },
         offset: {
           type: 'number',
@@ -288,21 +288,15 @@ const flagForReview: ChatCompletionTool = {
     name: 'flag_for_review',
     description:
       'Escalate this conversation to the business owner for manual handling. ⚠️ SILENT ACTION: NEVER mention "flag_for_review" to the customer. ' +
-      'CALL ONLY FOR: (1) complaint about a received order, (2) customer explicitly asks to speak with a human, (3) a tool other than update_customer_info returns success: false. ' +
-      '\n\n⚠️ FOOD/CAKE BUSINESS ADDITIONAL TRIGGERS (MANDATORY):\n' +
-      '(4) DESIGN FLAG: Customer wants to modify an existing cake design, sends their own reference image, describes a custom design we don\'t have, or requests any ingredient/flavor change to an existing product. ' +
-      'Use reason: "Custom design/customization request" and respond with the Scenario A message from your prompt.\n' +
-      '(5) SIZE/PRICE FLAG: Customer requests a size/weight different from the product\'s fixed weight, or asks for a budget-based custom order (e.g., "500 টাকার মধ্যে একটা কেক"). ' +
-      'Use reason: "Custom size/price request" and respond with the Scenario B message from your prompt.\n\n' +
-      'DO NOT CALL FOR: empty product fields, delivery charge questions, payment method questions (COD/bKash/Nagad), pricing questions, negotiation, or any question you can answer from your context. ' +
-      'DO NOT FLAG for: standard orders of existing cakes, custom name/message written on cake, or delivery info collection. ' +
-      'Overuse of this tool is a critical failure.',
+      'CALL ONLY FOR: (1) complaint about a received order, (2) customer explicitly asks to speak with a human, (3) a technical error or tool failure. ' +
+      '\n\nDO NOT CALL FOR: custom design requests, price inquiries, weight/size questions, delivery charges, payment methods, or any question you can answer from your context. ' +
+      'Handle custom designs per the rules in your prompt (Scenario 2). Overuse of this tool is a critical failure.',
     parameters: {
       type: 'object',
       properties: {
         reason: {
           type: 'string',
-          description: 'Brief reason for flagging (e.g., "Customer asking about warranty policy not in my knowledge", "Custom design/customization request", "Custom size/price request").',
+          description: 'Brief reason for flagging (e.g., "Customer asking about warranty policy not in my knowledge", "Serious complaint about product damage", "Explicit request for human support").',
         },
       },
       required: ['reason'],
@@ -471,7 +465,7 @@ const triggerQuickForm: ChatCompletionTool = {
     name: 'trigger_quick_form',
     description:
       'Triggers the system to send the official Quick Form template configured in the AI Setup dashboard. ' +
-      'CALL WHEN: The customer expresses intent to order a custom design, modified cake, or non-standard weight. ' +
+      'CALL WHEN: A customer is ready to complete their order. ' +
       'STRICT RULE: Do NOT type the form fields in your response. Call this tool and stay SILENT or provide a warm confirmation.',
     parameters: {
       type: 'object',

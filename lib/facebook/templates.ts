@@ -109,7 +109,7 @@ export function createProductCarousel(
   businessCategory?: string
 ): GenericTemplateMessage {
   const isFood = businessCategory === 'food';
-  const limitedProducts = products.slice(0, 10);
+  const limitedProducts = products;
   
   const elements: GenericTemplateElement[] = limitedProducts.map((product) => {
     const formattedPrice = `${product.price.toLocaleString('en-BD')}`;

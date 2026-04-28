@@ -83,8 +83,15 @@ export function PwaInstallButton() {
     }
   };
 
-  // FORCING VISIBILITY FOR TESTING
-  // (Ignoring isStandalone and installPrompt checks for now)
+  // Hide button if already installed/standalone
+  if (isStandalone) {
+    return null;
+  }
+
+  // Only show if we have a prompt or if it's iOS (manual instructions)
+  if (!installPrompt && !isIos) {
+    return null;
+  }
 
   return (
     <Button 

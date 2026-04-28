@@ -17,7 +17,6 @@ export async function transcribeVoiceMessage(
     console.log('🎙️ [WHISPER] Starting transcription for:', audioUrl);
 
     // 1. Fetch audio from Facebook CDN
-    // Facebook voice messages usually require the page access token
     const separator = audioUrl.includes('?') ? '&' : '?';
     const audioResponse = await fetch(`${audioUrl}${separator}access_token=${accessToken}`);
     
@@ -47,16 +46,13 @@ export async function transcribeVoiceMessage(
 async function processAudioResponse(response: Response): Promise<string | null> {
   const audioBlob = await response.blob();
   
-  // 2. Prepare FormData for OpenAI
   const formData = new FormData();
-  // OpenAI Whisper requires strict file extensions. .m4a is a supported container for AAC.
   const file = new File([audioBlob], 'audio.m4a', { type: 'audio/m4a' });
   formData.append('file', file);
   formData.append('model', 'whisper-1');
   formData.append('temperature', '0');
   formData.append('prompt', 'বাংলা এবং বাংলিশ কথোপকথন। পোশাক অর্ডার, কেক অর্ডার, দাম জিজ্ঞেস, সাইজ, রং, ডেলিভারি, বিকাশ, নগদ সম্পর্কে কথা হচ্ছে। সাধারণ শব্দ: ভাই, আপু, দাম কত, আছে, নাই, অর্ডার করব, কনফার্ম, পাঠান, L সাইজ, M সাইজ, লাল, নীল, সাদা, কালো।');
 
-  // 3. Call OpenAI Transcription API
   const openaiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
     headers: {
@@ -82,37 +78,43 @@ async function processAudioResponse(response: Response): Promise<string | null> 
  */
 async function refineTranscriptWithLLM(rawText: string): Promise<string> {
   try {
+    // PRE-PROCESS: Remove common Whisper stuttering artifacts (e.g., "কুরোরোরোরো...")
+    // This happens when Whisper hallucinates on silence/noise
+    let preProcessedText = rawText.replace(/(.)\1{4,}/g, '$1'); 
+    
+    // Also remove repeating word sequences
+    preProcessedText = preProcessedText.replace(/(\b\w+\b)( \1){3,}/g, '$1');
+
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
-          content: `তুমি একটা Bangla e-commerce voice message transcription editor।
-তোমার কাজ হলো Whisper এর raw transcription টা ঠিক করা।
-
+          content: `তুমি একটা Senior Bangla Voice Editor। তোমার কাজ হলো Whisper এর ভুলভাল বা 'stuttering' (তোতলামি) যুক্ত ট্রান্সক্রিপ্ট ঠিক করা।
+          
 নিয়ম:
-1. ইয়ে, মানে, উম, আহ, এই এই — এগুলো remove করো
-2. Product names ঠিক করো: 'জাম দানি' → 'জামদানি', 'সেলওয়ার' → 'সালোয়ার'
-3. Numbers এবং sizes ঠিক রাখো: L, M, XL, ৫০০, ১০০০
-4. bKash, Nagad, COD — এগুলো exact রাখো
-5. Customer এর মূল intent কখনো বদলাবে না
-6. যদি transcription এতটাই unclear যে মানে বোঝা যাচ্ছে না, তাহলে শুধু '[unclear]' return করো
+1. Whisper অনেক সময় শেষে একই অক্ষর বারবার লেখে (যেমন: কুরোরোরো...)। এগুলো বাদ দাও।
+2. যদি শব্দগুলো ভুল হয় কিন্তু উচ্চারণ কাছাকাছি হয়, তবে সঠিক শব্দে রূপান্তর করো (যেমন: 'অচ্ছে' → 'আচ্ছা', 'আমে' → 'আমি', 'ওডের' → 'অর্ডার')।
+3. 'ইয়ে', 'মানে', 'উম', 'আহ' — এগুলো remove করো।
+4. Product names, sizes (L, M, XL) এবং পেমেন্ট মেথড (bKash, Nagad) ঠিক রাখো।
+5. **চেষ্টা করো**: যদি বাক্যটি পুরোপুরি ভাঙাচোরা হয় কিন্তু ২-৩টি মূল শব্দ (যেমন: অর্ডার, দাম, কালার) বোঝা যায়, তবে সেগুলো দিয়ে একটি অর্থপূর্ণ বাক্য তৈরির চেষ্টা করো। 
+6. একদমই যদি কোনো অর্থ উদ্ধার করা অসম্ভব হয়, তবেই শুধু '[unclear]' লিখবে।
 
-Output: শুধু cleaned text। কোনো explanation নয়।`
+Output: শুধু পরিষ্কার বাংলা টেক্সট।`
         },
         {
           role: 'user',
-          content: `নিচের ট্রান্সক্রিপ্টটা গুছিয়ে লেখো, উম-আহ বাদ দাও, বাক্য ঠিক করো কিন্তু অর্থ চেঞ্জ কোরো না:\n\n${rawText}`
+          content: `নিচের ভাঙাচোরা ট্রান্সক্রিপ্টটা ঠিক করে সুন্দর করে লেখো:\n\n${preProcessedText}`
         }
       ],
       temperature: 0,
     });
 
-    const refinedText = response.choices[0].message.content?.trim() || rawText;
+    const refinedText = response.choices[0].message.content?.trim() || preProcessedText;
     console.log('✅ [WHISPER] Refined Transcription:', refinedText);
     return refinedText;
   } catch (error) {
     console.error('❌ [WHISPER] LLM Refinement error:', error);
-    return rawText; // Fallback to raw text if LLM fails
+    return rawText; 
   }
 }

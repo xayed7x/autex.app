@@ -9,7 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
 import { getCachedSettings } from '@/lib/workspace/settings-cache';
 import { ConversationContext, PendingImage, ConversationState } from '@/types/conversation';
-import { sendMessage, sendProductCard, sendProductCarousel } from '@/lib/facebook/messenger';
+import { sendMessage, sendProductCard, sendProductCarousel, sendChunkedProductDiscovery } from '@/lib/facebook/messenger';
 import { ChatCompletionMessageParam } from 'openai/resources/index.mjs';
 import { runAgent, AgentInput } from '@/lib/ai/single-agent';
 import { manageMemory } from '@/lib/ai/memory-manager';
@@ -17,6 +17,7 @@ import { renderOrderConfirmationMessages } from '@/lib/ai/tools/transactional-me
 import { tryFastLane } from '@/lib/conversation/fast-lane';
 import { searchProducts } from '@/lib/ai/tools/search-products';
 import { updateContextInDb } from '@/lib/db/conversations';
+import { notifyAdmins } from '@/lib/notifications/push';
 
 // ============================================
 // TYPES
@@ -350,42 +351,58 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         currentContext.metadata.orderStage = 'COLLECTING_INFO';
         currentContext.metadata.activeProductId = undefined;
 
-        // === 🚀 STATE-AWARE SHORT-CIRCUIT: AUTOMATED RESPONSE FOR UNKNOWN IMAGES ===
-        const waitMessage = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
-        
-        // Only send if NOT already in history (last 10 messages)
-        const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-10);
-        const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
+        // === DETERMINE CUSTOMER INTENT FROM TEXT ===
+        const customerText = (input.messageText || '').trim().toLowerCase();
+        const priceKeywords = ['দাম', 'price', 'কত', 'cost', 'টাকা', 'charge', 'কত হবে', 'দাম কত', 'price koto'];
+        const customerAskedPrice = priceKeywords.some(kw => customerText.includes(kw));
 
-        if (!alreadySent) {
-          console.log("🚀 [SHORT-CIRCUIT] Sending automated wait message.");
-          if (!input.isTestMode) {
-            await sendMessage(input.pageId, input.customerPsid, waitMessage);
-          }
+        if (customerAskedPrice) {
+          // === 🚀 EXPLICIT PRICE INTENT: Send wait message and stop ===
+          const waitMessage = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
           
-          // Log the bot message
-          await supabase.from('messages').insert({
-            conversation_id: input.conversationId,
-            sender: 'bot',
-            sender_type: 'bot',
-            message_text: waitMessage,
-            message_type: 'text',
-          });
-        } else {
-          console.log("🛡️ [SHORT-CIRCUIT] Skipping automated response - already sent recently.");
+          const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-10);
+          const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
+
+          if (!alreadySent) {
+            console.log("🚀 [SHORT-CIRCUIT] Customer asked price for custom design. Sending wait message.");
+            if (!input.isTestMode) {
+              await sendMessage(input.pageId, input.customerPsid, waitMessage);
+            }
+            await supabase.from('messages').insert({
+              conversation_id: input.conversationId,
+              sender: 'bot',
+              sender_type: 'bot',
+              message_text: waitMessage,
+              message_type: 'text',
+            });
+          } else {
+            console.log("🛡️ [SHORT-CIRCUIT] Wait message already sent. Staying silent (pin-drop).");
+          }
+
+          await supabase.from('conversations').update({
+            current_state: 'COLLECTING_INFO',
+            context: currentContext,
+            last_message_at: new Date().toISOString()
+          }).eq('id', input.conversationId);
+
+          return {
+            response: alreadySent ? '' : waitMessage,
+            newState: 'COLLECTING_INFO',
+            updatedContext: currentContext,
+          };
         }
+
+        // === IMAGE ONLY or IMAGE + NON-PRICE TEXT: Fall through to AI ===
+        // Image-only → AI asks for phone/location/flavor (Sub-Case A)
+        // Image + capability question → AI answers "Yes we can" (Sub-Case B)
+        console.log("💬 [SHORT-CIRCUIT] No explicit price intent. Passing to AI for contextual response.");
         
-        // Persist updated context
+        // Persist context flag so the AI knows it's a custom design
         await supabase.from('conversations').update({
-          current_state: 'COLLECTING_INFO',
           context: currentContext,
           last_message_at: new Date().toISOString()
         }).eq('id', input.conversationId);
-        return {
-          response: waitMessage,
-          newState: 'COLLECTING_INFO',
-          updatedContext: currentContext,
-        };
+        // Do NOT return — fall through to AI.
       }
 
       imageContext = {
@@ -538,6 +555,21 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       currentContext.metadata.latestOrderId = undefined;
       currentContext.metadata.latestOrderNumber = undefined;
       currentContext.metadata.latestOrderData = undefined;
+
+      // ========================================
+      // [NOTIFICATION] PUSH NOTIFICATION FOR ORDER
+      // ========================================
+      try {
+        await notifyAdmins(supabase, input.workspaceId, {
+          title: `🛒 New Order! (#${orderData.orderNumber})`,
+          body: `${orderData.customerName} placed an order for ${orderData.itemCount} items. (৳${orderData.totalAmount})`,
+          url: `/dashboard/orders`, // Deep link to dashboard
+          data: { orderId: od.id }
+        });
+        console.log(`🔔 [PUSH] Notification sent for order ${orderData.orderNumber}`);
+      } catch (pushErr) {
+        console.error('❌ [PUSH] Failed to send order notification:', pushErr);
+      }
     }
 
     // STEP 5.5: UNIVERSAL DISCOVERY PROTOCOL INTERCEPTION
@@ -665,8 +697,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                attachments: { type: 'product_card', productIds: [mappedProducts[0].id] }
              });
           } else {
-             // Unified carousel delivery for all categories (including food/cakes)
-             const result = await sendProductCarousel(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+             // Unified chunked carousel delivery for all categories (including food/cakes)
+             const result = await sendChunkedProductDiscovery(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
              
              // Log the carousel mapping to the database
              await supabase.from('messages').insert({
@@ -897,6 +929,23 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       finalUpdate.manual_flagged_at = new Date().toISOString();
       finalUpdate.state = 'MANUAL_REVIEW';
       console.log(`🚩 [FINAL] Flagging conversation for review: ${finalUpdate.manual_flag_reason}`);
+
+      // ========================================
+      // [NOTIFICATION] PUSH NOTIFICATION FOR MANUAL FLAG
+      // ========================================
+      try {
+        // Fetch customer name for notification
+        const customerName = convData.customer_name || 'A customer';
+        await notifyAdmins(supabase, input.workspaceId, {
+          title: `🚨 Manual Review Needed`,
+          body: `${customerName}: ${finalUpdate.manual_flag_reason}`,
+          url: `/dashboard/conversations?id=${input.conversationId}`,
+          data: { conversationId: input.conversationId }
+        });
+        console.log(`🔔 [PUSH] Notification sent for manual flag: ${finalUpdate.manual_flag_reason}`);
+      } catch (pushErr) {
+        console.error('❌ [PUSH] Failed to send manual flag notification:', pushErr);
+      }
     }
 
     await supabase.from('conversations').update(finalUpdate).eq('id', input.conversationId);

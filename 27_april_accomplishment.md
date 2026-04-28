@@ -18,7 +18,8 @@ Today's focus was on elevating the technical standards of the Autex project by i
 - **Weight & Availability Protocol**: 
     - Removed the hardcoded "2lb default" rule.
     - Implemented an absolute prohibition against the AI stating weight limitations (e.g., "We don't have 1lb").
-    - AI now neutrally offers to check with the owner for any custom weight request.
+    - AI now neutrally offers to check with the owner for any custom 
+    weight request.
     - **Tone Correction**: Removed all references to "the team" in automated responses to align with brand preferences.
 - **Custom Price Prohibition**: Physically forbidden the AI from estimating or calculating prices for custom/bespoke cake designs.
 - **Order Flow Expansion**: Added **Delivery Time** as a mandatory field for food orders, ensuring `trigger_quick_form` and order validation capture the full customer intent.

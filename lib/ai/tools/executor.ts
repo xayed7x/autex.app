@@ -198,15 +198,30 @@ async function executeAddToCart(
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   // Resolution order: valid UUID arg → activeProductId in metadata → identifiedProducts last item
-  if (!productId || !uuidRegex.test(productId)) {
+  if (!uuidRegex.test(productId)) {
     const meta = ctx.conversationContext.metadata as any;
-    if (meta?.activeProductId) {
+    if (meta?.activeProductId && uuidRegex.test(meta.activeProductId)) {
       console.log(`🔧 Resolving invalid/missing ID "${productId}" to activeProductId "${meta.activeProductId}"`);
       productId = meta.activeProductId;
     } else if (meta?.identifiedProducts?.length > 0) {
       const last = meta.identifiedProducts[meta.identifiedProducts.length - 1];
-      productId = last.id || last.productId || '';
+      const potentialId = last.id || last.productId || '';
+      if (uuidRegex.test(potentialId)) {
+        productId = potentialId;
+      }
     }
+  }
+
+  // FINAL HARD GUARD: If still not a valid UUID, reject.
+  if (!uuidRegex.test(productId)) {
+    return {
+      result: { 
+        success: false, 
+        data: { providedId: productId }, 
+        message: `Invalid product ID "${productId}". You can ONLY add catalog products (with UUIDs) to the cart. For custom designs or images with "No Match Found", you MUST NOT call this tool. Use Scenario 2 (Wait Message) instead.` 
+      },
+      sideEffects: {},
+    };
   }
 
   let quantity = Number(args.quantity) || 1;

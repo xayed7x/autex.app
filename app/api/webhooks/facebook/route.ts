@@ -1072,10 +1072,16 @@ export async function processMessagingEvent(
     console.log('🎭 Calling Orchestrator...');
     
     // Try to acquire DB lock for bot processing
-    const dbLockAcquired = await processingLock.acquireDbLock(supabase, conversation.id, 'bot_processing', 20);
+    let dbLockAcquired = await processingLock.acquireDbLock(supabase, conversation.id, 'bot_processing', 20);
     
     if (!dbLockAcquired) {
-      console.log('⏭️ [BOT] Could not acquire DB lock (already processing elsewhere), skipping');
+      console.log('⏳ [BOT] Lock held by another process. Waiting 4000ms for retry...');
+      await new Promise(resolve => setTimeout(resolve, 4000));
+      dbLockAcquired = await processingLock.acquireDbLock(supabase, conversation.id, 'bot_processing', 20);
+    }
+
+    if (!dbLockAcquired) {
+      console.log('⏭️ [BOT] Could not acquire DB lock after retry (already processing elsewhere), skipping');
       return;
     }
 

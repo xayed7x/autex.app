@@ -91,10 +91,8 @@ function isResponseRepetitive(finalResponse: string, allMessages: any[]): boolea
   
   return recentBotMsgs.some(m => {
     const normalizedPrev = normalizeForComparison(m.message_text || '');
-    // Check for exact normalized match or substring containment
-    return normalizedPrev === normalizedCurrent || 
-           (normalizedCurrent.length > 20 && normalizedPrev.includes(normalizedCurrent)) ||
-           (normalizedPrev.length > 20 && normalizedCurrent.includes(normalizedPrev));
+    // Check for exact normalized match ONLY
+    return normalizedPrev === normalizedCurrent;
   });
 }
 
@@ -382,8 +380,24 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           await supabase.from('conversations').update({
             current_state: 'COLLECTING_INFO',
             context: currentContext,
-            last_message_at: new Date().toISOString()
-          }).eq('id', input.conversationId);
+            last_message_at: new Date().toISOString(),
+            needs_manual_response: true,
+            manual_flag_reason: "Price Inquiry for Custom Design",
+            manual_flagged_at: new Date().toISOString()
+          } as any).eq('id', input.conversationId);
+
+          // Notify admins of price inquiry
+          try {
+            const customerName = convData.customer_name || 'A customer';
+            await notifyAdmins(supabase, input.workspaceId, {
+              title: `💰 Price Inquiry: Custom Design`,
+              body: `${customerName} asked for the price of their custom image.`,
+              url: `/dashboard/conversations?id=${input.conversationId}`,
+              data: { conversationId: input.conversationId }
+            });
+          } catch (err) {
+            console.error('Failed to notify admins of price inquiry:', err);
+          }
 
           return {
             response: alreadySent ? '' : waitMessage,
@@ -812,10 +826,6 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       } else {
         // Force strict clean version of Scenario 2
         finalResponse = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
-        if (!agentResult.shouldFlag) {
-          agentResult.shouldFlag = true;
-          agentResult.flagReason = "Safety Net: Price Inquiry (Scenario 2)";
-        }
       }
     }
 
@@ -923,12 +933,27 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     };
 
     if (agentResult.shouldFlag) {
-      finalUpdate.control_mode = 'manual';
+      const reason = agentResult.flagReason || 'Agent self-flagged.';
+      
+      // --- SOFT vs HARD FLAG LOGIC ---
+      // Situation B (Price inquiries) are 'soft' flags: notify but keep bot active.
+      // Situation A (Angry/Human request) are 'hard' flags: pause bot.
+      const isSoftFlag = reason.includes("Situation B") || 
+                        reason.includes("Scenario 2") || 
+                        reason.includes("Price Inquiry") ||
+                        reason.includes("Custom weight");
+
+      if (!isSoftFlag) {
+        finalUpdate.control_mode = 'manual';
+        finalUpdate.state = 'MANUAL_REVIEW';
+        console.log(`🚩 [HARD FLAG] Pausing bot: ${reason}`);
+      } else {
+        console.log(`🔔 [SOFT FLAG] Notifying owner but keeping bot active: ${reason}`);
+      }
+
       finalUpdate.needs_manual_response = true;
-      finalUpdate.manual_flag_reason = agentResult.flagReason || 'Agent self-flagged.';
+      finalUpdate.manual_flag_reason = reason;
       finalUpdate.manual_flagged_at = new Date().toISOString();
-      finalUpdate.state = 'MANUAL_REVIEW';
-      console.log(`🚩 [FINAL] Flagging conversation for review: ${finalUpdate.manual_flag_reason}`);
 
       // ========================================
       // [NOTIFICATION] PUSH NOTIFICATION FOR MANUAL FLAG
@@ -964,9 +989,9 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
   } catch (error) {
     console.error('❌ ORCHESTRATOR ERROR:', error);
     
-    // Remain silent on errors to allow manual intervention
+    // Send a fallback message instead of remaining silent
     return {
-      response: '',
+      response: 'দুঃখিত, একটু সমস্যা হয়েছে। একটু পরে আবার চেষ্টা করুন 🙏',
       newState: 'IDLE',
       updatedContext: { cart: [], checkout: {}, state: 'IDLE', metadata: { messageCount: 0 } }
     };

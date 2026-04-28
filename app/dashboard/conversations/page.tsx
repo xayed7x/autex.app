@@ -48,6 +48,12 @@ interface Message {
   image_url?: string | null
   conversation_id?: string
   status?: 'sending' | 'sent' | 'error'
+  ai_report?: {
+    reasoning: string
+    toolsCalled: string[]
+    model: string
+    timestamp: string
+  }
 }
 
 interface PendingAttachment {
@@ -1397,6 +1403,34 @@ export default function ConversationsPage() {
                                 <p className="leading-snug whitespace-pre-line text-[15px] py-1">
                                   {message.message_text}
                                 </p>
+                              )}
+
+                              {/* AI Brain Report (Debug) */}
+                              {message.sender_type === 'bot' && (message.ai_report || (message.attachments && typeof message.attachments === 'object' && message.attachments.aiReport)) && (
+                                <div className="mt-2 pt-2 border-t border-white/20 dark:border-white/10">
+                                  <details className="cursor-pointer group/brain">
+                                    <summary className="text-[10px] font-black uppercase tracking-tighter opacity-60 hover:opacity-100 flex items-center gap-1 list-none outline-none">
+                                      <div className="h-2 w-2 rounded-full bg-white dark:bg-zinc-100 animate-pulse" />
+                                      AI Brain Report
+                                    </summary>
+                                    <div className="mt-2 space-y-2 text-[11px] font-medium leading-relaxed bg-black/10 dark:bg-white/5 p-2 rounded-lg">
+                                      <div className="text-white/90 dark:text-white/80">
+                                        <span className="opacity-50 font-bold uppercase mr-1">Reasoning:</span>
+                                        {(message.ai_report?.reasoning || (message.attachments as any)?.aiReport?.reasoning || 'No reasoning available.')}
+                                      </div>
+                                      {(message.ai_report?.toolsCalled?.length > 0 || (message.attachments as any)?.aiReport?.toolsCalled?.length > 0) && (
+                                        <div className="flex flex-wrap gap-1">
+                                          <span className="opacity-50 font-bold uppercase w-full mb-0.5">Tools Called:</span>
+                                          {(message.ai_report?.toolsCalled || (message.attachments as any)?.aiReport?.toolsCalled || []).map((tool: string, i: number) => (
+                                            <span key={i} className="px-1.5 py-0.5 bg-white/20 dark:bg-white/10 rounded-md font-mono text-[9px]">
+                                              {tool}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </details>
+                                </div>
                               )}
                               
                               {/* Status Indicators for Send */}

@@ -45,10 +45,21 @@ export function getThinkingBlock(): string {
   return `
 [BLOCK 2 - THINKING PROTOCOL]
 You MUST perform this internal cognitive process inside [THINK]...[/THINK] tags BEFORE every response.
-1. **INTENT ANALYSIS**: What is the customer goal?
-2. **CONTEXT AUDIT**: Scan [BUSINESS CONTEXT] and [CATEGORY RULES] for matches.
-3. **GROUND TRUTH**: If no info is found, use the refusal message.
-4. **DECISION**: State the next step or final response.
+
+1. **CONTEXT SYNTHESIS (INTENT)**: 
+   - Analyze the last 5 messages in the [CONVERSATION HISTORY].
+   - **Synthesis Step**: "The customer previously said [X], I replied [Y], and now they said [Z]. Therefore, their current goal is [Goal]."
+   - Example: "Customer sent a cake image, I confirmed we can make it, now they asked 'price?'. Goal: They want the price of the custom design from the image."
+
+2. **EXAMPLE & KNOWLEDGE ALIGNMENT**:
+   - Check if the synthesized goal matches any [CONVERSATION EXAMPLES] or [CUSTOM FAQs].
+   - If a match is found, note the EXACT agent response to use.
+
+3. **RULE AUDIT**:
+   - Check [CORE CONSTRAINTS] and [CATEGORY RULES] for any hard blocks (e.g., One-time wait message).
+
+4. **FINAL DECISION**: 
+   - Determine the final response based on the synthesized intent and business rules.
 [/THINK]
 `.trim();
 }

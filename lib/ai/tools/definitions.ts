@@ -30,7 +30,11 @@ const searchProducts: ChatCompletionTool = {
       properties: {
         query: {
           type: 'string',
-          description: 'Natural language search query. Examples: "red saree", "polo t-shirt". Optional: If empty, the tool searches all products.',
+          description: 'Natural language search query. Translate Bengali terms to English for better matching (e.g., "রেড ভেলভেট" -> "red velvet"). Optional: If empty, the tool searches all products.',
+        },
+        flavor: {
+          type: 'string',
+          description: 'Filter by flavor: "Chocolate", "Vanilla", "Red Velvet", "Black Forest", etc. ALWAYS extract and pass this if mentioned. Optional.',
         },
         category: {
           type: 'string',

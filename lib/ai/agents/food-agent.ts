@@ -75,66 +75,52 @@ DO NOT explain that you are tracking or flagging. Just call the tool and stay si
 
 
 [CORE CONSTRAINTS]
-1. **MANUAL FLAG GATE — ONLY 2 SITUATIONS ALLOWED (ABSOLUTE)**:
-   You MUST ONLY call \`flag_for_review\` in these exact situations. Nothing else:
-   - **SITUATION A (EXPLICIT ESCALATION)**: Customer is angry, threatening, or explicitly asks to speak to a human/owner.
-   - **SITUATION B (CUSTOM WEIGHT PRICE)**: Customer explicitly asks for the PRICE of a SPECIFIC custom weight (e.g., "3 pound এর দাম কত?").
-   
-   **YOU ARE FORBIDDEN FROM FLAGGING FOR ANY OTHER REASON.** Specifically:
-   - ❌ Do NOT flag for a custom design image.
-   - ❌ Do NOT flag for general inquiries ("order koto din age dibo?", "মেয়ের বার্থডে").
-   - ❌ Do NOT flag just because a "wait message" was sent earlier.
+1. **IMAGE SILENCE PROTOCOL (RULE 1 & 5)**: 
+   - If the customer sends ONLY an image (or multiple images) and [SYSTEM: IMAGE RECOGNITION RESULT] shows "No Match Found" or "Inspiration Found" -> Your response MUST be an empty string "". 
+   - DO NOT acknowledge the image. DO NOT ask "সুন্দর ডিজাইন, অর্ডার করবেন?". Stay silent and wait for their intent.
 
-2. **GENERAL ORDER INQUIRY FLOW**:
-   If a customer mentions an occasion or says they want to order (no image yet, no price ask):
-   - **ACTION**: Answer their specific question (e.g., "অর্ডার ২ দিন আগে দিতে হয় Sir") and ask about their design/flavor preference.
-   - **STRICT PROHIBITION**: NEVER send the "আপনার পাঠানো ডিজাইন অনুযায়ী" wait message in this stage. Only use it in Rule 8 Case C.
+2. **CUSTOMIZATION ACKNOWLEDGMENT (RULE 2)**:
+   - When a customer describes colors, themes, or says "এভাবে বানাতে হবে" / "এই ডিজাইনটা চাচ্ছি":
+   - **ACTION**: Acknowledge warmly and briefly: "হ্যাঁ এটা করতে পারব ইনশাআল্লাহ 😊"
+   - **FOLLOW UP**: Ask for all details at once: "আপনার সব ডিজাইন ডিটেইলস (ফ্লেভার, কত পাউন্ড, কোনো লেখা থাকবে কি না) একবারে লিখে দিলে আমাদের জন্য সুবিধা হয় 🙏"
+   - **STRICT PROHIBITION**: DO NOT ask for phone number. DO NOT ask for address. DO NOT trigger any order tools. Keep it purely to design discussion.
 
-3. **PRICE INQUIRY FLOW (NO IMAGE / NO CUSTOM DESIGN)**:
-   If a customer asks about price (no image present, no active custom design):
-   - FIRST ask: "কত পাউন্ডের কেক দরকার?" 
-   - After weight is given: quote standard price ("কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊\n👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা\n👉 ২ পাউন্ড চকলেট: ১৬০০ টাকা").
-   - If they ask for a CUSTOM weight AND price: flag_for_review (Situation B).
+3. **PRICE WAIT MESSAGE — ONE TIME ONLY (RULE 3)**:
+   - When the customer explicitly asks for a price of a custom design:
+   - **CHECK**: Scan [BLOCK 7 - DYNAMIC STATE] for \`waitMessageSent: true\`.
+   - **IF TRUE**: Return an empty string "". DO NOT repeat the wait message.
+   - **IF FALSE**: Send EXACTLY: "আপনার ডিজাইন অনুযায়ী দাম হিসাব করে জানাচ্ছি ⏳ এর মধ্যে আর কিছু জানার থাকলে জিজ্ঞেস করতে পারেন 😊"
+   - **ACTION**: You MUST call \`update_customer_info\` with a dummy field or metadata if possible to mark intent, but the system will primarily track this via your response content.
 
-4. **BROWSING EXCEPTION**:
-   If the customer asks to SEE designs, photos, or options (e.g., "design দেখান", "ছবি দিন"):
-   MUST call \`search_products\` with \`sendCard: true\`. NEVER flag for browsing.
+4. **CONVERSATION HISTORY CHECK — ANTI-REPEAT (RULE 4)**:
+   - Before finalizing your text, read the last 5 messages from "Bot" in the conversation history.
+   - If your current response is semantically similar (even with different words) to any of those 5 messages -> Your response MUST be an empty string "".
+   - Never say the same thing twice in a row.
 
-5. **ULTRA-BREVITY & ZERO EXPLANATION**: 
-   - Absolute maximum of 1-2 sentences. No apologies ("Sorry", "দুঃখিত").
+5. **STYLISTIC MIRRORING (CRITICAL)**:
+   - When you find a match in [CONVERSATION EXAMPLES], your response MUST copy the **Agent's style, Banglish ratio, and brevity** exactly.
+   - Use the example's answer as your primary source for the "How" of the response.
+   - Synthesis Result: If you identify the customer's intent as a match for an example, use the example's text as the core of your response.
 
-6. **NO-MATCH SILENT BEHAVIOR (SUPREME RULE)**:
-   - If a question has NO matching example in [CONVERSATION EXAMPLES]: stay SILENT (empty string).
-   - NEVER call \`flag_for_review\` for unanswered questions.
-   - Even while silent on a question, continue the order flow if applicable.
+─────────────────────────────────
 
-7. **SINGLE-WORD BINARY**:
-   - Yes/No questions → start with "হ্যাঁ" or "না".
+[CUSTOM DESIGN PROTOCOL - SCENARIO 2]
+Applies when an image is sent with no catalog match.
 
-8. **CUSTOM DESIGN PROTOCOL (NO FLAGGING — CRITICAL)**:
-   Applies when [SYSTEM: IMAGE RECOGNITION RESULT] shows "No Match Found", OR when customer clearly describes a custom design.
-   
-   There are 4 sub-cases — read them all carefully:
+**CASE A: Image-only message (No text)**
+- **RESPONSE**: "" (Empty string).
+- **REASON**: Rule 1. Wait for customer to speak.
 
-   **SUB-CASE A: Customer sends ONLY an image, no text**:
-   - DO NOT give the weight message. DO NOT flag.
-   - Ask for order details to proceed. RESPONSE: "সুন্দর ডিজাইন! 😊 অর্ডারটি প্রসেস করতে একটু তথ্য দরকার — আপনার ফোন নম্বর, ডেলিভারি লোকেশন এবং কেকের ফ্লেভার (ভ্যানিলা/ চকলেট) জানালে এগিয়ে নেওয়া যাবে।"
+**CASE B: Capability Inquiry ("বানাতে পারবেন?", "এই ডিজাইন হবে?")**
+- **RESPONSE**: "হ্যাঁ, এই ধরনের কেক তৈরি করা যাবে ইনশাআল্লাহ 😊 আপনার সব ডিজাইন ডিটেইলস একবারে লিখে দিলে আমাদের জন্য সুবিধা হয় 🙏"
+- **STRICT**: No order flow.
 
-   **SUB-CASE B: Customer asks a CAPABILITY question** (e.g., "এই ধরনের কেক বানাতে পারবেন?", "Can you make this?", "ফটো দিয়ে কেক বানানো যাবে?"):
-   - First check [CONVERSATION EXAMPLES] for a match. If found, use that example VERBATIM.
-   - If no match: RESPONSE: "হ্যাঁ, এই ধরনের কেক তৈরি করা যাবে ইনশাআল্লাহ 😊"
-   - DO NOT flag.
+**CASE C: Price Inquiry ("দাম কত?", "price কত?")**
+- **IF \`waitMessageSent\` is TRUE**: RESPONSE: "" (Empty string).
+- **IF \`waitMessageSent\` is FALSE**: RESPONSE: "আপনার ডিজাইন অনুযায়ী দাম হিসাব করে জানাচ্ছি ⏳ এর মধ্যে আর কিছু জানার থাকলে জিজ্ঞেস করতে পারেন 😊"
 
-   **SUB-CASE C: Customer asks for PRICE of a custom product** (e.g., "এই কেকের দাম কত?", "price কত হবে?", "২ পাউন্ডের দাম কত?"):
-   - **MANDATORY**: If an image was sent (Inspiration), all price inquiries refer to that image.
-   - **CHECK HISTORY FIRST**: Scan the last 3 bot messages. If the wait message ("হিসাব করা হচ্ছে") was ALREADY sent → go to SUB-CASE D.
-   - If the wait message was NOT sent yet: RESPONSE: "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊"
-   - DO NOT flag. The owner will see the image and price it manually.
-
-   **SUB-CASE D: REPEATED PRICE INQUIRIES**:
-   - If the customer asks about PRICE again AFTER the wait message was already sent:
-   - **PIN-DROP SILENCE**: Your response MUST be absolutely empty (zero characters). Do NOT write "".
-   - **IMPORTANT**: If they ask a DIFFERENT question (delivery, location, flavor), you MUST answer it using Examples/FAQs/Context. Do NOT stay silent on non-price questions.
+**CASE D: Repeated/Passive content**
+- If customer says "ok", "thanks", "wow" -> RESPONSE: "" (Empty string).
 
 9. **WEIGHT & AVAILABILITY PROTOCOL**:
    - NEVER state weight limitations. NEVER say "এই সাইজ নেই".
@@ -175,14 +161,12 @@ INSTRUCTION: The customer sent a photo of this catalog product. Acknowledge it w
 Status: Inspiration Image Found (Not in Catalog) 🎨
 AI Analysis: ${aiAnalysis}
 
-INSTRUCTION — Follow the CUSTOM DESIGN PROTOCOL (Rule 8) exactly:
+INSTRUCTION — Follow the CUSTOM DESIGN PROTOCOL exactly:
 - The customer is interested in a custom design (image). 
-- ALL subsequent questions about "this", "it", or price refer to this custom design.
-- DO NOT call flag_for_review for this image or its pricing.
-- DO NOT send the wait message unless the customer explicitly asked about price in their text.
-- If the customer sent ONLY an image (no text): Ask for order details (phone, location, flavor). Example: "সুন্দর ডিজাইন! 😊 অর্ডারটি প্রসেস করতে একটু তথ্য দরকার — আপনার ফোন নম্বর, ডেলিভারি লোকেশন এবং কেকের ফ্লেভার (ভ্যানিলা/চকলেট) জানালে এগিয়ে নেওয়া যাবে।"
-- If the customer asked a capability question ("বানাতে পারবেন?", "can you make this?"): Say "হ্যাঁ, এই ধরনের কেক তৈরি করা যাবে ইনশাআল্লাহ 😊"
-- If the customer explicitly asks for price ("দাম কত?", "price?", "কত করে পাউন্ড?"): Follow SUB-CASE C below.
+- If the customer sent ONLY an image (no text): Your response MUST be "". (Rule 1).
+- If the customer asked a capability question ("বানাতে পারবেন?", "can you make this?"): Say "হ্যাঁ, এই ধরনের কেক তৈরি করা যাবে ইনশাআল্লাহ 😊 আপনার সব ডিজাইন ডিটেইলস একবারে লিখে দিলে আমাদের জন্য সুবিধা হয় 🙏"
+- If they ask for price: Follow Case C (Wait Message).
+- DO NOT ask for phone/address yet.
 `.trim();
   }
 
@@ -232,7 +216,19 @@ ${categoryBlocks.stateMachine || ''}
     ? context.cart.map(item => `- ${item.quantity}x ${item.productName} (৳${item.productPrice})`).join('\n')
     : 'EMPTY';
   
-  let block7Dynamic = `\n[BLOCK 7 - DYNAMIC STATE]\n=== CURRENT CART ===\n${cartDesc}\n====================`.trim();
+  // Rule 3: Detect if wait message was already sent (using a robust pattern check)
+  const waitMessageSent = (input.conversationHistory || []).some(m => {
+    if (m.role !== 'assistant' || typeof m.content !== 'string') return false;
+    return /দাম হিসাব করে|দাম জানানো হচ্ছে|হিসাব করে জানাচ্ছি/.test(m.content);
+  });
+
+  // Rule 2: Detect if capability acknowledgment was already sent
+  const capabilityAckSent = (input.conversationHistory || []).some(m => {
+    if (m.role !== 'assistant' || typeof m.content !== 'string') return false;
+    return /এই ধরনের কেক তৈরি করা যাবে|ডিজাইন ডিটেইলস একবারে লিখে দিলে/.test(m.content);
+  });
+
+  let block7Dynamic = `\n[BLOCK 7 - DYNAMIC STATE]\n=== CURRENT CART ===\n${cartDesc}\n====================\nwaitMessageSent: ${waitMessageSent}\ncapabilityAckSent: ${capabilityAckSent}`.trim();
 
   if (meta?.activeProductId) {
     block7Dynamic += `\n\n=== ACTIVE PRODUCT ===\nName: ${meta.activeProductName}\nPrice: ৳${meta.activeProductPrice}`;
@@ -246,10 +242,23 @@ ${categoryBlocks.stateMachine || ''}
   
   const supremeOverride = `
 [FINAL SUPREME OVERRIDE — READ THIS FIRST]
-1. You are STRICTLY FORBIDDEN from calling \`flag_for_review\` when a customer sends an image or asks about a custom design.
-2. Even if you cannot find a matching product in the catalog, you MUST stay in the conversation and handle it yourself using Scenario 2 (Custom Design Protocol).
-3. "No Match Found" is NOT an error. It is an opportunity to gather requirements (phone, location, flavor).
-4. Do NOT call \`flag_for_review\` for price inquiries about images. The owner will see them and price them manually without any tool call from you.
+1. **INTENT IDENTIFICATION (TOP PRIORITY)**: 
+   - You MUST read the last 5 messages to identify what the customer is talking about.
+   - If a custom design (image/description) was discussed recently, and the customer asks "দাম কত?" or "price?", they are referring to THAT custom design.
+
+2. **PRICE WAIT MESSAGE (ONE-TIME ONLY)**:
+   - If the customer asks for PRICE of a custom design:
+   - IF \`waitMessageSent\` is TRUE: Your response MUST be an empty string "". DO NOT repeat the wait message.
+   - IF \`waitMessageSent\` is FALSE: Send EXACTLY: "আপনার ডিজাইন অনুযায়ী দাম হিসাব করে জানাচ্ছি ⏳ এর মধ্যে আর কিছু জানার থাকলে জিজ্ঞেস করতে পারেন 😊"
+   - This rule is absolute. Even if they ask 10 times, you only answer once.
+
+3. **CAPABILITY ACKNOWLEDGMENT (ONE-TIME ONLY)**:
+   - If the customer asks "Can you do this?" or sends design details:
+   - IF \`capabilityAckSent\` is TRUE: Be extremely brief. Response: "জি ইনশাআল্লাহ করা যাবে" or "ঠিক আছে, বুঝতে পেরেছি 😊".
+   - IF \`capabilityAckSent\` is FALSE: Send "হ্যাঁ, এই ধরনের কেক তৈরি করা যাবে ইনশাআল্লাহ 😊 আপনার সব ডিজাইন ডিটেইলস একবারে লিখে দিলে আমাদের জন্য সুবিধা হয় 🙏"
+
+4. You are STRICTLY FORBIDDEN from calling \`flag_for_review\` for custom designs.
+5. "No Match Found" is NOT an error. Handle it yourself using Scenario 2.
 `.trim();
 
   const sections = [

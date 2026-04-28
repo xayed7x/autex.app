@@ -156,10 +156,11 @@ async function executeSearchProducts(
   const size = args.size ? String(args.size) : undefined;
   const color = args.color ? String(args.color) : undefined;
   const category = args.category ? String(args.category) : undefined;
+  const flavor = args.flavor ? String(args.flavor) : undefined;
   const limit = Number(args.limit) || 20;
   const offset = Number(args.offset) || 0;
   
-  const searchResult = await searchProducts(query, ctx.workspaceId, size, color, undefined, category, limit, offset);
+  const searchResult = await searchProducts(query, ctx.workspaceId, size, color, flavor, category, limit, offset);
 
   const sendCard = args.sendCard === true;
 

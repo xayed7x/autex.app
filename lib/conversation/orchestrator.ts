@@ -224,6 +224,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         sender_type: 'bot',
         message_text: reviewMessage,
         message_type: 'text',
+        attachments: { aiReport: { reasoning: 'Fast-lane: Valid payment digits received.', toolsCalled: [], model: 'system', timestamp: new Date().toISOString() } }
       });
 
       const duration = Date.now() - startTime;
@@ -251,6 +252,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         sender_type: 'bot',
         message_text: invalidMsg,
         message_type: 'text',
+        attachments: { aiReport: { reasoning: 'Fast-lane: Invalid payment digits requested.', toolsCalled: [], model: 'system', timestamp: new Date().toISOString() } }
       });
 
       return {
@@ -358,8 +360,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           // === 🚀 EXPLICIT PRICE INTENT: Send wait message and stop ===
           const waitMessage = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
           
-          const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-10);
-          const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
+          // HARD GUARD: Check persistent context flag
+          const alreadySent = currentContext.waitMessageSent === true;
 
           if (!alreadySent) {
             console.log("🚀 [SHORT-CIRCUIT] Customer asked price for custom design. Sending wait message.");
@@ -373,8 +375,11 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
               message_text: waitMessage,
               message_type: 'text',
             });
+
+            // Set persistent flag
+            currentContext.waitMessageSent = true;
           } else {
-            console.log("🛡️ [SHORT-CIRCUIT] Wait message already sent. Staying silent (pin-drop).");
+            console.log("🛡️ [SHORT-CIRCUIT] Wait message already sent (flag detected). Staying silent.");
           }
 
           await supabase.from('conversations').update({
@@ -527,6 +532,52 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // Check if an order was created during this run (Step 4 tool side-effect)
     const orderCreated = !!(currentContext.metadata?.latestOrderId);
     let finalResponse = agentResult.response;
+
+    // Build the AI report for debugging in dashboard
+    const aiReport = {
+      reasoning: agentResult.reasoning,
+      toolsCalled: agentResult.toolsCalled,
+      model: "gpt-4-turbo", // or dynamically from agentResult
+      timestamp: new Date().toISOString()
+    };
+
+    // ========================================
+    // HARD GUARDS (Problem 1, 2, 3 Refinement)
+    // ========================================
+    const isFood = settings.businessCategory === 'food';
+    const PRICE_WAIT_PATTERN = /দাম হিসাব করে|ক্যালকুলেট করে জানাচ্ছি|হিসাব করে জানানো হচ্ছে/;
+    const CAPABILITY_ACK_PATTERN = /এই ধরনের কেক তৈরি করা যাবে|ডিজাইন ডিটেইলস একবারে লিখে দিলে/;
+
+    if (isFood && finalResponse) {
+      // Rule 3 Guard: Price Wait
+      if (PRICE_WAIT_PATTERN.test(finalResponse)) {
+        if (currentContext.waitMessageSent === true) {
+          console.log('🛡️ [PRICE WAIT GUARD] Suppressing duplicate wait message');
+          finalResponse = '';
+        } else {
+          currentContext.waitMessageSent = true;
+        }
+      } 
+      // Rule 2 Guard: Capability Ack
+      else if (CAPABILITY_ACK_PATTERN.test(finalResponse)) {
+        if (currentContext.capabilityAckSent === true) {
+          console.log('🛡️ [CAPABILITY GUARD] Suppressing duplicate capability ack');
+          // Replace with a brief version if the AI forgot to be brief
+          finalResponse = 'জি ইনশাআল্লাহ করা যাবে 😊';
+        } else {
+          currentContext.capabilityAckSent = true;
+        }
+      }
+    }
+
+    // STEP 3 Hard Guard: Image-only silence
+    const isImageOnly = !!input.imageUrl && !input.messageText;
+    const isNoMatch = imageContext?.recognitionResult?.isInspiration === true || imageContext?.recognitionResult?.success === false;
+    
+    if (isFood && isImageOnly && isNoMatch && finalResponse) {
+      console.log('🛡️ [IMAGE SILENCE GUARD] Overriding response for image-only inspiration.');
+      finalResponse = '';
+    }
 
     // ========================================
     // STEP 5: TRANSACTIONAL MESSAGES (STRICT FRONT-END REQUIREMENT)
@@ -893,6 +944,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         sender_type: 'bot',
         message_text: finalResponse,
         message_type: 'text',
+        attachments: { aiReport }
       });
     }
 
@@ -920,6 +972,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         sender_type: 'bot',
         message_text: officialForm,
         message_type: 'text',
+        attachments: { aiReport: { reasoning: 'AI triggered official order form collection.', toolsCalled: agentResult.toolsCalled, model: 'gpt-4-turbo', timestamp: new Date().toISOString() } }
       });
     }
 

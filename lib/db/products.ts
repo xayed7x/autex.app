@@ -144,7 +144,7 @@ export async function searchProductsByKeywordsWithScoring(
   flavor?: string,
   category?: string
 ): Promise<Product[]> {
-  const STOPWORDS = new Set(['er', 'jonno', 'lagbe', 'chai', 'daen', 'dekhun', 'dekan', 'the', 'a', 'an', 'for', 'want', 'need', 'give', 'show', 'please', 'sir', 'maam', 'vai', 'apa', 'of', 'to', 'in', 'on', 'with']);
+  const STOPWORDS = new Set(['er', 'jonno', 'lagbe', 'chai', 'daen', 'dekhun', 'dekan', 'the', 'a', 'an', 'for', 'want', 'need', 'give', 'show', 'please', 'sir', 'maam', 'vai', 'apa', 'of', 'to', 'in', 'on', 'with', 'hobe', 'ache', 'nibo', 'korun', 'den', 'hoga', 'হবে', 'আছে', 'নিবো', 'করুন', 'দেন', 'চাই', 'একটা', 'দুইটা']);
   
   const CATEGORY_ALIASES: Record<string, string> = {
     'aniversary': 'anniversary',
@@ -161,6 +161,17 @@ export async function searchProductsByKeywordsWithScoring(
     'বার্থডে': 'birthday',
     'অ্যানিভারসারি': 'anniversary',
     'বিয়ে': 'wedding',
+    'কেক': 'cake',
+    'চকলেট': 'chocolate',
+    'ভ্যানিলা': 'vanilla',
+    'রেড': 'red',
+    'ভেলভেট': 'velvet',
+    'ব্ল্যাক': 'black',
+    'ফরেস্ট': 'forest',
+    'হোয়াইট': 'white',
+    'স্ট্রবেরি': 'strawberry',
+    'পাউন্ড': 'pound',
+    'ডিজাইন': 'design',
   };
 
   const supabase = createClient<Database>(

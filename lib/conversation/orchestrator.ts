@@ -121,6 +121,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     );
     
     const settings = await getCachedSettings(input.workspaceId);
+    const isFood = settings.businessCategory === 'food';
     
     // Load conversation
     const { data: conversation, error: convError } = await supabase
@@ -457,7 +458,81 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
         if (!currentContext.metadata.identifiedProducts) currentContext.metadata.identifiedProducts = [];
         
-        currentContext.metadata.identifiedProducts.push(result.match.product);
+      currentContext.metadata.identifiedProducts.push(result.match.product);
+      }
+
+      // ========================================
+      // FAST PATH: HIGH-CONFIDENCE RECOGNITION (Mimic Order Now)
+      // ========================================
+      const isHighConfidenceMatch = isFood && imageContext?.recognitionResult?.success && imageContext?.recognitionResult?.confidence >= 95;
+
+      if (isHighConfidenceMatch && imageContext?.recognitionResult?.productId) {
+        const product = imageContext.recognitionResult;
+        const productId = product.productId;
+        console.log(`🎯 [FAST PATH] High-confidence recognition (mimicking Order Now): ${product.productName}`);
+
+        // 1. Update Context
+        if (!currentContext.metadata) currentContext.metadata = { messageCount: 0 };
+        currentContext.metadata.activeProductId = productId;
+        currentContext.metadata.activeProductName = product.productName;
+        currentContext.metadata.activeProductPrice = product.productPrice;
+        currentContext.metadata.flavor = product.product_attributes?.flavor || 'Standard';
+        currentContext.metadata.orderStage = 'COLLECTING_INFO';
+        
+        // Clear identifiedProducts so Step 6.5 doesn't send cards
+        currentContext.metadata.identifiedProducts = [];
+
+        // 2. Persist to DB
+        await updateContextInDb(supabase, input.conversationId, 'IDLE', currentContext);
+        
+        // Log interaction
+        await supabase.from('messages').insert({
+          conversation_id: input.conversationId,
+          sender: input.customerPsid,
+          sender_type: 'customer',
+          message_text: `[Recognized: ${product.productName}]`,
+          message_type: 'image_recognition'
+        });
+
+        // 3. Send Image (Visual Confirmation)
+        if (!input.isTestMode) {
+          const { sendImage, typingOn } = await import('@/lib/facebook/messenger');
+          await typingOn(input.pageId, input.customerPsid);
+          
+          const { data: fbPageToken } = await supabase
+            .from('facebook_pages')
+            .select('encrypted_access_token')
+            .eq('id', input.fbPageId)
+            .single();
+            
+          if (fbPageToken) {
+            const { decryptToken } = await import('@/lib/facebook/crypto-utils');
+            const accessToken = decryptToken(fbPageToken.encrypted_access_token);
+            await sendImage(input.pageId, input.customerPsid, product.imageUrl, accessToken);
+          }
+
+          // 4. Send Confirmation Text
+          const weightLabel = '২ পাউন্ড';
+          const flavorLabel = product.product_attributes?.flavor || 'Standard';
+          const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 নাম: ${product.productName}\n💰 দাম: ${product.productPrice.toLocaleString('en-BD')} টাকা\n🍫 ফ্লেভার: ${flavorLabel}\n⚖️ ওজন: ${weightLabel}\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
+          
+          await sendMessage(input.pageId, input.customerPsid, confirmationMsg);
+
+          // Log bot message
+          await supabase.from('messages').insert({
+            conversation_id: input.conversationId,
+            sender: 'bot',
+            sender_type: 'bot',
+            message_text: confirmationMsg,
+            message_type: 'text',
+          });
+        }
+
+        return {
+          response: '', // Silent as text already sent
+          newState: 'IDLE',
+          updatedContext: currentContext,
+        };
       }
     }
     
@@ -544,7 +619,6 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // ========================================
     // HARD GUARDS (Problem 1, 2, 3 Refinement)
     // ========================================
-    const isFood = settings.businessCategory === 'food';
     const PRICE_WAIT_PATTERN = /দাম হিসাব করে|ক্যালকুলেট করে জানাচ্ছি|হিসাব করে জানানো হচ্ছে/;
     const CAPABILITY_ACK_PATTERN = /এই ধরনের কেক তৈরি করা যাবে|ডিজাইন ডিটেইলস একবারে লিখে দিলে/;
 
@@ -603,8 +677,6 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       // We only want the exact, strict transactional templates from the business owner.
       finalResponse = messages.orderConfirmed;
 
-      const isFood = settings.businessCategory === 'food';
-
       // ON for clothing business, OFF for food business as requested by owner
       // In the future, this will be controlled by a toggle in the AI Setup dashboard.
       if (!isFood && messages.paymentInstructions) {
@@ -653,7 +725,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     
     if (hasProducts && !orderCreated && !flowLocked && !finalResponse) {
       const productCount = currentContext.metadata.identifiedProducts.length;
-      if (settings.businessCategory === 'food') {
+      if (isFood) {
         finalResponse = productCount === 1
           ? `উপরের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👆`
           : `উপরের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👆`;
@@ -864,7 +936,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const scenario2Wait = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে";
     const legacyWait = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন";
     
-    if (settings.businessCategory === 'food' && (finalResponse?.includes(scenario2Wait) || finalResponse?.includes(legacyWait))) {
+    if (isFood && (finalResponse?.includes(scenario2Wait) || finalResponse?.includes(legacyWait))) {
       const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-3);
       const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
 
@@ -885,7 +957,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // ========================================
     // If the AI tries to send the generic price list BUT we already have product context
     // (a card was sent or a product is active), suppress it entirely.
-    if (settings.businessCategory === 'food' && finalResponse === scenario1Script) {
+    if (isFood && finalResponse === scenario1Script) {
       const hasProductCardInHistory = (allMessages || []).some(
         (m: any) => m.sender_type === 'bot' && m.message_type === 'template'
       );
@@ -911,7 +983,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const isPriceInquiry = lowerMessage.includes('dam') || lowerMessage.includes('দামি') || lowerMessage.includes('taka') || lowerMessage.includes('টাকা');
     const isDirectQuestion = lowerMessage.includes('?') || lowerMessage.startsWith('ki ') || lowerMessage.startsWith('কি ');
 
-    if (settings.businessCategory === 'food' && isLocationStatement && !isPriceInquiry && !isDirectQuestion && !input.metadata?.inspirationImage) {
+    if (isFood && isLocationStatement && !isPriceInquiry && !isDirectQuestion && !input.metadata?.inspirationImage) {
       console.log("🛡️ [SAFETY NET] Strict pattern match for location statement. Forcing thank-you response.");
       finalResponse = "ধন্যবাদ আপনার ঠিকানার জন্য 💝 আমরা আপনার অর্ডারটি প্রসেসে নিচ্ছি।";
       agentResult.toolCalls = []; 
@@ -952,8 +1024,6 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // STEP 6.10: HANDLE QUICK FORM TRIGGER
     // ========================================
     if (agentResult.shouldTriggerQuickForm) {
-      const isFood = settings.businessCategory === 'food';
-      
       const officialForm = settings.quick_form_prompt || (isFood 
         ? `🌸✨ কেক অর্ডার ফর্ম ✨🌸\n1️⃣ জেলা সদর / উপজেলা:\n2️⃣ সম্পূর্ণ ঠিকানা:\n3️⃣ মোবাইল নম্বর:\n4️⃣ কেকের ডিজাইন ও শুভেচ্ছা বার্তা:\n5️⃣ কেকের ফ্লেভার:\n6️⃣ ডেলিভারির তারিখ ও সময়:\n\n📌 সব তথ্য একসাথে পূরণ করে দিন 😊`
         : 'দারুণ! অর্ডারটি সম্পন্ন করতে, অনুগ্রহ করে নিচের ফর্ম্যাট অনুযায়ী আপনার তথ্য দিন:\n\nনাম:\nফোন:\nঠিকানা:');

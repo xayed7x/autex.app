@@ -25,74 +25,57 @@ const mockSettings: WorkspaceSettings = {
   businessCategory: 'food',
   businessAddress: '',
   customFaqs: [],
-  conversationExamples: [],
-  businessContext: '',
+  conversationExamples: [
+    { customer: "আপনার দোকান কোথায়?", agent: "আমাদের কোনো ফিজিক্যাল শপ নেই, আমরা অনলাইনে হোম ডেলিভারি দিয়ে থাকি। 😊" },
+    { customer: "ডেলিভারি চার্জ কত?", agent: "ঢাকার ভিতরে ডেলিভারি চার্জ ৮০ টাকা এবং ঢাকার বাইরে ১৫০ টাকা। 🚚" }
+  ],
+  businessContext: 'আমরা হোম মেড কেক ডেলিভারি করি। আমাদের কোনো ফিজিক্যাল শপ নেই।',
   deliveryZones: []
 };
 
 async function testRules() {
-  console.log('🧪 Testing Food Agent Rules...\n');
+  console.log('🧪 Testing Food Agent Bible Logic...\n');
 
-  // TEST 1: Rule 1 - Image Silence
-  console.log('--- TEST 1: Image Only (Silence) ---');
+  // TEST 1: Match in Bible
+  console.log('--- TEST 1: Match in Bible (Location) ---');
   const input1: AgentInput = {
-    workspaceId: 'test-ws',
+    workspaceId: '00000000-0000-0000-0000-000000000000', // Valid UUID to avoid RPC error
     fbPageId: 'test-page',
     conversationId: 'test-conv-1',
-    messageText: '', // Image only
+    messageText: 'আপনার দোকান কোথায়?',
     customerPsid: 'cust-1',
-    imageRecognitionResult: {
-      url: 'http://example.com/cake.jpg',
-      timestamp: Date.now(),
-      recognitionResult: {
-        success: false,
-        isInspiration: true,
-        aiAnalysis: 'A beautiful birthday cake with blue frosting.'
-      }
-    },
     conversationHistory: [],
     memorySummary: null,
-    context: { cart: [], checkout: {}, metadata: { activeCustomDesign: true } },
+    context: { cart: [], checkout: {}, metadata: {} },
     settings: mockSettings,
   };
   const result1 = await runFoodAgent(input1);
-  console.log(`Response: "${result1.response}" (Expected: "")\n`);
+  console.log(`Response: "${result1.response}"\n`);
 
-  // TEST 2: Rule 2 - Customization Acknowledgment
-  console.log('--- TEST 2: Customization Description ---');
+  // TEST 2: Unknown Query (Should be Silent)
+  console.log('--- TEST 2: Unknown Query (Silence) ---');
   const input2: AgentInput = {
     ...input1,
-    messageText: 'এই ডিজাইনটা কি নীল কালারের হবে?',
-    conversationHistory: [{ role: 'user', content: '[Customer sent an image]' }],
-    context: { cart: [], checkout: {}, metadata: { activeCustomDesign: true } },
+    messageText: 'আপনার প্রিয় রং কি?',
   };
   const result2 = await runFoodAgent(input2);
-  console.log(`Response: "${result2.response}"\n`);
+  console.log(`Response: "${result2.response}" (Expected: "")\n`);
 
-  // TEST 3: Rule 3 - Price Wait Message (First Time)
-  console.log('--- TEST 3: Price Ask (First Time) ---');
+  // TEST 3: Product Image Discovery
+  console.log('--- TEST 3: Product Request (UI Search) ---');
   const input3: AgentInput = {
-    ...input2,
-    messageText: 'এটার দাম কত হবে?',
-    conversationHistory: [
-      { role: 'user', content: '[Customer sent an image]' },
-      { role: 'user', content: 'এই ডিজাইনটা কি নীল কালারের হবে?' },
-      { role: 'assistant', content: result2.response }
-    ],
+    ...input1,
+    messageText: 'কিছু কেকের ডিজাইন দেখান',
   };
   const result3 = await runFoodAgent(input3);
-  console.log(`Response: "${result3.response}"\n`);
+  console.log(`Response Text: "${result3.response}"`);
+  console.log(`Tool Calls: ${JSON.stringify(result3.toolCalls?.map(t => t.function.name))}\n`);
 
-  // TEST 4: Rule 3 - Price Wait Message (Repeat)
-  console.log('--- TEST 4: Price Ask (Repeat) ---');
+  // TEST 4: Order Intent (No Bible match = Silence)
+  console.log('--- TEST 4: Order Intent (Silence if not in Bible) ---');
   const input4: AgentInput = {
-    ...input3,
-    messageText: 'ভাই দামটা বলেন',
-    conversationHistory: [
-      ...input3.conversationHistory,
-      { role: 'user', content: 'এটার দাম কত হবে?' },
-      { role: 'assistant', content: result3.response }
-    ],
+    ...input1,
+    messageText: 'আমি অর্ডার করতে চাই',
   };
   const result4 = await runFoodAgent(input4);
   console.log(`Response: "${result4.response}" (Expected: "")\n`);

@@ -88,7 +88,7 @@ export function createProductCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: isFood ? `2 Pound — ${product.price.toLocaleString('en-BD')}` : product.name,
+            title: isFood ? `2 Pound — ${formattedPrice}` : product.name,
             subtitle: isFood ? undefined : subtitle,
             image_url: imageUrl,
             buttons: buttons,
@@ -147,7 +147,7 @@ export function createProductCarousel(
     const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
     
     return {
-      title: isFood ? `2 Pound — ${product.price.toLocaleString('en-BD')}` : product.name,
+      title: isFood ? `2 Pound — ${formattedPrice}` : product.name,
       subtitle: isFood ? undefined : subtitle,
       image_url: imageUrl,
       buttons: buttons,
@@ -197,7 +197,7 @@ export function createProductDetailsCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: product.name,
+            title: isFood ? `2 Pound — ${formattedPrice}` : product.name,
             subtitle: subtitle,
             image_url: imageUrl,
             buttons: [

@@ -487,6 +487,17 @@ const triggerQuickForm: ChatCompletionTool = {
  * This enforces strict "Two Worlds" isolation at the API level.
  */
 export function getToolsForCategory(category: string): ChatCompletionTool[] {
+  // --- FOOD WORLD: FAQ ONLY ---
+  if (category === 'food') {
+    return [
+      searchProducts,
+      flagForReview,
+      trackOrder,
+      sendImage
+    ];
+  }
+
+  // --- CLOTHING/GENERAL WORLD: FULL COMMERCE ---
   return [
     searchProducts,
     getAddToCart(category),

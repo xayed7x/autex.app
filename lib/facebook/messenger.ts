@@ -354,20 +354,67 @@ export async function sendProductsVertical(
   products: any[],
   businessCategory?: string
 ): Promise<SendMessageResponse[]> {
-  // Limit to max 4 products to avoid spamming
-  const limitedProducts = products.slice(0, 4);
+  // Limit to max 30 products as requested by user for food business
+  const limitedProducts = products.slice(0, 30);
   const results: SendMessageResponse[] = [];
   
-  for (const product of limitedProducts) {
-    try {
-      const result = await sendProductCard(pageId, recipientPsid, product, businessCategory);
-      results.push(result);
-      // Wait 300ms between sends for vertical arrival feel
-      await new Promise(resolve => setTimeout(resolve, 300));
-    } catch (err) {
-      console.error(`Failed to send vertical product card for ${product.id}:`, err);
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+    
+    const { data: fbPage, error: pageError } = await supabase
+      .from('facebook_pages')
+      .select('encrypted_access_token')
+      .eq('id', pageId)
+      .single();
+
+    if (pageError || !fbPage) {
+      throw new Error(`Failed to fetch Facebook page: ${pageError?.message || 'Page not found'}`);
     }
+
+    const accessToken = decryptToken(fbPage.encrypted_access_token);
+    const apiUrl = `${GRAPH_API_BASE_URL}/${pageId}/messages?access_token=${accessToken}`;
+
+    console.log(`📦 [VERTICAL DISCOVERY] Sending ${limitedProducts.length} products vertically.`);
+
+    for (const product of limitedProducts) {
+      try {
+        const message = createProductCard(product, pageId, recipientPsid, businessCategory);
+        const requestBody = {
+          recipient: { id: recipientPsid },
+          message: message
+        };
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const errorData: FacebookError = await response.json();
+          console.error(`Failed to send vertical product card for ${product.id}:`, errorData.error.message);
+          continue;
+        }
+
+        const result = await response.json();
+        results.push(result);
+        
+        // Wait 300ms between sends for vertical arrival feel
+        if (limitedProducts.indexOf(product) < limitedProducts.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      } catch (err) {
+        console.error(`Error sending individual vertical product card for ${product.id}:`, err);
+      }
+    }
+  } catch (error) {
+    console.error('Error in sendProductsVertical:', error);
   }
+
   return results;
 }
 

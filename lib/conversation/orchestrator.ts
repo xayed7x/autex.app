@@ -9,7 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
 import { getCachedSettings } from '@/lib/workspace/settings-cache';
 import { ConversationContext, PendingImage, ConversationState } from '@/types/conversation';
-import { sendMessage, sendProductCard, sendProductCarousel, sendChunkedProductDiscovery } from '@/lib/facebook/messenger';
+import { sendMessage, sendProductCard, sendProductCarousel, sendChunkedProductDiscovery, sendProductsVertical } from '@/lib/facebook/messenger';
 import { ChatCompletionMessageParam } from 'openai/resources/index.mjs';
 import { runAgent, AgentInput } from '@/lib/ai/single-agent';
 import { manageMemory } from '@/lib/ai/memory-manager';
@@ -834,19 +834,36 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                attachments: { type: 'product_card', productIds: [mappedProducts[0].id] }
              });
           } else {
-             // Unified chunked carousel delivery for all categories (including food/cakes)
-             const result = await sendChunkedProductDiscovery(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
-             
-             // Log the carousel mapping to the database
-             await supabase.from('messages').insert({
-               conversation_id: input.conversationId,
-               sender: 'bot',
-               sender_type: 'bot',
-               message_text: `[Sent Carousel: ${mappedProducts.length} items]`,
-               message_type: 'template',
-               mid: result.message_id,
-               attachments: { type: 'carousel', productIds: mappedProducts.map(p => p.id) }
-             });
+             if (isFood) {
+               // Vertical delivery for food business as requested
+               const results = await sendProductsVertical(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+               
+               // Log the vertical mapping to the database
+               const lastResult = results[results.length - 1];
+               await supabase.from('messages').insert({
+                 conversation_id: input.conversationId,
+                 sender: 'bot',
+                 sender_type: 'bot',
+                 message_text: `[Sent Vertical Cards: ${mappedProducts.length} items]`,
+                 message_type: 'template',
+                 mid: lastResult?.message_id,
+                 attachments: { type: 'vertical_cards', productIds: mappedProducts.map(p => p.id) }
+               });
+             } else {
+               // Unified chunked carousel delivery for all other categories
+               const result = await sendChunkedProductDiscovery(input.pageId, input.customerPsid, mappedProducts as any, settings.businessCategory);
+               
+               // Log the carousel mapping to the database
+               await supabase.from('messages').insert({
+                 conversation_id: input.conversationId,
+                 sender: 'bot',
+                 sender_type: 'bot',
+                 message_text: `[Sent Carousel: ${mappedProducts.length} items]`,
+                 message_type: 'template',
+                 mid: result.message_id,
+                 attachments: { type: 'carousel', productIds: mappedProducts.map(p => p.id) }
+               });
+             }
           }
         }
 

@@ -11,6 +11,7 @@ import { getCachedSettings } from '@/lib/workspace/settings-cache';
 import { ConversationContext, PendingImage, ConversationState } from '@/types/conversation';
 import { sendMessage, sendProductCard, sendProductCarousel, sendChunkedProductDiscovery, sendProductsVertical } from '@/lib/facebook/messenger';
 import { ChatCompletionMessageParam } from 'openai/resources/index.mjs';
+import OpenAI from 'openai';
 import { runAgent, AgentInput } from '@/lib/ai/single-agent';
 import { manageMemory } from '@/lib/ai/memory-manager';
 import { renderOrderConfirmationMessages } from '@/lib/ai/tools/transactional-messages';
@@ -94,6 +95,76 @@ function isResponseRepetitive(finalResponse: string, allMessages: any[]): boolea
     // Check for exact normalized match ONLY
     return normalizedPrev === normalizedCurrent;
   });
+}
+
+/**
+ * LLM-based duplicate topic detector.
+ * Scans last 6 messages for [user, assistant] pairs to see if topic was covered.
+ */
+async function wasTopicAlreadyAnswered(
+  currentCustomerMessage: string,
+  chatHistory: ChatCompletionMessageParam[]
+): Promise<boolean> {
+  try {
+    // 1. Look back at the last 6 messages
+    const recentHistory = chatHistory.slice(-6);
+
+    // 2. Find [customer_message, bot_reply] pairs where bot_reply is non-empty
+    const pairs: Array<{ question: string; answer: string }> = [];
+    for (let i = 0; i < recentHistory.length - 1; i++) {
+      const msg = recentHistory[i];
+      const nextMsg = recentHistory[i + 1];
+      if (msg.role === 'user' && nextMsg.role === 'assistant' && typeof nextMsg.content === 'string' && nextMsg.content.trim() !== '') {
+        pairs.push({
+          question: typeof msg.content === 'string' ? msg.content : '[Media Message]',
+          answer: nextMsg.content
+        });
+      }
+    }
+
+    // Only run if at least 2 bot replies
+    if (pairs.length < 2) return false;
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const qaBlock = pairs.map(p => `Q: ${p.question}\nA: ${p.answer}`).join('\n\n');
+
+    const userPrompt = `
+Previous Q&A pairs from this conversation:
+${qaBlock}
+
+Current customer message: "${currentCustomerMessage}"
+
+Has the customer already received an answer to this same topic in the conversation above? Answer YES or NO only.
+    `.trim();
+
+    // 3. LLM call with 2s timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a duplicate question detector. Answer only YES or NO.' },
+        { role: 'user', content: userPrompt }
+      ],
+      max_tokens: 10,
+      temperature: 0,
+    }, { signal: controller.signal });
+
+    clearTimeout(timeoutId);
+
+    const result = completion.choices[0].message.content?.toUpperCase() || '';
+    console.log('[DUPLICATE CHECK]', result);
+
+    return result.includes('YES');
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.log('[DUPLICATE CHECK] Timeout skipped (>2s)');
+    } else {
+      console.error('[DUPLICATE CHECK] Error:', error.message);
+    }
+    return false;
+  }
 }
 
 // ============================================
@@ -607,6 +678,17 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // Check if an order was created during this run (Step 4 tool side-effect)
     const orderCreated = !!(currentContext.metadata?.latestOrderId);
     let finalResponse = agentResult.response;
+
+    // ========================================
+    // STEP 5.1: LLM-BASED DUPLICATE TOPIC CHECK
+    // ========================================
+    if (isFood && finalResponse && chatHistory.length >= 2) {
+      const isDuplicate = await wasTopicAlreadyAnswered(input.messageText || '', chatHistory);
+      if (isDuplicate) {
+        console.log(`🛡️ [DUPLICATE GUARD] Silencing response for repeated topic: "${finalResponse.substring(0, 30)}..."`);
+        finalResponse = '';
+      }
+    }
 
     // Build the AI report for debugging in dashboard
     const aiReport = {

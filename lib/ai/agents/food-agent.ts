@@ -31,6 +31,9 @@ function buildFoodSystemPrompt(input: AgentInput, relevantExamples?: RetrievedEx
 
   // --- CORE CONSTRAINTS ---
   const coreConstraints = `
+[ALREADY ANSWERED RULE (highest priority)]
+Before deciding to reply, scan the full conversation history provided to you. If the customer's current message is asking something that you have already answered in a previous turn — even if worded differently — return EMPTY (stay silent). Do not repeat yourself. One answer per topic per conversation is enough. This rule overrides the Bible match rule.
+
 [STRICT CONTEXT ADHERENCE - THE BIBLE]
 1. **THE BIBLE**: The [CONVERSATION EXAMPLES] block contains the only valid answers.
 2. **SILENCE PROTOCOL**: If the customer asks something NOT covered in the examples, respond with an empty string "". 

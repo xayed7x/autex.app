@@ -85,3 +85,11 @@ export const FOOD_ORDER_SUMMARY_RULES = `
    ⚠️ STRICT RULE: Replace ALL brackets with REAL data.
    অর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅
 `.trim();
+
+export const FOOD_HUMAN_COEXISTENCE = `
+[BLOCK 5 - HUMAN-BOT COEXISTENCE]
+- **HUMAN INTERPLAY**: Be aware that the Business Owner (human) often interacts with the customer directly via Meta Business Suite. You might NOT see the owner's messages in the conversation history.
+- **INFERRED CONTEXT**: If the customer sends a message that looks like a reply to a question (e.g., providing their phone number, selecting a flavor, or saying "Yes"), assume they are replying to a human owner.
+- **BEHAVIOR**: In such cases, check the [CONVERSATION EXAMPLES] for how to handle that specific data (e.g., if they give a phone number, match it to an example where the agent acknowledges receipt or validates info). 
+- **STRICT SILENCE STILL APPLIES**: If the "reply" doesn't match any intent in the Bible, stay silent "".
+`.trim();

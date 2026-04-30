@@ -721,40 +721,9 @@ export async function processMessagingEvent(
         (att) => att.type === 'audio'
       );
       if (audioAttachment && audioAttachment.payload?.url) {
-        console.log('🎙️ Audio attachment detected');
-        
-        // We only transcribe customer messages for the bot
-        if (!isOwnerMessage && fbPageCheck?.encrypted_access_token && fbPageCheck.bot_enabled) {
-          try {
-            const accessToken = decryptToken(fbPageCheck.encrypted_access_token);
-            const transcript = await transcribeVoiceMessage(audioAttachment.payload.url, accessToken);
-            
-            if (transcript) {
-              modifiedMessageText = `[Voice: ${transcript}]`;
-              
-              // Log usage as whisper-1 (assume 1 min minimum for fallback if duration unknown)
-              await logApiUsage({
-                workspaceId: fbPageCheck.workspace_id,
-                featureName: 'voice_transcription',
-                model: 'whisper-1',
-                cost: 0.006 
-              });
-            } else {
-              // Transcription failed - send fallback and stop
-              const { sendMessage } = await import('@/lib/facebook/messenger');
-              await sendMessage(pageId, customerPsid, "আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু লিখে জানাতেন, তাহলে অনেক সুবিধা হতো। 😊");
-              return;
-            }
-          } catch (error) {
-            console.error('❌ Error transcribing voice message:', error);
-            // Fallback
-            const { sendMessage } = await import('@/lib/facebook/messenger');
-            await sendMessage(pageId, customerPsid, "আমাদের এখানে ভয়েস শুনতে একটু সমস্যা হচ্ছে। আপনি যদি একটু লিখে জানাতেন, তাহলে অনেক সুবিধা হতো। 😊");
-            return;
-          }
-        } else {
-          modifiedMessageText = '[Voice Message]';
-        }
+        console.log('🎙️ Audio attachment detected. Voice transcription is DISABLED.');
+        // Stay silent for voice messages as requested
+        return; 
       }
     }
 

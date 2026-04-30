@@ -413,7 +413,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       // === FOOD BUSINESS: INSPIRATION DETECTION ===
       const isFood = settings.businessCategory === 'food';
       const confidence = result.match?.confidence || 0;
-      const isInspiration = isFood && (!result.success || confidence < 85);
+      const isInspiration = isFood && (!result.success || confidence < 99);
       
       if (isInspiration) {
         console.log('✨ [INSPIRATION DETECTED] Low confidence or no match found for food item.');
@@ -535,7 +535,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       // ========================================
       // FAST PATH: HIGH-CONFIDENCE RECOGNITION (Mimic Order Now)
       // ========================================
-      const isHighConfidenceMatch = isFood && imageContext?.recognitionResult?.success && imageContext?.recognitionResult?.confidence >= 98;
+      const isHighConfidenceMatch = isFood && imageContext?.recognitionResult?.success && imageContext?.recognitionResult?.confidence >= 99;
 
       if (isHighConfidenceMatch && imageContext?.recognitionResult?.productId) {
         const product = imageContext.recognitionResult;

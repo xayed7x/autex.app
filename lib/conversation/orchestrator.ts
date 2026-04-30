@@ -860,9 +860,19 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       // Filter out products that are already in the cart to avoid redundancy
       // EXCEPT on a Discovery Turn where the customer explicitly sent an image and we acknowledged it with "Click button below"
       const cartProductIds = (currentContext.cart || []).map(item => item.productId);
+      
+      // DE-DUPLICATION: Ensure each product ID only appears once in the list
+      const uniqueMap = new Map();
+      pendingProducts.forEach((p: any) => {
+        if (p && p.id && !uniqueMap.has(p.id)) {
+          uniqueMap.set(p.id, p);
+        }
+      });
+      const dedupedProducts = Array.from(uniqueMap.values());
+
       const uniquePendingProducts = isDiscoveryTurn 
-        ? pendingProducts 
-        : pendingProducts.filter((p: any) => !cartProductIds.includes(p.id));
+        ? dedupedProducts 
+        : dedupedProducts.filter((p: any) => !cartProductIds.includes(p.id));
 
       // SAFETY VALVE: Suppress cards during checkout, summary display, or after order creation
       if (!isDiscoveryTurn && (isShowingSummary || isCollectingInfo || isConfirmationMsg || orderCreated || uniquePendingProducts.length === 0)) {

@@ -175,7 +175,7 @@ async function executeSearchProducts(
         metadata: {
           ...ctx.conversationContext.metadata,
           identifiedProducts: sendCard 
-            ? searchResult.products 
+            ? searchResult.products.filter((p, i, arr) => arr.findIndex(p2 => p2.id === p.id) === i)
             : undefined,
           // If sendCard true: a new product search replaces prior active product
           ...(sendCard && {
@@ -969,7 +969,7 @@ async function executeCheckStock(
           metadata: {
             ...ctx.conversationContext.metadata,
             identifiedProducts: sendCard
-              ? stockInfo
+              ? stockInfo.filter((p, i, arr) => arr.findIndex(p2 => p2.id === p.id) === i)
               : ctx.conversationContext.metadata?.identifiedProducts,
             // Keep activeProductId in sync when a single result is found
             ...(sendCard && singleResult && { activeProductId: singleResult.id }),

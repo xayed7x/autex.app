@@ -102,7 +102,7 @@ export function getStaticSettingsBlock(settings: WorkspaceSettings): string {
   return `
 [BLOCK 6 - STATIC SETTINGS]
 Available Payment Methods: ${enabledPaymentMethods.join(', ') || 'Not configured'}
-Delivery Time: ${settings.deliveryTime || '3-5 days'}
+${settings.deliveryTime ? `Delivery Time: ${settings.deliveryTime}` : ''}
 
 [BUSINESS POLICIES]
 - Delivery Charges: Inside Dhaka: ৳${settings.deliveryCharges?.insideDhaka || 60}, Outside Dhaka: ৳${settings.deliveryCharges?.outsideDhaka || 120}

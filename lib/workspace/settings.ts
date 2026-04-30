@@ -88,7 +88,7 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
     insideDhaka: 60,
     outsideDhaka: 120,
   },
-  deliveryTime: "3-5 business days",
+  deliveryTime: "",
   paymentMethods: {
     bkash: { enabled: false, number: "" },
     nagad: { enabled: false, number: "" },
@@ -107,10 +107,10 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
     productDecline: "কোনো সমস্যা নেই! 😊\n\nঅন্য product এর ছবি পাঠান অথবা \"help\" লিখুন।",
     nameCollected: "আপনার সাথে পরিচিত হয়ে ভালো লাগলো, {name}! 😊\n\nএখন আপনার ফোন নম্বর দিন। 📱\n(Example: 01712345678)",
     phoneCollected: "পেয়েছি! 📱\n\nএখন আপনার ডেলিভারি ঠিকানাটি দিন। 📍\n(Example: House 123, Road 4, Dhanmondi, Dhaka)",
-    orderConfirmed: "আলহামদুলিল্লাহ! অর্ডারটা confirm হয়ে গেছে ✅\n\nআমরা ২৪ ঘণ্টার মধ্যে call দেব, তারপর ৩-৫ দিনে delivery হবে ইনশাআল্লাহ 🚚\n\nআপনার product টার জন্য অপেক্ষা করেন — হতাশ হবেন না ইনশাআল্লাহ! 😊\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🙏",
+    orderConfirmed: "আলহামদুলিল্লাহ! আপনার অর্ডারটি গ্রহণ করা হয়েছে। ✅\n\nআমরা ২৪ ঘণ্টার মধ্যে call দিয়ে সব কনফার্ম করব ইনশাআল্লাহ। 📞\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🙏",
     orderCancelled: "অর্ডার cancel করা হয়েছে। 😊\n\nকোনো সমস্যা নেই! নতুন অর্ডার করতে product এর ছবি পাঠান।",
     paymentInstructions: "💰 ডেলিভারি চার্জ ৳{deliveryCharge} টাকা advance পাঠান:\n{paymentNumber}\n\n✅ Payment করার পর transaction ID এর শেষ ২ ডিজিট পাঠান।\n\nExample: যদি transaction ID হয় BKC123456**78**, তাহলে পাঠান: 78",
-    paymentReview: "ধন্যবাদ {name}! 🙏\n\nআপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉",
+    paymentReview: "ধন্যবাদ {name}! 🙏\n\n📱 আপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉",
     invalidPaymentDigits: "⚠️ দুঃখিত! শুধু ২টা digit দিতে হবে।\n\nExample: 78 বা 45\n\nআবার চেষ্টা করুন। 🔢",
     // Dynamic interruption messages
     deliveryInfo: "[Configure in AI Setup]",
@@ -120,7 +120,7 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
     objectionResponse: "✨ আপনি নিশ্চিন্তে অর্ডার করতে পারেন!",
     sellerInfo: "[Configure in AI Setup]",
     // Order Status Notification Messages
-    statusConfirmed: "আলহামদুলিল্লাহ {name} ভাইয়া! 🎉\nআপনার অর্ডারটি confirm করা হয়েছে।\nআপনার পণ্য ইনশাআল্লাহ {deliveryDays} দিনের মধ্যে পৌঁছে যাবে। 📦\nআমাদের সাথে কেনাকাটার জন্য অনেক ধন্যবাদ! 🙏",
+    statusConfirmed: "আলহামদুলিল্লাহ {name} ভাইয়া! 🎉\nআপনার অর্ডারটি confirm করা হয়েছে।\nআমাদের সাথে কেনাকাটার জন্য অনেক ধন্যবাদ! 🙏",
     statusDelivered: "আলহামদুলিল্লাহ {name}! আপনার পার্সেলটি সফলভাবে ডেলিভারি করা হয়েছে। 📦\nপণ্যটি হাতে পেয়ে কেমন লেগেছে, তা জানাতে ভুলবেন না! 😍\nআমাদের সাথে থাকার জন্য ধন্যবাদ! 🙏",
     statusCancelled: "দুঃখিত {name}, আপনার অর্ডারটি (Order #{orderNumber}) কোনো কারণবশত cancel করা হয়েছে। 😔\nযদি কোনো প্রশ্ন থাকে, তাহলে দয়া করে আমাদের জানাবেন। 🙏"
   },

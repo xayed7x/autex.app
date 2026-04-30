@@ -260,7 +260,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       // Render the paymentReview template
       const customerName = currentContext.checkout?.customerName || 'Sir';
       const paymentReviewTemplate = settings.fastLaneMessages?.paymentReview
-        || 'ধন্যবাদ {name}! 🙏\n\n📱 আপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে ৩ দিনের মধ্যে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉';
+        || 'ধন্যবাদ {name}! 🙏\n\n📱 আপনার payment digits ({digits}) পেয়েছি। ✅\n\nআমরা এখন payment verify করবো। সফল হলে আপনার order deliver করা হবে। 📦\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ! 🎉';
       
       const reviewMessage = paymentReviewTemplate
         .replace(/\{name\}/g, customerName)

@@ -59,7 +59,7 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<PaginationData>({
     page: 1,
-    limit: 20,
+    limit: 1000,
     total: 0,
     totalPages: 0,
   });
@@ -125,7 +125,7 @@ export default function ProductsPage() {
       }
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: '20',
+        limit: '1000',
         ...(search && { search }),
         ...(category !== 'all' && { category }),
         ...(stock !== 'all' && { stock }),
@@ -237,6 +237,11 @@ export default function ProductsPage() {
                     value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
                   />
+                </div>
+                
+                {/* Total Count Badge */}
+                <div className="flex items-center px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold whitespace-nowrap">
+                  Total: {pagination.total}
                 </div>
                 
                 {/* Filters Row */}

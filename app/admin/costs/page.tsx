@@ -147,10 +147,10 @@ export default function AdminCostsPage() {
           isCurrency
         />
         <StatsCard
-          title="This Week"
-          value={`৳${(data?.summary.weekCost || 0).toFixed(4)}`}
+          title="Total (30 Days)"
+          value={`৳${(data?.summary.totalCost || 0).toFixed(2)}`}
           trend={{ value: "", direction: "up", isPositive: true }}
-          comparison="Last 7 days"
+          comparison="Last 30 days"
           icon={TrendingUp}
           isCurrency
         />

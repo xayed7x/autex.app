@@ -36,7 +36,7 @@ export function ProductCard({ product, onOrderNow, onViewDetails }: ProductCardP
       
       <CardContent className="p-1.5 pb-0">
         <p className="text-primary font-bold text-xs">
-          2 pound — {product.price.toLocaleString()}
+          {product.name} — {product.price.toLocaleString()}
         </p>
       </CardContent>
       

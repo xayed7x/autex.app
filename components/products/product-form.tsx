@@ -96,12 +96,19 @@ const FIT_TYPES = ['regular', 'slim', 'oversized', 'relaxed'];
 const OCCASION_OPTIONS = ['Casual', 'Formal', 'Party', 'Office', 'Sports'];
 
 const productFormSchema = z.object({
-  name: z.string().min(1, 'Product name is required'),
+  name: z.string().max(255).optional(),
   price: z.string().min(1, 'Price is required'),
   description: z.string().optional(),
   category: z.string().optional(),
   colors: z.string().optional(),
   flavor: z.string().optional(),
+  weight: z.string().optional(),
+}).refine((data) => {
+  if (!data.name && !data.weight) return false;
+  return true;
+}, {
+  message: "Either Name or Weight is required",
+  path: ["name"]
 });
 
 type ProductFormValues = z.infer<typeof productFormSchema>;
@@ -189,7 +196,8 @@ export function ProductForm({
       description: '',
       category: '',
       colors: '',
-      flavor: '',
+      flavor: 'Vanilla',
+      weight: '',
     },
   });
 
@@ -202,7 +210,8 @@ export function ProductForm({
         description: product.description || '',
         category: product.category || '',
         colors: product.colors?.join(', ') || '',
-        flavor: product.flavor || '',
+        flavor: product.flavor || 'Vanilla',
+        weight: product.product_attributes?.weight || '',
       });
       
       // Load existing images as ImageSlots
@@ -304,7 +313,7 @@ export function ProductForm({
         description: '',
         category: '',
         colors: '',
-        flavor: '',
+        flavor: 'Vanilla',
       });
       setImageSlots([]);
       setMediaImageSlots([]);
@@ -438,7 +447,12 @@ export function ProductForm({
       setIsSubmitting(true);
 
       const formData = new FormData();
-      formData.append('name', values.name);
+      
+      // For food, if name is empty, use weight as name for backward compatibility
+      // but store actual weight in attributes for future-proofing
+      const finalName = values.name || values.weight || 'Cake';
+      formData.append('name', finalName);
+      
       formData.append('price', values.price);
       if (values.description) formData.append('description', values.description);
       if (values.colors) formData.append('colors', values.colors);
@@ -489,12 +503,23 @@ export function ProductForm({
       formData.append('pricing_policy', JSON.stringify(pricingPolicy));
 
       // Send product attributes
-      formData.append('product_attributes', JSON.stringify(productAttributes));
+      let weightValue = values.weight || productAttributes.weight || '';
+      
+      // Auto-append " Pound" if weight is just a number
+      if (isFood && weightValue && !isNaN(Number(weightValue))) {
+        weightValue = `${weightValue} Pound`;
+      }
+
+      const finalAttributes = {
+        ...productAttributes,
+        weight: weightValue
+      };
+      formData.append('product_attributes', JSON.stringify(finalAttributes));
 
       // Send food-specific fields if applicable
       if (isFood) {
         if (values.category) formData.append('category', values.category);
-        if (values.flavor) formData.append('flavor', values.flavor);
+        formData.append('flavor', values.flavor || 'Vanilla');
       }
 
       // Handle raw media images
@@ -749,19 +774,43 @@ export function ProductForm({
               </div>
             )}
 
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Product Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter product name" {...field} className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!isFood ? (
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Product Name</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Enter product name" 
+                        {...field} 
+                        className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11" 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : (
+              <FormField
+                control={form.control}
+                name="weight"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Weight (Pound)</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="e.g. 2, 3" 
+                        {...field} 
+                        className="bg-zinc-900/50 border-white/10 focus:border-white/30 text-white placeholder:text-zinc-700 h-11" 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <FormField
@@ -825,7 +874,7 @@ export function ProductForm({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-zinc-400 uppercase text-xs font-bold tracking-wider">Flavor</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "Vanilla"}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger className="bg-zinc-900/50 border-white/10 text-white h-11">
                             <SelectValue placeholder="Select flavor" />

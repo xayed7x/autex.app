@@ -18,12 +18,13 @@ export async function GET(request: NextRequest) {
     // Get all usage data for the last 30 days
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     
-    // We get last 100 records for the 'recent calls' table
+    // We get last 1000 records for analysis to ensure totals are more accurate
     const { data: usageData, error } = await supabase
       .from('api_usage')
       .select('*, workspaces(name)')
       .gte('created_at', thirtyDaysAgo)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(1000);
 
     if (error) {
       console.error('Usage data error:', error);

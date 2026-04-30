@@ -394,7 +394,7 @@ export async function processMessagingEvent(
         // Fetch full product details including image
         const { data: product } = await supabase
           .from('products')
-          .select('id, name, price, flavor, flavors, category, image_urls')
+          .select('id, name, price, flavor, flavors, category, image_urls, product_attributes')
           .eq('id', productId)
           .single();
 
@@ -437,12 +437,16 @@ export async function processMessagingEvent(
             }
 
             if (conversation) {
+              const isFood = product.category === 'food';
+              const productWeight = (product.product_attributes as any)?.weight || product.name || '২ পাউন্ড';
+              const displayName = isFood ? productWeight : product.name;
+
               // Log the postback action
               await supabase.from('messages').insert({
                 conversation_id: conversation.id,
                 sender: customerPsid,
                 sender_type: 'customer',
-                message_text: `[Clicked Order Now: ${product.name}]`,
+                message_text: `[Clicked Order Now: ${displayName}]`,
                 message_type: 'postback'
               });
 
@@ -451,9 +455,9 @@ export async function processMessagingEvent(
 
               // Update conversation context with selected product
               metadata.activeProductId = product.id;
-              metadata.activeProductName = product.name;
+              metadata.activeProductName = displayName;
               metadata.activeProductPrice = product.price;
-              metadata.flavor = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors[0] : (product.category || 'Default'));
+              metadata.flavor = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors[0] : 'Vanilla');
               metadata.orderStage = 'COLLECTING_INFO';
               context.metadata = metadata;
 
@@ -485,9 +489,14 @@ export async function processMessagingEvent(
               }
 
               // STEP 2: Send product confirmation message
-              const weightLabel = '২ পাউন্ড'; // Default for now
-              const flavorLabel = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors[0] : (product.category || 'বিশেষ ডিজাইন'));
-              const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 নাম: ${product.name}\n💰 দাম: ${product.price.toLocaleString('en-BD')} টাকা\n🍫 ফ্লেভার: ${flavorLabel}\n⚖️ ওজন: ${weightLabel}\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
+              const flavorLabel = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors[0] : 'Vanilla');
+              
+              const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + 
+                `\n\n💰 দাম: ${product.price.toLocaleString('en-BD')} টাকা` +
+                `\n🍫 ফ্লেভার: ${flavorLabel}` +
+                `\n⚖️ ওজন: ${productWeight}` +
+                `\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
+                
               await sendMessage(pageId, customerPsid, confirmationMsg);
 
               // Log confirmation message

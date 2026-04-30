@@ -14,6 +14,8 @@ export interface ReplyParams {
   orderId?: string;
   paymentNumber?: string;
   paymentLastTwoDigits?: string;
+  category?: string;
+  weight?: string;
 }
 
 /**
@@ -24,10 +26,14 @@ export const Replies = {
    * When product is found from image
    */
   PRODUCT_FOUND: (params: ReplyParams) => {
-    const { productName, price } = params;
-    return `দারুণ! এটা তো আমাদের ${productName}! 😊
+    const { productName, price, category, weight } = params;
+    const isFood = category === 'food';
+    const displayValue = isFood ? (weight || productName) : productName;
+    const label = isFood ? 'ওজন' : 'Product';
 
-📦 Product: ${productName}
+    return `দারুণ! এটা তো আমাদের ${displayValue}! 😊
+
+${isFood ? '⚖️' : '📦'} ${label}: ${displayValue}
 💰 Price: ৳${price}
 ✅ Stock: Available
 🚚 Delivery: ৳60 (ঢাকার মধ্যে)
@@ -93,12 +99,16 @@ Example: 01812345678
    * Order summary for confirmation
    */
   ORDER_SUMMARY: (params: ReplyParams) => {
-    const { name, productName, price, deliveryCharge, totalAmount, address } = params;
+    const { name, productName, price, deliveryCharge, totalAmount, address, category, weight } = params;
+    const isFood = category === 'food';
+    const displayValue = isFood ? (weight || productName) : productName;
+    const label = isFood ? 'ওজন' : 'Product';
+
     return `পারফেক্ট ${name}! 👌
 একটু confirm করে নিই...
 
 📋 Order Summary:
-📦 ${productName}
+${isFood ? '⚖️' : '📦'} ${label}: ${displayValue}
 💰 Price: ৳${price}
 🚚 Delivery: ৳${deliveryCharge}
 💵 Total: ৳${totalAmount}
@@ -239,6 +249,7 @@ Product খুঁজতে:
     stock: number;
     category?: string;
     flavor?: string;
+    weight?: string;
     colors?: string[];
     sizes?: string[];
     variations?: {
@@ -246,19 +257,25 @@ Product খুঁজতে:
       sizes?: string[];
     };
   }) => {
-    let message = `📦 ${product.name}\n\n`;
+    const isFood = product.category === 'food';
+    const displayValue = isFood ? (product.weight || product.name) : product.name;
+    const label = isFood ? '⚖️ ওজন' : '📦 Product';
+
+    let message = `${isFood ? '⚖️' : '📦'} ${displayValue}\n\n`;
     
     if (product.description) {
       message += `📝 Description:\n${product.description}\n\n`;
     }
     
     message += `💰 Price: ৳${product.price.toLocaleString()}\n`;
-    message += `📊 Stock: ${product.stock} units available\n`;
     
-    if (product.flavor) {
-      message += `🍰 Flavor: ${product.flavor}\n`;
-    } else if (product.category) {
-      message += `🏷️ Category: ${product.category}\n`;
+    if (isFood) {
+       message += `🍫 Flavor: ${product.flavor || 'Standard'}\n`;
+    } else {
+       message += `📊 Stock: ${product.stock} units available\n`;
+       if (product.category) {
+         message += `🏷️ Category: ${product.category}\n`;
+       }
     }
     
     // Check for colors in top-level array or variations object
@@ -273,7 +290,7 @@ Product খুঁজতে:
       message += `📏 Available Sizes: ${sizes.join(', ')}\n`;
     }
     
-    message += `\n✅ Stock: ${product.stock > 0 ? 'In Stock' : 'Out of Stock'}\n`;
+    message += `\n✅ Status: ${product.stock > 0 ? 'In Stock' : 'Out of Stock'}\n`;
     message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
     message += `অর্ডার করতে:\n`;
     message += `🔘 'Order Now' বাটনে ক্লিক করুন\n`;

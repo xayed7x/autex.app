@@ -63,7 +63,7 @@ export async function GET(request: Request) {
 
     const { data: products, error: productsError } = await supabase
       .from('products')
-      .select('id, name, price, image_urls, stock_quantity')
+      .select('id, name, price, image_urls, stock_quantity, product_attributes, category')
       .in('id', productIds)
 
     if (productsError) {
@@ -78,6 +78,8 @@ export async function GET(request: Request) {
       price: product.price,
       image: product.image_urls?.[0] || null,
       stock: product.stock_quantity,
+      category: product.category,
+      product_attributes: product.product_attributes,
       soldQuantity: productSales[product.id].quantity,
       revenue: Math.round(productSales[product.id].revenue),
     }))

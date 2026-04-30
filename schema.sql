@@ -18,6 +18,18 @@ CREATE TABLE public.api_usage (
   CONSTRAINT api_usage_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT api_usage_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
 );
+CREATE TABLE public.conversation_example_embeddings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid,
+  example_index integer NOT NULL,
+  customer_text text NOT NULL,
+  agent_text text NOT NULL,
+  type text NOT NULL DEFAULT 'faq'::text,
+  embedding USER-DEFINED,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT conversation_example_embeddings_pkey PRIMARY KEY (id),
+  CONSTRAINT conversation_example_embeddings_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
+);
 CREATE TABLE public.conversations (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   workspace_id uuid NOT NULL,
@@ -40,6 +52,7 @@ CREATE TABLE public.conversations (
   manual_flagged_at timestamp with time zone,
   memory_summary text,
   memory_summarized_at timestamp with time zone,
+  is_read boolean DEFAULT true,
   CONSTRAINT conversations_pkey PRIMARY KEY (id),
   CONSTRAINT conversations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
   CONSTRAINT conversations_fb_page_id_fkey FOREIGN KEY (fb_page_id) REFERENCES public.facebook_pages(id)
@@ -205,6 +218,17 @@ CREATE TABLE public.profiles (
   updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.push_subscriptions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  workspace_id uuid NOT NULL,
+  subscription jsonb NOT NULL,
+  device_type text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT push_subscriptions_pkey PRIMARY KEY (id),
+  CONSTRAINT push_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT push_subscriptions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
 );
 CREATE TABLE public.users (
   id uuid NOT NULL,

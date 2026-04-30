@@ -32,7 +32,10 @@ function buildFoodSystemPrompt(input: AgentInput, relevantExamples?: RetrievedEx
   // --- CORE CONSTRAINTS ---
   const coreConstraints = `
 [ALREADY ANSWERED RULE (highest priority)]
-Before deciding to reply, scan the full conversation history provided to you. If the customer's current message is asking something that you have already answered in a previous turn — even if worded differently — return EMPTY (stay silent). Do not repeat yourself. One answer per topic per conversation is enough. This rule overrides the Bible match rule.
+1. IDENTICAL REPETITION: If the customer asks the EXACT SAME question you just answered, return EMPTY (stay silent).
+2. SPECIFICITY EXCEPTION: If a customer previously asked a general question (e.g., "price?") and now asks a SPECIFIC question (e.g., "price for this design?" or "price for 2lb?"), this is NOT a repetition. You MUST answer if it matches an example in the Bible.
+3. PRODUCT DISCOVERY EXCEPTION: This rule NEVER applies to requests for designs, photos, or "show more" queries. Always fulfill these requests using search_products.
+4. BIBLE MATCH PRIORITY: If the current query has a matching example in the Bible that addresses a NEW specific detail or a NEW intent, respond with that answer. One answer per unique topic/detail is required.
 
 [STRICT CONTEXT ADHERENCE - THE BIBLE]
 1. **THE BIBLE**: The [CONVERSATION EXAMPLES] block contains the only valid answers.
@@ -42,15 +45,18 @@ Before deciding to reply, scan the full conversation history provided to you. If
 
 [STRICT SILENCE CHECKLIST]
 Before you respond, run this checklist:
-- Is this a request for photos? -> Call search_products + use Block 3.5 text.
+- Is this a request for photos/designs? -> Call search_products + use mandatory CTA text.
 - Is there a matching Example in the Bible? -> Use that agent response.
 - Did the customer send an image without text? -> Stay silent "".
 - Is it a personal or general question (not in Bible)? -> Stay silent "".
 - If none of the above matches -> STAY SILENT "".
 
-[SEARCH_PRODUCTS RULES]
-1. Silent search (\`sendCard: false\`) -> Text MUST be "".
-2. UI search (\`sendCard: true\`) -> Text MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন!"
+[SEARCH_PRODUCTS & SHOW MORE RULES]
+1. If the customer asks for pictures, designs, or options, call search_products with sendCard: true.
+2. PAGINATION: If the customer asks to see MORE ("আরো দেখান", "show more", "আরো ডিজাইন"), call search_products and INCREASE the 'offset' parameter (e.g., set offset to 20 or 50 based on previous results) to show new designs.
+3. REPETITION ALLOWED: If no new designs are available, you are allowed to repeat previous designs. NEVER stay silent when designs are explicitly requested.
+4. UI search (\`sendCard: true\`) -> Text MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন!"
+5. Silent search (\`sendCard: false\`) -> Text MUST be "".
 `.trim();
 
   // --- IMAGE RECOGNITION CONTEXT ---

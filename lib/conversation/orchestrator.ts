@@ -535,7 +535,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       // ========================================
       // FAST PATH: HIGH-CONFIDENCE RECOGNITION (Mimic Order Now)
       // ========================================
-      const isHighConfidenceMatch = isFood && imageContext?.recognitionResult?.success && imageContext?.recognitionResult?.confidence >= 95;
+      const isHighConfidenceMatch = isFood && imageContext?.recognitionResult?.success && imageContext?.recognitionResult?.confidence >= 98;
 
       if (isHighConfidenceMatch && imageContext?.recognitionResult?.productId) {
         const product = imageContext.recognitionResult;
@@ -583,9 +583,15 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           }
 
           // 4. Send Confirmation Text
-          const weightLabel = '২ পাউন্ড';
           const flavorLabel = product.product_attributes?.flavor || 'Standard';
-          const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + `\n\n🎂 নাম: ${product.productName}\n💰 দাম: ${product.productPrice.toLocaleString('en-BD')} টাকা\n🍫 ফ্লেভার: ${flavorLabel}\n⚖️ ওজন: ${weightLabel}\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
+          // Weight logic: Prefer attributes.weight, fallback to productName (legacy)
+          const productWeight = (product.product_attributes as any)?.weight || product.productName || '২ পাউন্ড';
+
+          const confirmationMsg = `✅ আপনি কি এই কেকটি অর্ডার করতে চান?` + 
+            `\n\n💰 দাম: ${product.productPrice.toLocaleString('en-BD')} টাকা` +
+            `\n🍫 ফ্লেভার: ${flavorLabel}` +
+            `\n⚖️ ওজন: ${productWeight}` +
+            `\n\nঅর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅`;
           
           await sendMessage(input.pageId, input.customerPsid, confirmationMsg);
 
@@ -1031,7 +1037,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     // ========================================
     // STEP 6.9: GLOBAL SAFETY NET (FOR FOOD PRICE INQUIRIES)
     // ========================================
-    const scenario1Script = "কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊\n👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা\n👉 ২ পাউন্ড চকলেট: ১৬০০ টাকা\nআপনার পছন্দের ডিজাইন/ডিটেইলস দিলে সঠিক দাম জানিয়ে দিতে পারব।";
+    const scenario1Script = "কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊\nআপনি আপনার পছন্দের ডিজাইন বা কত পাউন্ডের কেক চাচ্ছেন তা জানালে আমি সঠিক দাম জানিয়ে দিতে পারব।";
     const scenario2Wait = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে";
     const legacyWait = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন";
     

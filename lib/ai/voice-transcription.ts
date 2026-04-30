@@ -51,7 +51,7 @@ async function processAudioResponse(response: Response): Promise<string | null> 
   formData.append('file', file);
   formData.append('model', 'whisper-1');
   formData.append('temperature', '0');
-  formData.append('prompt', 'বাংলা এবং বাংলিশ কথোপকথন। পোশাক অর্ডার, কেক অর্ডার, দাম জিজ্ঞেস, সাইজ, রং, ডেলিভারি, বিকাশ, নগদ সম্পর্কে কথা হচ্ছে। সাধারণ শব্দ: ভাই, আপু, দাম কত, আছে, নাই, অর্ডার করব, কনফার্ম, পাঠান, L সাইজ, M সাইজ, লাল, নীল, সাদা, কালো।');
+  formData.append('prompt', 'বাংলা এবং বাংলিশ কথোপকথন। পোশাক অর্ডার, কেক অর্ডার, দাম জিজ্ঞেস, সাইজ, রং, ডেলিভারি, বিকাশ, নগদ সম্পর্কে কথা হচ্ছে। পুরো অডিওটি বিস্তারিতভাবে ট্রান্সক্রাইব করো, কোনো অংশ বাদ দিও না। সাধারণ শব্দ: ভাই, আপু, দাম কত, আছে, নাই, অর্ডার করব, কনফার্ম, পাঠান, L সাইজ, M সাইজ, লাল, নীল, সাদা, কালো।');
 
   const openaiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -98,7 +98,8 @@ async function refineTranscriptWithLLM(rawText: string): Promise<string> {
 3. 'ইয়ে', 'মানে', 'উম', 'আহ' — এগুলো remove করো।
 4. Product names, sizes (L, M, XL) এবং পেমেন্ট মেথড (bKash, Nagad) ঠিক রাখো।
 5. **চেষ্টা করো**: যদি বাক্যটি পুরোপুরি ভাঙাচোরা হয় কিন্তু ২-৩টি মূল শব্দ (যেমন: অর্ডার, দাম, কালার) বোঝা যায়, তবে সেগুলো দিয়ে একটি অর্থপূর্ণ বাক্য তৈরির চেষ্টা করো। 
-6. একদমই যদি কোনো অর্থ উদ্ধার করা অসম্ভব হয়, তবেই শুধু '[unclear]' লিখবে।
+6. অডিওটি লম্বা হলে সবটুকু তথ্য বজায় রাখার চেষ্টা করো, কোনো অংশ বাদ দিও না।
+7. একদমই যদি কোনো অর্থ উদ্ধার করা অসম্ভব হয়, তবেই শুধু '[unclear]' লিখবে।
 
 Output: শুধু পরিষ্কার বাংলা টেক্সট।`
         },
@@ -108,6 +109,7 @@ Output: শুধু পরিষ্কার বাংলা টেক্সট
         }
       ],
       temperature: 0,
+      max_tokens: 500,
     });
 
     const refinedText = response.choices[0].message.content?.trim() || preProcessedText;

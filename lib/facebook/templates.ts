@@ -51,8 +51,6 @@ export function createProductCard(
   let buttons = [];
 
   if (isFood) {
-    subtitle = formattedPrice;
-    
     buttons = [
       {
         type: 'postback' as const,
@@ -80,6 +78,10 @@ export function createProductCard(
   
   const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
   
+  const weight = (product.product_attributes as any)?.weight || product.name;
+  const displayTitle = isFood ? `${weight} — ${formattedPrice}` : product.name;
+  const displaySubtitle = isFood ? undefined : subtitle;
+
   return {
     attachment: {
       type: 'template',
@@ -88,8 +90,8 @@ export function createProductCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: isFood ? `2 Pound — ${formattedPrice}` : product.name,
-            subtitle: isFood ? undefined : subtitle,
+            title: displayTitle,
+            subtitle: displaySubtitle,
             image_url: imageUrl,
             buttons: buttons,
           },
@@ -117,8 +119,6 @@ export function createProductCarousel(
     let buttons = [];
 
     if (isFood) {
-      subtitle = formattedPrice;
-      
       buttons = [
         {
           type: 'postback' as const,
@@ -146,9 +146,13 @@ export function createProductCarousel(
 
     const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
     
+    const weight = (product.product_attributes as any)?.weight || product.name;
+    const displayTitle = isFood ? `${weight} — ${formattedPrice}` : product.name;
+    const displaySubtitle = isFood ? undefined : subtitle;
+
     return {
-      title: isFood ? `2 Pound — ${formattedPrice}` : product.name,
-      subtitle: isFood ? undefined : subtitle,
+      title: displayTitle,
+      subtitle: displaySubtitle,
       image_url: imageUrl,
       buttons: buttons,
     };
@@ -189,6 +193,8 @@ export function createProductDetailsCard(
   
   const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
   
+  const displayTitle = isFood ? product.name : product.name;
+
   return {
     attachment: {
       type: 'template',
@@ -197,7 +203,7 @@ export function createProductDetailsCard(
         image_aspect_ratio: isFood ? 'square' : 'horizontal',
         elements: [
           {
-            title: isFood ? `2 Pound — ${formattedPrice}` : product.name,
+            title: displayTitle,
             subtitle: subtitle,
             image_url: imageUrl,
             buttons: [

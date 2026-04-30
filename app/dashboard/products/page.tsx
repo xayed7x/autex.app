@@ -39,6 +39,10 @@ interface Product {
   sizes?: string[];
   size_stock?: { size: string; quantity: number }[];
   flavors?: string[];
+  product_attributes?: {
+    weight?: string;
+    [key: string]: any;
+  };
 }
 
 interface PaginationData {
@@ -325,13 +329,26 @@ export default function ProductsPage() {
                   {/* Card content */}
                   <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                     <div className="space-y-1">
-                      {/* Product name */}
-                      <h3 className="font-medium text-xs sm:text-sm leading-tight text-foreground line-clamp-1" title={product.name}>
-                        {product.name}
-                      </h3>
+                      {/* Product title - Shows Weight — Price for food, Name for others */}
+                      {businessCategory === 'food' ? (
+                        <h3 className="font-medium text-xs sm:text-sm leading-tight text-foreground line-clamp-1">
+                          {(() => {
+                            let weight = product.product_attributes?.weight || product.name;
+                            // If it's just a number, add Pound
+                            if (weight && !isNaN(Number(weight))) {
+                              weight = `${weight} Pound`;
+                            }
+                            return weight;
+                          })()} — {product.price.toLocaleString()} ৳
+                        </h3>
+                      ) : (
+                        <h3 className="font-medium text-xs sm:text-sm leading-tight text-foreground line-clamp-1" title={product.name}>
+                          {product.name}
+                        </h3>
+                      )}
 
-                      {/* Food Badges (Flavors) */}
-                      {businessCategory === 'food' && (
+                      {/* Food Badges (Flavors) - Only for clothing */}
+                      {businessCategory !== 'food' && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {product.flavors && product.flavors.length > 0 && (
                             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-400/10 border border-orange-400/20 text-[9px] font-medium text-orange-400">
@@ -343,20 +360,20 @@ export default function ProductsPage() {
                         </div>
                       )}
                       
-                      {/* Price */}
-                      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-0">
-                         <p className="font-serif text-sm sm:text-lg font-semibold tracking-tight">
-                           {product.price.toLocaleString()}
-                         </p>
-                         {businessCategory !== 'food' && (
+                      {/* Price & Stock - Only for clothing */}
+                      {businessCategory !== 'food' && (
+                        <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-0">
+                           <p className="font-serif text-sm sm:text-lg font-semibold tracking-tight">
+                             {product.price.toLocaleString()} ৳
+                           </p>
                            <p className="text-[10px] sm:text-xs text-muted-foreground font-mono bg-muted/50 px-1.5 py-0.5 rounded w-fit">
                               {product.stock_quantity} <span className="hidden sm:inline">in stock</span><span className="sm:hidden">left</span>
                            </p>
-                         )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                     
-                    {/* Action buttons - Always visible but styled subtly */}
+                    {/* Action buttons */}
                     <div className="grid grid-cols-4 gap-2 pt-1">
                       <Button
                         variant="outline"

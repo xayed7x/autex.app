@@ -9,7 +9,16 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get conversations with workspace info
+    // Get total count of all conversations
+    const { count: totalConversations, error: countError } = await supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true });
+
+    if (countError) {
+      console.error('Count error:', countError);
+    }
+
+    // Get conversations with workspace info (limiting to a higher number like 1000 for safety)
     const { data: conversations, error } = await supabase
       .from('conversations')
       .select(`
@@ -21,7 +30,7 @@ export async function GET(request: NextRequest) {
         workspaces!inner(id, name)
       `)
       .order('last_message_at', { ascending: false })
-      .limit(200);
+      .limit(1000);
 
     if (error) {
       console.error('Conversations error:', error);
@@ -58,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       conversations: conversationsWithDetails,
-      total: conversationsWithDetails.length,
+      total: totalConversations || conversationsWithDetails.length,
     });
   } catch (error) {
     console.error('Admin conversations error:', error);

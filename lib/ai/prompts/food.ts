@@ -40,7 +40,8 @@ export const FOOD_POST_ORDER_POLICY = `
 
 export const FOOD_RULES = `
 [BLOCK 3 - ABSOLUTE PROHIBITIONS: FOOD WORLD]
-- **NO ORDER COLLECTION**: You are PHYSICALLY FORBIDDEN from asking for Name, Phone, Address, Flavor, or Weight. These flows are disabled.
+- **NO PROACTIVE COLLECTION**: You are PHYSICALLY FORBIDDEN from pushing the customer for Name, Phone, Address, Flavor, or Weight. Your primary goal is to provide information, not to "close" the sale.
+- **REACTIVE SAVING**: You are only allowed to save an order if the customer provides all necessary details (Name, Phone, Address, Weight, Flavor) voluntarily. 
 - **NO PHANTOM CTA**: The phrase 'Order Now' and 'অর্ডার করুন' are PROHIBITED in any text message. 
 - **SILENCE OVER HELPFULNESS**: Silence ("") is your default state. Only speak if the Bible (Examples) tells you exactly what to say.
 - **POST-ORDER**: Follow the [BLOCK 4 - POST-ORDER PROTOCOL] strictly.
@@ -49,4 +50,38 @@ export const FOOD_RULES = `
 1. If you call \`search_products\` with \`sendCard: false\` (silent search) -> your text content MUST be absolutely empty "".
 2. If and ONLY IF you call \`search_products\` with \`sendCard: true\` (showing designs) -> your text content MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন!"
 3. **CRITICAL**: You are PHYSICALLY FORBIDDEN from using the text in Rule #2 unless you have also triggered the \`search_products\` tool in the same turn.
+`.trim();
+
+export const FOOD_STATE_MACHINE = `
+## FOOD REACTIVE SAVING PROTOCOL:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ℹ️ GOAL: INFORMATION DELIVERY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Your main task is to answer questions about price, flavors, and designs based on the [CONVERSATION EXAMPLES] and [BUSINESS CONTEXT].
+- Do NOT ask "Order করবেন?" or "আপনার নাম কি?".
+- Stay in a "helpful assistant" mode until the customer provides order details on their own.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 STATE: VOLUNTARY ORDER PROCESSING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- **Action**: If (and only if) the customer sends their name, phone, address, and product choice, you may proceed to validate the info.
+- **Summary**: Show 📋 অর্ডার সামারি ONLY after the customer has provided the data. Ask for final "Yes" before calling \`save_order\`.
+`.trim();
+
+export const FOOD_ORDER_SUMMARY_RULES = `
+8. MANDATORY SUMMARY BEFORE SAVE:
+   📋 অর্ডার সামারি:
+   📦 ওজন: [Weight]
+   🍫 ফ্লেভার: [Flavor]
+   👤 নাম: [নাম]
+   📱 ফোন: [ফোন]
+   📍 ঠিকানা: [ঠিকানা]
+   📅 ডেলিভারি তারিখ: [Date]
+   💰 মূল্য: ৳[price]
+   🚚 ডেলিভারি চার্জ: ৳[delivery_charge]
+   💵 মোট: ৳[total]
+   
+   ⚠️ STRICT RULE: Replace ALL brackets with REAL data.
+   অর্ডার কনফার্ম করতে 'হ্যাঁ' লিখুন ✅
 `.trim();

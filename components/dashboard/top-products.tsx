@@ -12,6 +12,11 @@ interface TopProduct {
   name: string
   soldQuantity: number
   revenue: number
+  category?: string
+  product_attributes?: {
+    weight?: string;
+    [key: string]: any;
+  };
 }
 
 export function TopProducts() {
@@ -65,7 +70,15 @@ export function TopProducts() {
                   {index + 1}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate text-sm group-hover:text-primary transition-colors">{product.name}</p>
+                  <p className="font-medium truncate text-sm group-hover:text-primary transition-colors">
+                    {product.category === 'food' ? (() => {
+                      let weight = product.product_attributes?.weight || product.name;
+                      if (weight && !isNaN(Number(weight))) {
+                        weight = `${weight} Pound`;
+                      }
+                      return weight;
+                    })() : product.name}
+                  </p>
                   <p className="text-xs text-muted-foreground mt-0.5 font-mono">{product.soldQuantity} sold</p>
                 </div>
                 <div className="text-right">

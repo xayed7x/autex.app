@@ -91,6 +91,7 @@ export type Database = {
           manual_flagged_at: string | null
           memory_summary: string | null
           memory_summarized_at: string | null
+          last_summarized_count: number | null
           context: Json | null
         }
         Insert: {
@@ -114,6 +115,7 @@ export type Database = {
           manual_flagged_at?: string | null
           memory_summary?: string | null
           memory_summarized_at?: string | null
+          last_summarized_count?: number | null
           context?: Json | null
         }
         Update: {
@@ -137,6 +139,7 @@ export type Database = {
           manual_flagged_at?: string | null
           memory_summary?: string | null
           memory_summarized_at?: string | null
+          last_summarized_count?: number | null
           context?: Json | null
         }
         Relationships: [

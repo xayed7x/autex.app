@@ -54,7 +54,7 @@ export function createProductCard(
     buttons = [
       {
         type: 'postback' as const,
-        title: 'Order Now',
+        title: 'অর্ডার করব 🛒',
         payload: `ORDER_NOW_${product.id}`,
       },
     ];
@@ -79,7 +79,7 @@ export function createProductCard(
   const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
   
   const weight = (product.product_attributes as any)?.weight || product.name;
-  const displayTitle = isFood ? `${weight} — ${formattedPrice}` : product.name;
+  const displayTitle = isFood ? weight : product.name;
   const displaySubtitle = isFood ? undefined : subtitle;
 
   return {
@@ -122,7 +122,7 @@ export function createProductCarousel(
       buttons = [
         {
           type: 'postback' as const,
-          title: 'Order Now',
+          title: 'অর্ডার করব 🛒',
           payload: `ORDER_NOW_${product.id}`,
         },
       ];
@@ -147,7 +147,7 @@ export function createProductCarousel(
     const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
     
     const weight = (product.product_attributes as any)?.weight || product.name;
-    const displayTitle = isFood ? `${weight} — ${formattedPrice}` : product.name;
+    const displayTitle = isFood ? weight : product.name;
     const displaySubtitle = isFood ? undefined : subtitle;
 
     return {
@@ -182,13 +182,13 @@ export function createProductDetailsCard(
   const isFood = businessCategory === 'food';
   const formattedPrice = `${product.price.toLocaleString('en-BD')}`;
   
-  let subtitle = formattedPrice;
+  let subtitle = isFood ? "" : formattedPrice;
   
   if (product.description) {
     const truncatedDesc = product.description.length > 80
       ? product.description.substring(0, 77) + '...'
       : product.description;
-    subtitle += `\n\n${truncatedDesc}`;
+    subtitle += isFood ? truncatedDesc : `\n\n${truncatedDesc}`;
   }
   
   const imageUrl = product.imageUrl || (product.image_urls && product.image_urls.length > 0 ? product.image_urls[0] : undefined);
@@ -204,7 +204,7 @@ export function createProductDetailsCard(
         elements: [
           {
             title: displayTitle,
-            subtitle: subtitle,
+            subtitle: subtitle.trim(),
             image_url: imageUrl,
             buttons: [
               {

@@ -59,30 +59,41 @@ export async function manageMemory(
   workspaceId: string,
   conversationId: string,
   currentSummary: string | null,
-  allMessages: ChatCompletionMessageParam[]
+  allMessages: ChatCompletionMessageParam[],
+  lastSummarizedCount: number = 0
 ): Promise<MemoryResult> {
-  // If we are under the limit, no summarization needed
-  if (allMessages.length <= MAX_MESSAGES_BEFORE_SUMMARY) {
+  const messagesNotYetSummarized = allMessages.length - lastSummarizedCount;
+
+  // If we are under the limit OR haven't accumulated enough new messages to justify a re-summary, skip.
+  if (allMessages.length <= MAX_MESSAGES_BEFORE_SUMMARY || messagesNotYetSummarized < 5) {
     return {
       memorySummary: currentSummary,
-      recentMessages: allMessages,
+      recentMessages: allMessages.slice(-MESSAGES_TO_KEEP),
     };
   }
 
-  console.log(`🧠 [MEMORY] Conversation has ${allMessages.length} messages. Triggering summarization...`);
+  console.log(`🧠 [MEMORY] Conversation has ${allMessages.length} messages (${messagesNotYetSummarized} new). Triggering incremental summarization...`);
 
   try {
     // 1. Split messages
     // The last N messages we want to keep exactly as they are (fresh context)
     const messagesToKeep = allMessages.slice(-MESSAGES_TO_KEEP);
-    // The older messages we want to compress
-    const messagesToSummarize = allMessages.slice(0, -MESSAGES_TO_KEEP);
+    // The messages we want to compress: everything after the last checkpoint up to the 'to keep' buffer
+    const messagesToSummarize = allMessages.slice(lastSummarizedCount, -MESSAGES_TO_KEEP);
+
+    if (messagesToSummarize.length === 0) {
+      return {
+        memorySummary: currentSummary,
+        recentMessages: messagesToKeep,
+      };
+    }
 
     // 2. Generate the new summary
     const newSummary = await generateSummary(workspaceId, conversationId, currentSummary, messagesToSummarize);
 
-    // 3. Persist to Database (fire and await, but catch locally)
-    await persistSummaryToDb(conversationId, newSummary);
+    // 3. Persist to Database
+    const newSummarizedCount = allMessages.length - MESSAGES_TO_KEEP;
+    await persistSummaryToDb(conversationId, newSummary, newSummarizedCount);
 
     return {
       memorySummary: newSummary,
@@ -90,7 +101,6 @@ export async function manageMemory(
     };
   } catch (error) {
     // CRITICAL: If anything fails, swallow the error and return the full history.
-    // We NEVER want a DB/OpenAI error in summarization to break the user's flow.
     console.error(`❌ [MEMORY] Summarization failed. Falling back to full history.`, error);
     return {
       memorySummary: currentSummary,
@@ -180,7 +190,7 @@ async function generateSummary(
  * because we are relying on next.js edge functions/Vercel timeouts, and deleting rows might be slow.
  * Instead, the orchestrator just reads the summary and the last N messages.
  */
-async function persistSummaryToDb(conversationId: string, newSummary: string): Promise<void> {
+async function persistSummaryToDb(conversationId: string, newSummary: string, lastSummarizedCount: number): Promise<void> {
   const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -193,7 +203,8 @@ async function persistSummaryToDb(conversationId: string, newSummary: string): P
     .from('conversations')
     .update({ 
       memory_summary: newSummary,
-      memory_summarized_at: new Date().toISOString()
+      memory_summarized_at: new Date().toISOString(),
+      last_summarized_count: lastSummarizedCount
     })
     .eq('id', conversationId);
 
@@ -201,5 +212,5 @@ async function persistSummaryToDb(conversationId: string, newSummary: string): P
     throw new Error(`Failed to save memory summary to DB: ${error.message}`);
   }
   
-  console.log(`💾 [MEMORY] Summary saved to DB for conversation ${conversationId}`);
+  console.log(`💾 [MEMORY] Summary saved to DB for conversation ${conversationId} (Count: ${lastSummarizedCount})`);
 }

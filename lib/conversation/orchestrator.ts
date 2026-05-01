@@ -628,7 +628,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       input.workspaceId,
       input.conversationId,
       convData.memory_summary || null,
-      chatHistory
+      chatHistory,
+      convData.last_summarized_count || 0
     );
 
     // ========================================
@@ -1058,19 +1059,22 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const scenario2Wait = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে";
     const legacyWait = "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন";
     
-    if (isFood && (finalResponse?.includes(scenario2Wait) || finalResponse?.includes(legacyWait))) {
-      const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-3);
-      const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("আপনার পাঠানো ডিজাইন অনুযায়ী"));
-
-      if (alreadySent) {
-        console.log("🛡️ [SAFETY NET] Removing repetitive Scenario 2 wait message.");
-        // Surgically remove only the wait message part, keep any other text (like delivery info)
-        finalResponse = finalResponse.replace(/আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে.*?😊/g, "").trim();
-        finalResponse = finalResponse.replace(scenario2Wait, "").trim();
-        finalResponse = finalResponse.replace(legacyWait, "").trim();
-      } else {
-        // Force strict clean version of Scenario 2
-        finalResponse = "আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳ দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊";
+    if (isFood) {
+      // IF SPECIFIC PRICE INQUIRY (Scenario 2 or Legacy Wait) -> STAY SILENT
+      // The user wants silence for specific cakes so the human owner can reply.
+      if (finalResponse?.includes(scenario2Wait) || finalResponse?.includes(legacyWait)) {
+        console.log("🛡️ [PRICE GUARD] Specific cake price inquiry detected. Silencing for human takeover.");
+        finalResponse = ''; 
+      } 
+      // IF GENERAL PRICE INQUIRY -> Only send Scenario 1 explanation once
+      else if (finalResponse?.includes("কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে")) {
+         const recentBotMsgs = chatHistory.filter(m => m.role === 'assistant').slice(-3);
+         const alreadySent = recentBotMsgs.some(m => typeof m.content === 'string' && m.content.includes("কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে"));
+         
+         if (alreadySent) {
+           console.log("🛡️ [PRICE GUARD] Suppressing repetitive Scenario 1 explanation.");
+           finalResponse = '';
+         }
       }
     }
 

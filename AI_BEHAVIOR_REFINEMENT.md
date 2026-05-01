@@ -1,26 +1,24 @@
 # AI Behavior Refinement Plan (Food Business)
 
-This document outlines the two distinct price inquiry protocols established with the business owner.
+This document outlines the two distinct price inquiry protocols established with the business owner, enforcing the **Owner-Only Pricing** rule.
 
 ## Scenario 1: Generic Price Inquiry (No Context)
 **Condition**: Customer asks for price without sending an image or selecting a product.
 - **AI Response**:
   “কেকের দাম ফ্লেভার ও ডিজাইনের উপর নির্ভর করে 😊
-  👉 ২ পাউন্ড ভ্যানিলা: ১৪০০ টাকা
-  👉 ২ পাউন্ড চকলেট: ১৬০০ টাকা
-  আপনার পছন্দের ডিজাইন/ডিটেইলস দিলে সঠিক দাম জানিয়ে দিতে পারব।”
+  আপনি আপনার পছন্দের ডিজাইন বা কত পাউন্ডের কেক চাচ্ছেন তা জানালে আমি সঠিক দাম জানিয়ে দিতে পারব।”
 - **System Action**: 
   - **NO FLAGGING**.
   - Continue to Product Discovery (Show categories/inspiration cards).
+- **Rule**: AI is physically forbidden from providing price numbers.
 
-## Scenario 2: Custom Design Inquiry (Unknown Image)
-**Condition**: Customer sends an image that is NOT matched in the catalog (Tier 3 failure).
+## Scenario 2: Custom Design Inquiry (Specific Design/Image)
+**Condition**: Customer sends an image or asks for the price of a specific cake currently under discussion.
 - **AI Response**:
-  “আপনার পাঠানো ডিজাইন অনুযায়ী কেকের দাম হিসাব করে জানানো হচ্ছে ⏳
-  দয়া করে একটু অপেক্ষা করুন, শিগগিরই আপডেট দিচ্ছি 😊”
+  (STRICT SILENCE "")
 - **System Action**: 
   - **IMMEDIATE FLAGGING** (Flag for manual review).
-  - (Optional) Send Official Quick Form as per earlier logic.
+  - The human owner will provide the final price based on customization.
 
 ---
-*Status: Ready for implementation in the next session.*
+*Status: LIVE and enforced.*

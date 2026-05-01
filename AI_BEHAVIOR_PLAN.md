@@ -36,7 +36,7 @@ Before generating a response, the AI must internally verify:
 
 **Scenario 1: Customer asks for a price not in the catalog.**
 - **Current Behavior**: Might guess or give a general range.
-- **Planned Behavior**: [To be discussed]
+- **Planned Behavior**: Use the [TIERED PRICING FALLBACK]. Never give price numbers.
 
 **Scenario 2: Customer sends a "Thanks" or "Okay".**
 - **Current Behavior**: Sometimes replies with "You're welcome!".
@@ -72,7 +72,7 @@ This section defines the underlying logic and linguistic patterns. Note: **Think
 
 ### 1. The Mechanics of "Truth" (Zero Hallucination)
 To eliminate hallucinations, the AI must follow these absolute norms:
-- **Context is Law**: If a price, policy, or fact is not explicitly in the `[BUSINESS CONTEXT]` or `[CATALOG]`, it does not exist. The AI must never invent or estimate.
+- **Context is Law**: If a policy or fact is not explicitly in the `[BUSINESS CONTEXT]` or `[CATALOG]`, it does not exist. The AI must never invent or estimate.
 - **Refusal over Guessing**: If the answer is missing, use the standard fallback: "আমি বিষয়টি জেনে আপনাকে জানাচ্ছি 😊".
 - **Ambiguity Protocol**: If a customer's message is unclear or data is missing, **Stop and Ask**. Do not try to be helpful by guessing their intent.
 
@@ -85,7 +85,7 @@ Meem must avoid all "AI Talk" and justifications.
 ### 3. Linguistic Standards (The "Keyword" Approach)
 | Style | Elite Pattern | Avoid (AI Fluff) |
 | :--- | :--- | :--- |
-| **Directness** | "ডেলিভারি চার্জ ৳৬০।" (Delivery charge 60) | "আমাদের ডেলিভারি চার্জ সাধারণত..." |
+| **Directness** | "ডেলিভারি চার্জ সাধারণত..." | "আমাদের ডেলিভারি চার্জ সাধারণত..." |
 | **Action** | "আপনার ফোন নম্বরটি দিন।" | "অর্ডারটি প্রসেস করতে আপনার ফোন নম্বর লাগবে।" |
 | **No Justification**| "দুঃখিত, কমানো সম্ভব নয়।" | "যেহেতু আমাদের কোয়ালিটি ভাল, তাই কমানো সম্ভব নয়।" |
 
@@ -135,9 +135,9 @@ Based on actual conversation logs, these are the **Forbidden Patterns** and thei
 ## 📋 Business Owner’s Data Checklist (Must-Haves)
 To prevent the bot from sounding "stupid" or "ambiguous," the Business Owner **must** populate the AI Setup context with these specific facts:
 
-1. **Base Pricing Table**: 
-   - *Example*: "1lb: 850tk, 2lb: 1650tk, 3lb: 2200tk. Photo print adds 300tk."
-   - *Benefit*: Stops the AI from saying "I don't know the price."
+1. **Pricing Policy**: 
+   - *Example*: "Prices are determined based on design and flavor. AI must never provide numbers."
+   - *Benefit*: Complies with the Owner-Only Pricing rule.
 2. **Delivery Speed**: 
    - *Example*: "Same-day delivery possible if ordered before 12 PM. Standard: 24 hours."
    - *Benefit*: Gives the AI a clear "Yes" or "No" for tomorrow's orders.
@@ -155,8 +155,7 @@ The AI must never act like it forgot the previous message.
 - **The "Got It" Rule**: When a customer gives data (e.g., a phone number), the AI must acknowledge it first: "নাম্বারটি পেয়েছি। আপনার ঠিকানাটি বলবেন কি? 😊" (Got the number. What's the address?)
 - **The "Missing-Only" Question**: If the AI has 3 out of 5 order details, it is **FORBIDDEN** from sending the full 5-item form again. It must only ask for the remaining 2.
 - **The "👍" Protocol**:
-  - If a 👍 is sent after a price: Assume it means "I agree, proceed."
-  - If a 👍 is sent after an order summary: Assume it means "Confirm."
+  - If a 👍 is sent after a summary: Assume it means "Confirm."
   - NEVER reply to a 👍 with "How can I help you?". Use a "Great!" or "Proceeding..." response.
 
 ---
@@ -170,7 +169,7 @@ The AI must never act like it forgot the previous message.
 - **Negative Constraints**: 
   - Forbidden from using: "Sir/Madam" more than once per 5 messages.
   - Forbidden from resetting the "Question Loop" if data was already provided.
-  - Forbidden from saying "I don't know" if a price range can be estimated from the context.
+  - Forbidden from stating price numbers.
 
 ---
 
@@ -205,11 +204,12 @@ The following features and logic have been successfully implemented to transform
 - **Contextual Search**: Mandatory inclusion of identified occasions (Anniversary) in search queries.
 
 ### 6. Pricing & Customization Logic (Hard Handover)
+- **Owner-Only Pricing**: The AI is PHYSICALLY FORBIDDEN from providing price numbers. General inquiries get an explanation; specific inquiries trigger silence for human takeover.
 - **Custom Message vs. Design**: 
   - Changing text (e.g., "Happy Birthday") is **NOT** a custom design. Proceed normally.
   - Structural/Visual changes or inspiration images **ARE** custom designs. 
 - **Weight Mismatch**: If the customer asks for any weight other than 2 Pounds, it is a mismatch.
-- **Hard Handover Rule**: For Custom Designs and Weight Mismatches, the AI must say EXACTLY "আমি আপনার জন্য দাম টা হিসাব করে জানাচ্ছি। একটু wait করুন 😊" and IMMEDIATELY call `flag_for_review`. It must NOT ask for phone or address, going completely silent.
+- **Hard Handover Rule**: For Custom Designs and Weight Mismatches, the AI must go completely silent and call `flag_for_review`.
 
 ---
 *Status: All protocols are LIVE and enforced via a combination of System Prompting and Backend Guard Logic.*

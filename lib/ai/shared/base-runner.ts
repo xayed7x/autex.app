@@ -38,6 +38,7 @@ export async function runAgentLoop(
   messages.push({ role: 'user', content: userContent.trim() || "[User sent an image]" });
 
   let toolLoops = 0;
+  let loopIteration = 0;
   let finalResponse = '';
   let shouldFlag = false;
   let toolsCalledLog: string[] = [];
@@ -50,6 +51,8 @@ export async function runAgentLoop(
   let lazyRetries = 0;
 
   while (toolLoops < MAX_TOOL_LOOPS) {
+    loopIteration++;
+    let currentIterationReasoning = '';
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
@@ -95,7 +98,8 @@ export async function runAgentLoop(
       const thinkMatch = responseMessage.content.match(thinkRegex);
       if (thinkMatch) {
          const reasoningLog = thinkMatch[0].replace(/\[\/?THINK\]/gi, '').trim();
-         firstPassReasoning = reasoningLog; 
+         currentIterationReasoning = reasoningLog; 
+         if (!firstPassReasoning) firstPassReasoning = reasoningLog; 
          responseMessage.content = responseMessage.content.replace(thinkRegex, '').trim();
       }
       if (!responseMessage.tool_calls) {
@@ -120,7 +124,7 @@ export async function runAgentLoop(
         // 🚀 LAZY TOOL DETECTOR (SUPREME INTENT GUARD)
         // ========================================
         // If no tools were called, check if the reasoning intended to call one.
-        if (firstPassReasoning && lazyRetries < 1) {
+        if (loopIteration === 1 && currentIterationReasoning && lazyRetries < 1) {
           const intentCheck = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             max_tokens: 100,
@@ -132,7 +136,7 @@ export async function runAgentLoop(
                 Return JSON: { "should_call_tool": boolean, "tool_name": "search_products" | "calculate_delivery" | "save_order" | null }
                 Set should_call_tool: true ONLY if the reasoning explicitly says it will call the tool.`
               },
-              { role: 'user', content: firstPassReasoning }
+              { role: 'user', content: currentIterationReasoning }
             ]
           });
 

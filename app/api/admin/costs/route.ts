@@ -18,18 +18,31 @@ export async function GET(request: NextRequest) {
     // Get all usage data for the last 30 days
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     
-    // We get last 1000 records for analysis to ensure totals are more accurate
-    const { data: usageData, error } = await supabase
-      .from('api_usage')
-      .select('*, workspaces(name)')
-      .gte('created_at', thirtyDaysAgo)
-      .order('created_at', { ascending: false })
-      .limit(1000);
+    // Fetch 30-day usage and lifetime total cost in parallel
+    const [usageResponse, lifetimeResponse] = await Promise.all([
+      supabase
+        .from('api_usage')
+        .select('*, workspaces(name)')
+        .gte('created_at', thirtyDaysAgo)
+        .order('created_at', { ascending: false })
+        .limit(1000),
+      
+      supabase
+        .from('api_usage')
+        .select('cost')
+    ]);
 
-    if (error) {
-      console.error('Usage data error:', error);
+    const { data: usageData, error: usageError } = usageResponse;
+    const { data: lifetimeData, error: lifetimeError } = lifetimeResponse;
+
+    if (usageError || lifetimeError) {
+      console.error('Usage data error:', usageError || lifetimeError);
       return NextResponse.json({ error: 'Failed to fetch usage data' }, { status: 500 });
     }
+
+    // Calculate lifetime total
+    const lifetimeTotalUSD = (lifetimeData || []).reduce((sum, row) => sum + (Number(row.cost) || 0), 0);
+    const lifetimeTotalBDT = lifetimeTotalUSD * USD_TO_BDT_RATE;
 
     // Aggregate data
     let totalCost = 0;
@@ -199,11 +212,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       summary: {
-        totalCost,
+        totalCost, // This is actually 30-day cost in this context, renaming for clarity would be good but keeping for compatibility
         totalRequests,
         todayCost,
         weekCost,
         monthCost,
+        lifetimeCost: lifetimeTotalBDT,
         avgCostPerConversation: (convCount || 0) > 0 
           ? (monthCost / (convCount || 1)).toFixed(2) 
           : '0.00',

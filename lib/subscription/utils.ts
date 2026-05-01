@@ -75,6 +75,7 @@ export interface SubscriptionInfo {
 export interface BotPermission {
   allowed: boolean
   reason: string
+  code?: 'EXPIRED' | 'TRIAL_ENDED' | 'LIMIT_REACHED' | 'PAUSED'
 }
 
 /**
@@ -237,8 +238,48 @@ export async function checkBotPermission(
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
+  
+  // Quick status check
+  const status = await getSubscriptionStatus(workspaceId, client)
 
-  // First check if this is an admin workspace
+  // 1. Check if admin paused
+  if (status.isPaused) {
+    return { 
+      allowed: false, 
+      reason: `Admin paused: ${status.pausedReason || 'No reason specified'}`,
+      code: 'PAUSED'
+    }
+  }
+
+  // 2. Check if expired
+  if (status.status === 'expired' || !status.canUseBot) {
+    return { 
+      allowed: false, 
+      reason: status.status === 'trial' ? 'Trial period has ended' : 'Subscription has ended',
+      code: 'EXPIRED'
+    }
+  }
+
+  // 3. Check Conversation Limit (specifically for trial and starter)
+  // For trial, we check total conversations. For paid, we check monthly.
+  if (status.status === 'trial') {
+    const { count, error } = await client
+      .from('conversations')
+      .select('*', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+
+    if (error) {
+      console.error('Error counting trial conversations:', error)
+    } else if (count !== null && count >= 500) {
+      return { 
+        allowed: false, 
+        reason: 'Free trial limit reached (500 conversations). Please upgrade to continue.',
+        code: 'LIMIT_REACHED'
+      }
+    }
+  }
+
+  // 4. Check if this is an admin workspace (exempt from further checks)
   const { data: workspace } = await client
     .from('workspaces')
     .select('owner_id')
@@ -246,41 +287,17 @@ export async function checkBotPermission(
     .single()
 
   if (workspace?.owner_id) {
-    // Get admin emails from env or fallback
     const adminEmails = (process.env.ADMIN_EMAILS || ADMIN_EMAIL).split(',').map(e => e.trim().toLowerCase())
     
-    // Get owner's email via auth admin API
     try {
       const { data: { user: ownerUser } } = await client.auth.admin.getUserById(workspace.owner_id)
       
       if (ownerUser?.email && adminEmails.includes(ownerUser.email.toLowerCase())) {
-        return { allowed: true, reason: 'Admin workspace - exempt from subscription' }
+        return { allowed: true, reason: 'Admin workspace - exempt from limits' }
       }
     } catch (e) {
-      // If getUserById fails, continue with normal check
       console.warn('Could not fetch owner user for admin check:', e)
     }
-  }
-
-  // Not admin, proceed with normal subscription check
-  const status = await getSubscriptionStatus(workspaceId, client)
-
-  if (status.isPaused) {
-    return { 
-      allowed: false, 
-      reason: `Admin paused: ${status.pausedReason || 'No reason specified'}` 
-    }
-  }
-
-  if (status.status === 'expired') {
-    return { allowed: false, reason: 'Subscription expired' }
-  }
-
-  if (!status.canUseBot) {
-    if (status.status === 'trial') {
-      return { allowed: false, reason: 'Trial period has ended' }
-    }
-    return { allowed: false, reason: 'Subscription has ended' }
   }
 
   return { allowed: true, reason: 'Active subscription' }

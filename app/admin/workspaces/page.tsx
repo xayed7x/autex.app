@@ -39,6 +39,7 @@ interface Workspace {
   adminPaused: boolean
   lastPaymentDate: string | null
   totalPaid: number
+  totalUsageCost: number
 }
 
 // Summary stat card with consistent dashboard style
@@ -236,6 +237,7 @@ export default function AdminWorkspacesPage() {
                   <th className="text-center py-3 px-4 font-medium text-muted-foreground text-xs">Days Left</th>
                   <th className="text-center py-3 px-4 font-medium text-muted-foreground text-xs hidden lg:table-cell">Convos</th>
                   <th className="text-center py-3 px-4 font-medium text-muted-foreground text-xs hidden lg:table-cell">Success</th>
+                  <th className="text-center py-3 px-4 font-medium text-muted-foreground text-xs hidden md:table-cell">Usage Cost</th>
                   <th className="text-center py-3 px-4 font-medium text-muted-foreground text-xs hidden md:table-cell">Total Paid</th>
                   <th className="text-center py-3 px-4 font-medium text-muted-foreground text-xs">Actions</th>
                 </tr>
@@ -277,6 +279,11 @@ export default function AdminWorkspacesPage() {
                       <td className="text-center py-3 px-4 hidden lg:table-cell">
                         <span className={`font-medium text-sm ${getSuccessRateColor(ws.successRate)}`}>
                           {ws.successRate}%
+                        </span>
+                      </td>
+                      <td className="text-center py-3 px-4 font-mono text-sm hidden md:table-cell">
+                        <span className="text-primary font-medium">
+                          ৳{(ws.totalUsageCost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </span>
                       </td>
                       <td className="text-center py-3 px-4 font-mono text-sm hidden md:table-cell">

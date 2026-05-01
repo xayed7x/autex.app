@@ -107,14 +107,25 @@ export async function runAgentLoop(
       }
     }
       
-    if (responseMessage.content && (responseMessage.content.match(/\[/i) || responseMessage.content.trim().startsWith('{'))) {
+    // --- TEXTUAL TOOL-CALL GUARD (HALLUCINATION PREVENTION) ---
+    // Catch cases where AI writes tool names, JSON, or "### Calling" in text instead of using API.
+    const hasTextualTool = responseMessage.content && (
+      responseMessage.content.match(/\[/i) || 
+      responseMessage.content.match(/\{/i) ||
+      responseMessage.content.includes('###') ||
+      responseMessage.content.toLowerCase().includes('calling') ||
+      responseMessage.content.trim().startsWith('{')
+    );
+
+    if (hasTextualTool) {
          if (toolLoops >= 3) {
             flaggedForManual = true;
             flagReason = "AI stuck in textual tool call loop (Hallucination).";
             break;
          }
+         console.warn(`🛑 [HALLUCINATION DETECTED] AI leaked textual tool call. Forcing retry...`);
          responseMessage.tool_calls = undefined;
-         messages.push({ role: 'system', content: "CRITICAL ERROR: You are FORBIDDEN from writing tool names, brackets '[ ]', or JSON '{ }' in your text response." });
+         messages.push({ role: 'system', content: "CRITICAL ERROR: You are FORBIDDEN from writing tool names, brackets '[ ]', curly braces '{ }', or markdown headers like '###' in your text response. You must only output the human-facing text. If you want to use a tool, use the Function Calling API." });
          toolLoops++;
          continue;
     }

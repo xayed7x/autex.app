@@ -13,16 +13,19 @@ import { SUBSCRIPTION_PLANS } from '../../subscription/utils';
 interface TrialEndingEmailProps {
   businessName: string;
   expiryDate: string;
+  daysRemaining?: number;
 }
 
-export const TrialEndingEmail = ({ businessName, expiryDate }: TrialEndingEmailProps) => (
-  <BaseTemplate preview="Your Autex AI trial ends tomorrow! Don't lose access.">
+export const TrialEndingEmail = ({ businessName, expiryDate, daysRemaining = 1 }: TrialEndingEmailProps) => (
+  <BaseTemplate preview={daysRemaining === 1 ? "Your Autex AI trial ends tomorrow! Don't lose access." : `Your Autex AI trial ends in ${daysRemaining} days! Don't lose access.`}>
     {/* Header Badge */}
     <Section style={badgeContainer}>
       <Text style={badge}>⏰ Reminder</Text>
     </Section>
     
-    <Heading style={heading}>Your Trial Ends Tomorrow!</Heading>
+    <Heading style={heading}>
+      {daysRemaining === 1 ? 'Your Trial Ends Tomorrow!' : `Your Trial Ends in ${daysRemaining} Days!`}
+    </Heading>
     
     <Text style={paragraph}>
       Hi <strong>{businessName}</strong>,

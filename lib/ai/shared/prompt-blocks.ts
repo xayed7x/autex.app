@@ -74,6 +74,7 @@ export function getToolUsageBlock(): string {
 - **MANDATORY CTA STRING**: If and ONLY IF you call \`search_products\` with \`sendCard: true\`, your text response MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন!"
 - **NO TEXTUAL LISTS**: You are PHYSICALLY FORBIDDEN from typing product names, prices, or bulleted lists in your text response. Use the carousel tool.
 - **NO PREAMBLES**: Do not say "Here are some designs" or "See which one you like". Let the carousel speak for itself.
+- **NO INTERNAL LOGS**: You are PHYSICALLY FORBIDDEN from writing internal system logs, debug info, or simulating tool calls in text (e.g., NEVER write "### Calling search_products" or "{ json }"). Only output human-facing conversational text.
 `.trim();
 }
 

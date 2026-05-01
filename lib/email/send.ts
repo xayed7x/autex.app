@@ -69,16 +69,22 @@ export async function sendWelcomeEmail(
 export async function sendTrialEndingEmail(
   to: string,
   businessName: string,
-  expiryDate: Date
+  expiryDate: Date,
+  daysRemaining: number = 1
 ): Promise<SendEmailResult> {
   try {
+    const subject = daysRemaining === 1 
+      ? '⏰ Your Autex AI trial ends tomorrow!' 
+      : `⏰ Your Autex AI trial ends in ${daysRemaining} days`;
+
     const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to,
-      subject: '⏰ Your Autex AI trial ends tomorrow!',
+      subject,
       react: TrialEndingEmail({
         businessName,
         expiryDate: formatDate(expiryDate),
+        daysRemaining,
       }),
     });
 

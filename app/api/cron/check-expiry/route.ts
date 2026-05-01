@@ -65,24 +65,40 @@ export async function GET(request: NextRequest) {
     };
 
     // ==========================================
-    // 2. Send Trial Ending Reminders (1 day before)
+    // 2. Send Trial Ending Reminders (3, 2, 1 days before)
     // ==========================================
-    const { data: trialEndingSoon } = await supabase
+    const { data: trialsSoon } = await supabase
       .from('workspaces')
-      .select('id, name, owner_id, trial_ends_at')
+      .select('id, name, owner_id, trial_ends_at, last_reminder_sent_at')
       .eq('subscription_status', 'trial')
       .gte('trial_ends_at', nowISO)
-      .lt('trial_ends_at', tomorrowISO);
+      .lt('trial_ends_at', threeDaysISO);
 
-    for (const workspace of trialEndingSoon || []) {
-      const ownerEmail = await getOwnerEmail(supabase, workspace.owner_id);
-      if (ownerEmail && workspace.trial_ends_at) {
-        const result = await sendTrialEndingEmail(
-          ownerEmail, 
-          workspace.name, 
-          new Date(workspace.trial_ends_at)
-        );
-        if (result.success) emailResults.trialEndingReminders++;
+    for (const workspace of trialsSoon || []) {
+      const expiryDate = new Date(workspace.trial_ends_at!);
+      const daysRemaining = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      
+      // Check if we already sent a reminder today
+      const lastSent = workspace.last_reminder_sent_at ? new Date(workspace.last_reminder_sent_at) : null;
+      const sentToday = lastSent && lastSent.toDateString() === now.toDateString();
+
+      if (daysRemaining >= 1 && daysRemaining <= 3 && !sentToday) {
+        const ownerEmail = await getOwnerEmail(supabase, workspace.owner_id);
+        if (ownerEmail) {
+          const result = await sendTrialEndingEmail(
+            ownerEmail, 
+            workspace.name, 
+            expiryDate,
+            daysRemaining
+          );
+          if (result.success) {
+            emailResults.trialEndingReminders++;
+            await supabase
+              .from('workspaces')
+              .update({ last_reminder_sent_at: nowISO })
+              .eq('id', workspace.id);
+          }
+        }
       }
     }
 
@@ -110,31 +126,47 @@ export async function GET(request: NextRequest) {
     }
 
     // ==========================================
-    // 4. Send Renewal Reminders (14 days before)
+    // 4. Send Renewal Reminders (14 days, then 3, 2, 1 days before)
     // ==========================================
     const { data: renewalSoon } = await supabase
       .from('workspaces')
-      .select('id, name, owner_id, subscription_plan, subscription_expires_at')
+      .select('id, name, owner_id, subscription_plan, subscription_expires_at, last_reminder_sent_at')
       .eq('subscription_status', 'active')
       .gte('subscription_expires_at', nowISO)
       .lt('subscription_expires_at', fourteenDaysISO);
 
     for (const workspace of renewalSoon || []) {
-      const ownerEmail = await getOwnerEmail(supabase, workspace.owner_id);
-      if (ownerEmail && workspace.subscription_expires_at) {
-        const expiryDate = new Date(workspace.subscription_expires_at);
-        const daysRemaining = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        const planInfo = SUBSCRIPTION_PLANS[workspace.subscription_plan as keyof typeof SUBSCRIPTION_PLANS];
-        const planName = planInfo?.name || workspace.subscription_plan || 'Subscription';
-        
-        const result = await sendRenewalReminderEmail(
-          ownerEmail,
-          workspace.name,
-          planName,
-          expiryDate,
-          daysRemaining
-        );
-        if (result.success) emailResults.renewalReminders++;
+      const expiryDate = new Date(workspace.subscription_expires_at!);
+      const daysRemaining = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      
+      // Check if we already sent a reminder today
+      const lastSent = workspace.last_reminder_sent_at ? new Date(workspace.last_reminder_sent_at) : null;
+      const sentToday = lastSent && lastSent.toDateString() === now.toDateString();
+
+      // We send reminders at 14 days, and then 3, 2, 1 days
+      const shouldNotify = (daysRemaining === 14 || (daysRemaining >= 1 && daysRemaining <= 3)) && !sentToday;
+
+      if (shouldNotify) {
+        const ownerEmail = await getOwnerEmail(supabase, workspace.owner_id);
+        if (ownerEmail) {
+          const planInfo = SUBSCRIPTION_PLANS[workspace.subscription_plan as keyof typeof SUBSCRIPTION_PLANS];
+          const planName = planInfo?.name || workspace.subscription_plan || 'Subscription';
+          
+          const result = await sendRenewalReminderEmail(
+            ownerEmail,
+            workspace.name,
+            planName,
+            expiryDate,
+            daysRemaining
+          );
+          if (result.success) {
+            emailResults.renewalReminders++;
+            await supabase
+              .from('workspaces')
+              .update({ last_reminder_sent_at: nowISO })
+              .eq('id', workspace.id);
+          }
+        }
       }
     }
 

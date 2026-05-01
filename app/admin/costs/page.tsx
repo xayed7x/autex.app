@@ -37,6 +37,7 @@ interface CostsData {
     todayCost: number
     weekCost: number
     monthCost: number
+    lifetimeCost: number
     avgCostPerConversation: string
     conversationsThisMonth: number
     exchangeRate: number
@@ -137,13 +138,22 @@ export default function AdminCostsPage() {
       </div>
 
       {/* Cost Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
         <StatsCard
           title="Today"
           value={`৳${(data?.summary.todayCost || 0).toFixed(4)}`}
           trend={{ value: "", direction: "up", isPositive: true }}
           comparison="API cost today"
           icon={DollarSign}
+          isCurrency
+        />
+        <StatsCard
+          title="Lifetime Total"
+          value={`৳${(data?.summary.lifetimeCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          trend={{ value: "All Time", direction: "up", isPositive: true }}
+          comparison="Lifetime API spend"
+          icon={TrendingUp}
+          className="border-primary/20 bg-primary/[0.02]"
           isCurrency
         />
         <StatsCard

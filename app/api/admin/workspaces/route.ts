@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { USD_TO_BDT_RATE } from '@/lib/ai/usage-tracker';
 
 // List all workspaces with metrics
 export async function GET(request: NextRequest) {
@@ -8,8 +9,6 @@ export async function GET(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-
-    const USD_TO_BDT = 120;
 
     // Get all workspaces with subscription data (simplified query)
     const { data: workspaces, error: wsError } = await supabase
@@ -38,7 +37,7 @@ export async function GET(request: NextRequest) {
         const profile = profileMap.get(ws.owner_id);
         
         // Parallel queries for this workspace
-        const [convResult, orderResult, costResult, lastConvResult] = await Promise.all([
+        const [convResult, orderResult, todayCostResult, lifetimeCostResult, lastConvResult] = await Promise.all([
           // Conversation count
           supabase
             .from('conversations')
@@ -57,6 +56,12 @@ export async function GET(request: NextRequest) {
             .select('cost')
             .eq('workspace_id', ws.id)
             .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString()),
+
+          // Total cost (lifetime)
+          supabase
+            .from('api_usage')
+            .select('cost')
+            .eq('workspace_id', ws.id),
           
           // Last conversation
           supabase
@@ -70,8 +75,12 @@ export async function GET(request: NextRequest) {
 
         const totalConversations = convResult.count || 0;
         const totalOrders = orderResult.count || 0;
-        const todayCost = (costResult.data || []).reduce(
-          (sum: number, row: any) => sum + (Number(row.cost) || 0) * USD_TO_BDT, 
+        const todayCost = (todayCostResult.data || []).reduce(
+          (sum: number, row: any) => sum + (Number(row.cost) || 0) * USD_TO_BDT_RATE, 
+          0
+        );
+        const lifetimeUsageCost = (lifetimeCostResult.data || []).reduce(
+          (sum: number, row: any) => sum + (Number(row.cost) || 0) * USD_TO_BDT_RATE, 
           0
         );
         const successRate = totalConversations > 0 
@@ -88,6 +97,7 @@ export async function GET(request: NextRequest) {
           totalOrders,
           successRate: parseFloat(successRate),
           todayCost,
+          totalUsageCost: lifetimeUsageCost,
           lastActiveAt: lastConvResult.data?.last_message_at || ws.created_at,
           // Subscription fields
           subscriptionStatus: ws.subscription_status || 'trial',

@@ -54,7 +54,7 @@ export function createProductCard(
     buttons = [
       {
         type: 'postback' as const,
-        title: 'অর্ডার করব 🛒',
+        title: 'Order Now',
         payload: `ORDER_NOW_${product.id}`,
       },
     ];
@@ -122,7 +122,7 @@ export function createProductCarousel(
       buttons = [
         {
           type: 'postback' as const,
-          title: 'অর্ডার করব 🛒',
+          title: 'Order Now',
           payload: `ORDER_NOW_${product.id}`,
         },
       ];

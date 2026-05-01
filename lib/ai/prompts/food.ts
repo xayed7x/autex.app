@@ -47,7 +47,7 @@ export const FOOD_RULES = `
 
 [BLOCK 3.5 - CAROUSEL & IMAGE RULES]
 1. If you call \`search_products\` with \`sendCard: false\` (silent search) -> your text content MUST be absolutely empty "".
-2. If and ONLY IF you call \`search_products\` with \`sendCard: true\` (showing designs) -> your text content MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘অর্ডার করব 🛒’ বাটনে ক্লিক করে অর্ডার করুন!"
+2. If and ONLY IF you call \`search_products\` with \`sendCard: true\` (showing designs) -> your text content MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন!"
 3. **CRITICAL**: You are PHYSICALLY FORBIDDEN from using the text in Rule #2 unless you have also triggered the \`search_products\` tool in the same turn.
 `.trim();
 

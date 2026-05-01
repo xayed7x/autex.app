@@ -204,7 +204,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     if (convError || !conversation) {
       throw new Error(`Failed to load conversation: ${convError?.message}`);
     }
-    
+    const convData = conversation as any;
     let currentContext: ConversationContext = convData.context || {
       state: convData.current_state || 'IDLE',
       cart: [],

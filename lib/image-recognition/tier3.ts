@@ -11,9 +11,9 @@ type Product = Database['public']['Tables']['products']['Row'];
 export interface AIAnalysisResult {
   category?: string;
   color?: string;
-  material?: string;
+  decoration?: string;
   visual_description_keywords?: string[];
-  brand_text?: string;
+  text_on_cake?: string;
 }
 
 /**
@@ -93,13 +93,14 @@ export async function analyzeImageWithAI(
           content: [
             {
               type: 'text',
-              text: `Analyze this product image and extract key information. Return ONLY valid JSON in this exact format:
+              text: `Analyze this cake or food product image and extract key information. 
+Return ONLY valid JSON in this exact format:
 {
-  "category": "product category (e.g., clothing, electronics, furniture)",
-  "color": "dominant color name",
-  "material": "material type if visible",
-  "visual_description_keywords": ["keyword1", "keyword2", "keyword3"],
-  "brand_text": "any visible brand/text on product"
+  "category": "cake category (e.g., chocolate, vanilla, fruit, anniversary, birthday, wedding, black forest, red velvet, butterscotch)",
+  "color": "dominant frosting/cream color (e.g., white, brown, pink, green, black)",
+  "decoration": "decoration style (e.g., floral, drip, fondant, minimalist, fruit topping)",
+  "visual_description_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "text_on_cake": "any visible text or writing on the cake, or null"
 }`,
             },
             {
@@ -159,7 +160,9 @@ export async function analyzeImageWithAI(
  */
 export async function findTier3Match(
   aiAnalysis: AIAnalysisResult,
-  workspaceId: string
+  workspaceId: string,
+  businessCategory: string = 'generic',
+  options: { hintProductId?: string | null } = {}
 ): Promise<Omit<Tier3MatchResult, 'cost'>> {
   const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -181,12 +184,25 @@ export async function findTier3Match(
       };
     }
 
+    // Filter products for food business: must have cake_category defined
+    let filteredProducts = products;
+    if (businessCategory === 'food') {
+      filteredProducts = products.filter(p => (p as any).cake_category !== null);
+    }
+
     // Score each product based on AI analysis
     let bestMatch: Product | null = null;
     let bestScore = 0;
 
-    for (const product of products) {
+    for (const product of filteredProducts) {
       let score = 0;
+
+      // Tier 1 Hint Bonus (+30 points)
+      if (options.hintProductId && product.id === options.hintProductId) {
+        score += 30;
+        console.log(`  💡 Tier 1 Hint Match (${product.name}): +30 bonus`);
+      }
+
       const productKeywords: string[] = Array.isArray(product.search_keywords) 
         ? product.search_keywords
         : [];
@@ -235,15 +251,23 @@ export async function findTier3Match(
         }
       }
 
-      // Brand/text match: Check if brand exists in keywords (+20 points)
-      if (aiAnalysis.brand_text && productKeywords.length > 0) {
-        const brandLower = aiAnalysis.brand_text.toLowerCase();
-        const hasBrandMatch = productKeywords.some((keyword: string) =>
-          keyword.toLowerCase().includes(brandLower) || brandLower.includes(keyword.toLowerCase())
-        );
-        if (hasBrandMatch) {
-          score += 20;
-          console.log(`  ✓ Brand match in keywords: +20`);
+      // Decoration match (+15 points)
+      if (aiAnalysis.decoration && productKeywords.length > 0) {
+        const decoLower = aiAnalysis.decoration.toLowerCase();
+        const productText = `${product.name} ${product.description || ''} ${productKeywords.join(' ')}`.toLowerCase();
+        if (productText.includes(decoLower)) {
+          score += 15;
+          console.log(`  ✓ Decoration match: +15`);
+        }
+      }
+
+      // Text on cake boost (+25 points)
+      if (aiAnalysis.text_on_cake && aiAnalysis.text_on_cake !== 'null' && aiAnalysis.text_on_cake !== 'none') {
+        const cakeText = aiAnalysis.text_on_cake.toLowerCase();
+        const productText = `${product.name} ${product.description || ''}`.toLowerCase();
+        if (productText.includes(cakeText)) {
+          score += 25;
+          console.log(`  ✓ Text on cake boost: +25`);
         }
       }
 
@@ -277,25 +301,33 @@ export async function findTier3Match(
           score += matchedKeywords.length * 5; // Lower weight for fallback
         }
 
-        // Brand fallback
-        if (aiAnalysis.brand_text) {
-          const brandLower = aiAnalysis.brand_text.toLowerCase();
+        // Brand/Decoration fallback
+        if (aiAnalysis.decoration) {
+          const decoLower = aiAnalysis.decoration.toLowerCase();
           const productText = `${product.name} ${product.description || ''}`.toLowerCase();
-          if (productText.includes(brandLower)) {
-            score += 20;
+          if (productText.includes(decoLower)) {
+            score += 15;
           }
         }
       }
 
-      // Update best match
+      // Update best match with tie-breaking
       if (score > bestScore) {
         bestScore = score;
         bestMatch = product;
+      } else if (score === bestScore && score > 0) {
+        // Tie-breaking: Prefer product with higher price_per_pound
+        const currentPricePerPound = (product as any).price_per_pound || 0;
+        const bestPricePerPound = (bestMatch as any)?.price_per_pound || 0;
+        if (currentPricePerPound > bestPricePerPound) {
+          bestMatch = product;
+          console.log(`  ⚖️ Tie-break: selected ${product.name} (Higher Price/lb)`);
+        }
       }
     }
 
-    // Threshold: score >= 50 is considered a match (Higher bar for AI)
-    const MATCH_THRESHOLD = 50;
+    // Threshold: score >= 60 for food, 50 for others
+    const MATCH_THRESHOLD = businessCategory === 'food' ? 60 : 50;
 
     if (bestMatch && bestScore > MATCH_THRESHOLD) {
       console.log(`  🎯 Best match: ${bestMatch.name} (score: ${bestScore})`);

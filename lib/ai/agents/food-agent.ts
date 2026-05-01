@@ -59,13 +59,13 @@ Before you respond, run this checklist:
 5. Silent search (\`sendCard: false\`) -> Text MUST be "".
 `.trim();
 
-  // --- IMAGE RECOGNITION CONTEXT ---
   let imageRecognitionBlock = '';
   if (input.imageRecognitionResult?.recognitionResult?.success) {
     const match = input.imageRecognitionResult.recognitionResult;
+    const flavor = match.flavor || (match.flavors && match.flavors.length > 0 ? match.flavors[0] : (match.product_attributes?.flavor || 'N/A'));
     imageRecognitionBlock = `\n[SYSTEM: IMAGE RECOGNITION RESULT]
 Match Found: ${match.productName} (৳${match.productPrice})
-Flavor: ${match.product_attributes?.flavor || 'N/A'}
+Flavor: ${flavor}
 
 INSTRUCTION: Customer sent a photo of this product. If the Bible (Examples) has a response for recognized images, use it. Otherwise, stay silent "".
 `.trim();

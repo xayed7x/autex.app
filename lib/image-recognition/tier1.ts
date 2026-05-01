@@ -87,57 +87,94 @@ export async function findTier1Match(
       };
     }
 
-    // Find the best match by calculating Hamming distance for each product
+    // Zone 1: High confidence (distance 0-4)
+    const HIGH_CONFIDENCE_THRESHOLD = 5;
+    // Zone 2: Low confidence (distance 5-11)
+    const LOW_CONFIDENCE_THRESHOLD = 12;
+
+    // Find the best and second-best matches
     let bestMatch: Product | null = null;
-    let bestDistance = Infinity;
+    let bestDistance = 65;
     let bestHashIndex = -1;
+
+    let secondBestMatch: Product | null = null;
+    let secondBestDistance = 65;
 
     for (const product of products) {
       // Get hashes array (support both old and new schema)
       let productHashes: string[] = [];
       
       if (product.image_hashes && Array.isArray(product.image_hashes)) {
-        // New schema: array of hashes
         productHashes = product.image_hashes;
       } else if (product.image_hash) {
-        // Old schema: single hash (backward compatibility)
         productHashes = [product.image_hash];
       }
 
       if (productHashes.length === 0) continue;
 
-      // Check against ALL hashes for this product
+      let productMinDistance = 65;
+      let productHashIndex = -1;
+
       for (let i = 0; i < productHashes.length; i++) {
         const productHash = productHashes[i];
         if (!productHash) continue;
 
         const distance = hammingDistance(imageHash, productHash);
-
-        // Update best match if this is closer
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestMatch = product;
-          bestHashIndex = i;
+        if (distance < productMinDistance) {
+          productMinDistance = distance;
+          productHashIndex = i;
         }
+      }
+
+      // Track global best and second best (different products)
+      if (productMinDistance < bestDistance) {
+        // Move current best to second best if it's a different product
+        if (bestMatch && bestMatch.id !== product.id) {
+          secondBestDistance = bestDistance;
+          secondBestMatch = bestMatch;
+        }
+        bestDistance = productMinDistance;
+        bestMatch = product;
+        bestHashIndex = productHashIndex;
+      } else if (productMinDistance < secondBestDistance && (!bestMatch || product.id !== bestMatch.id)) {
+        secondBestDistance = productMinDistance;
+        secondBestMatch = product;
       }
     }
 
-    // Threshold: distance < 5 is considered a match (Strict)
-    const MATCH_THRESHOLD = 5;
-
-    if (bestMatch && bestDistance < MATCH_THRESHOLD) {
-      // Calculate confidence: ((64 - distance) / 64) * 100
+    // Zone 1: High confidence — confirmed match
+    if (bestMatch && bestDistance < HIGH_CONFIDENCE_THRESHOLD) {
       const confidence = ((64 - bestDistance) / 64) * 100;
-
       const hashTypes = ['full', 'center', 'square'];
-      console.log(`  ✓ Matched via ${hashTypes[bestHashIndex] || 'unknown'} hash (index ${bestHashIndex})`);
+      console.log(`  ✓ TIER 1 (HIGH): Matched via ${hashTypes[bestHashIndex] || 'unknown'} hash`);
 
       return {
         product: bestMatch,
-        confidence: Math.round(confidence * 100) / 100, // Round to 2 decimal places
+        confidence: Math.round(confidence * 100) / 100,
         distance: bestDistance,
         matchedHashIndex: bestHashIndex,
+        zone: 'high'
       };
+    }
+
+    // Zone 2: Low confidence — only valid if gap between 1st and 2nd is significant
+    if (bestMatch && bestDistance < LOW_CONFIDENCE_THRESHOLD) {
+      const gap = secondBestDistance - bestDistance;
+      console.log(`  ⚠️ TIER 1 (LOW): Distance ${bestDistance}, Gap to 2nd best: ${gap}`);
+
+      // Gap must be at least 3 bits — proves this product is meaningfully closer
+      if (gap >= 3) {
+        const confidence = ((64 - bestDistance) / 64) * 100;
+        return {
+          product: bestMatch,
+          confidence: Math.round(confidence * 100) / 100,
+          distance: bestDistance,
+          matchedHashIndex: bestHashIndex,
+          zone: 'low'
+        };
+      }
+      // Gap too small — products look too similar, not safe to match
+      console.log(`  ❌ TIER 1 (LOW REJECTED): Gap ${gap} is too small (< 3)`);
     }
 
     // No match found within threshold

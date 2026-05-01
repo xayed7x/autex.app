@@ -9,6 +9,7 @@ import {
 } from '@/lib/image-recognition/tier3';
 import { logApiUsage, calculateCostUSD } from '@/lib/ai/usage-tracker';
 import { uploadToCloudinary } from '@/lib/cloudinary/upload';
+import { getCachedSettings } from '@/lib/workspace/settings-cache';
 
 /**
  * POST /api/image-recognition
@@ -111,27 +112,41 @@ export async function POST(request: NextRequest) {
     // ========================================
     // TIER 1: Hamming Distance Match
     // ========================================
-    console.log('\n🔍 TIER 1: Attempting Hamming Distance match...');
     const tier1Result = await findTier1Match(imageHash, workspaceId);
 
+    console.log('[IMG-RECOGNITION] Tier 1 result:', {
+      matched: !!tier1Result.product,
+      zone: tier1Result?.zone ?? 'none',
+      distance: tier1Result?.distance ?? 'N/A',
+      productName: tier1Result?.product?.name ?? 'none',
+      confidence: tier1Result?.confidence ?? 0
+    });
+
+    let tier1HintId: string | null = null;
     if (tier1Result.product) {
-      console.log('✅ TIER 1 MATCH FOUND:', tier1Result.product.name);
-      console.log(`   Confidence: ${tier1Result.confidence}%`);
-      console.log(`   Time: ${Date.now() - startTime}ms`);
-      
-      return NextResponse.json({
-        success: true,
-        match: {
-          product: tier1Result.product,
-          confidence: tier1Result.confidence,
-          distance: tier1Result.distance,
-        },
-        tier: 'tier1',
-        imageHash,
-        processingTime: Date.now() - startTime,
-      });
+      if (tier1Result.zone === 'high') {
+        console.log('✅ TIER 1 HIGH CONFIDENCE MATCH:', tier1Result.product.name);
+        console.log('[IMG-RECOGNITION] Final match:', {
+          productName: tier1Result.product.name,
+          tier: 'tier1-high',
+          workspaceId
+        });
+        return NextResponse.json({
+          success: true,
+          match: {
+            product: tier1Result.product,
+            confidence: tier1Result.confidence,
+            distance: tier1Result.distance,
+          },
+          tier: 'tier1',
+          imageHash,
+          processingTime: Date.now() - startTime,
+        });
+      } else if (tier1Result.zone === 'low') {
+        console.log('⚠️ TIER 1 LOW CONFIDENCE (HINT ONLY):', tier1Result.product.name);
+        tier1HintId = tier1Result.product.id;
+      }
     }
-    console.log('❌ Tier 1: No match (distance:', tier1Result.distance, ')');
 
     // ========================================
     // TIER 2: Visual Features Match
@@ -244,8 +259,19 @@ export async function POST(request: NextRequest) {
         usage: gptUsage
       });
 
+      // Fetch workspace settings to determine business category
+      const settings = await getCachedSettings(workspaceId);
+      const businessCategory = settings.business_category || 'generic';
+
       // Find match based on AI analysis
-      const tier3Result = await findTier3Match(analysis, workspaceId);
+      const tier3Result = await findTier3Match(analysis, workspaceId, businessCategory, { hintProductId: tier1HintId });
+
+      console.log('[IMG-RECOGNITION] Tier 3 result:', {
+        matched: !!tier3Result.product,
+        score: tier3Result?.confidence ?? 0,
+        productName: tier3Result?.product?.name ?? 'none',
+        hintUsed: !!tier1HintId
+      });
 
       if (tier3Result.product) {
         console.log('✅ TIER 3 MATCH FOUND:', tier3Result.product.name);
@@ -257,6 +283,14 @@ export async function POST(request: NextRequest) {
           confidence: tier3Result.confidence,
           productId: tier3Result.product.id,
           aiResponse: analysis,
+        });
+
+        const finalProduct = tier3Result.product;
+        const usedTier = tier1HintId ? 'tier1-low+tier3' : 'tier3-only';
+        console.log('[IMG-RECOGNITION] Final match:', {
+          productName: finalProduct?.name ?? 'NO MATCH',
+          tier: usedTier,
+          workspaceId
         });
 
         return NextResponse.json({
@@ -278,6 +312,11 @@ export async function POST(request: NextRequest) {
       }
 
       console.log('❌ Tier 3: No match (score:', tier3Result.confidence, ')');
+      console.log('[IMG-RECOGNITION] Final match:', {
+        productName: 'NO MATCH',
+        tier: 'none',
+        workspaceId
+      });
 
       // Save negative result to cache to avoid re-analyzing
       await saveToCache(imageHash, {

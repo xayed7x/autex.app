@@ -509,6 +509,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           tier: result.match?.tier,
           sizes: result.match?.product?.sizes,
           colors: result.match?.product?.colors,
+          flavor: result.match?.product?.flavor,
+          flavors: result.match?.product?.flavors,
           variantStock: result.match?.product?.variant_stock,
           media_images: result.match?.product?.media_images,
           media_videos: result.match?.product?.media_videos,
@@ -547,7 +549,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         currentContext.metadata.activeProductId = productId;
         currentContext.metadata.activeProductName = product.productName;
         currentContext.metadata.activeProductPrice = product.productPrice;
-        currentContext.metadata.flavor = product.product_attributes?.flavor || 'Standard';
+        currentContext.metadata.flavor = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors[0] : (product.product_attributes?.flavor || 'Vanilla'));
         currentContext.metadata.orderStage = 'COLLECTING_INFO';
         
         // Clear identifiedProducts so Step 6.5 doesn't send cards
@@ -583,7 +585,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
           }
 
           // 4. Send Confirmation Text
-          const flavorLabel = product.product_attributes?.flavor || 'Standard';
+          const flavorLabel = product.flavor || (product.flavors && product.flavors.length > 0 ? product.flavors[0] : (product.product_attributes?.flavor || 'Vanilla'));
           // Weight logic: Prefer attributes.weight, fallback to productName (legacy)
           const productWeight = (product.product_attributes as any)?.weight || product.productName || '২ পাউন্ড';
 

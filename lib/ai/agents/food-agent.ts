@@ -57,6 +57,10 @@ Before you respond, run this checklist:
 3. REPETITION ALLOWED: If no new designs are available, you are allowed to repeat previous designs. NEVER stay silent when designs are explicitly requested.
 4. UI search (\`sendCard: true\`) -> Text MUST be EXACTLY: "পছন্দ হয়েছে? এখনই 🛍️ ‘Order Now’ বাটনে ক্লিক করে অর্ডার করুন!"
 5. Silent search (\`sendCard: false\`) -> Text MUST be "".
+6. SMART INTENT DETECTION: Use the conversation history and current message to determine if the customer has a GENUINE intent to browse or see product designs. 
+   - **YES (Show Cards)**: If they ask for "photos", "designs", "options", "more", or "what do you have?".
+   - **NO (Don't Show Cards)**: If they are only asking about accessories (balloons, candles), delivery logistics, or price lists without an explicit request to SEE the items. 
+   Always prioritize answering the customer's specific question using the Bible before deciding to trigger a product search.
 `.trim();
 
   let imageRecognitionBlock = '';

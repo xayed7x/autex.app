@@ -823,10 +823,10 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       const productCount = currentContext.metadata.identifiedProducts.length;
       if (isFood) {
         finalResponse = productCount === 1
-          ? `উপরের 'এটা "order" করব' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👆`
-          : `উপরের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'এটা "order" করব' বাটনটিতে ক্লিক করুন Sir! 👆`;
+          ? `উপরের 'Order Now' বাটনটিতে ক্লিক করে সরাসরি অর্ডার করতে পারবেন Sir! 👆`
+          : `উপরের যে ডিজাইনটি আপনার পছন্দ হয় সেটার 'Order Now' বাটনটিতে ক্লিক করুন Sir! 👆`;
       } else {
-        finalResponse = `অর্ডার করতে চাইলে উপরের কার্ডের 'Order Now 🛒' বাটনে ক্লিক করুন 😊`;
+        finalResponse = `অর্ডার করতে চাইলে উপরের কার্ডের 'Order Now' বাটনে ক্লিক করুন 😊`;
       }
     }
 

@@ -103,7 +103,7 @@ export async function runAgentLoop(
          responseMessage.content = responseMessage.content.replace(thinkRegex, '').trim();
       }
       if (!responseMessage.tool_calls) {
-        finalResponse = responseMessage.content || '';
+        // We set finalResponse ONLY if it's not a hallucinated tool call (checked below)
       }
     }
       
@@ -128,6 +128,11 @@ export async function runAgentLoop(
          messages.push({ role: 'system', content: "CRITICAL ERROR: You are FORBIDDEN from writing tool names, brackets '[ ]', curly braces '{ }', or markdown headers like '###' in your text response. You must only output the human-facing text. If you want to use a tool, use the Function Calling API." });
          toolLoops++;
          continue;
+    }
+
+    // Capture response ONLY after passing guards
+    if (responseMessage.content && !responseMessage.tool_calls) {
+      finalResponse = responseMessage.content.trim();
     }
 
     if (!responseMessage.tool_calls || responseMessage.tool_calls.length === 0) {
@@ -264,8 +269,17 @@ export async function runAgentLoop(
   console.log(`══════════════════════════════════════════════════════════════════════════════\n`);
 
   // --- FINAL RESPONSE CLEANUP ---
-  // If the AI sent literal quotation marks as its response, strip them.
+  // Strip any leaked JSON objects (e.g. {"response":""}) that might have survived the loop
   let cleanedResponse = finalResponse.trim();
+  
+  // Robust JSON detection and removal
+  const jsonLeakRegex = /\{"response":\s*".*?"\}|\{.*?\}/gi;
+  if (cleanedResponse.match(jsonLeakRegex)) {
+    console.warn(`🧹 [CLEANUP] Stripping leaked JSON from response: ${cleanedResponse}`);
+    cleanedResponse = cleanedResponse.replace(jsonLeakRegex, '').trim();
+  }
+
+  // Strip literal quotation marks if that's all that's left
   if (cleanedResponse === '""' || cleanedResponse === "''" || cleanedResponse === '""' || cleanedResponse === '""') {
     cleanedResponse = '';
   }

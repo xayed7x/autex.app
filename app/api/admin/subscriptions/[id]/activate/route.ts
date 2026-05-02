@@ -11,8 +11,8 @@ import type { Database } from '@/types/supabase'
 import { calculateExpiryDate, SUBSCRIPTION_PLANS, type SubscriptionPlan } from '@/lib/subscription/utils'
 import { sendAdminSubscriptionEmail, sendSubscriptionActivatedEmail } from '@/lib/email/send'
 
-// Admin email check
-const ADMIN_EMAIL = 'admin@gmail.com'
+// Admin email check - allows multiple emails separated by commas
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'admin@gmail.com').split(',').map(e => e.trim())
 
 interface ActivateRequest {
   plan: SubscriptionPlan
@@ -53,7 +53,8 @@ export async function POST(
       adminEmail = user?.email || null
     }
 
-    if (adminEmail !== ADMIN_EMAIL) {
+    if (!adminEmail || !ADMIN_EMAILS.includes(adminEmail)) {
+      console.error(`[Admin] Unauthorized access attempt by: ${adminEmail}`)
       return NextResponse.json(
         { error: 'Unauthorized', message: 'Admin access required' },
         { status: 403 }

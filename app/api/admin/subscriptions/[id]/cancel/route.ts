@@ -9,7 +9,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
 
-const ADMIN_EMAIL = 'admin@gmail.com'
+// Admin email check - allows multiple emails separated by commas
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'admin@gmail.com').split(',').map(e => e.trim())
 
 interface CancelRequest {
   reason?: string
@@ -33,7 +34,7 @@ export async function POST(
     const serverSupabase = await createServerClient()
     const { data: { user } } = await serverSupabase.auth.getUser()
     
-    if (user?.email !== ADMIN_EMAIL) {
+    if (!user?.email || !ADMIN_EMAILS.includes(user.email)) {
       return NextResponse.json(
         { error: 'Unauthorized', message: 'Admin access required' },
         { status: 403 }

@@ -11,8 +11,6 @@ import type { Database } from '@/types/supabase'
 import { calculateExpiryDate, SUBSCRIPTION_PLANS } from '@/lib/subscription/utils'
 import { sendAdminSubscriptionEmail } from '@/lib/email/send'
 
-const ADMIN_EMAIL = 'admin@gmail.com'
-
 interface ExtendRequest {
   days?: number
   amount: number
@@ -34,12 +32,15 @@ export async function POST(
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // Verify admin access
+    // Verify admin access - allow multiple admins from ADMIN_EMAILS
     const { createClient: createServerClient } = await import('@/lib/supabase/server')
     const serverSupabase = await createServerClient()
     const { data: { user } } = await serverSupabase.auth.getUser()
     
-    if (user?.email !== ADMIN_EMAIL) {
+    const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'admin@gmail.com').split(',').map(e => e.trim())
+    
+    if (!user?.email || !ADMIN_EMAILS.includes(user.email)) {
+      console.error(`[Admin] Unauthorized access attempt by: ${user?.email}`)
       return NextResponse.json(
         { error: 'Unauthorized', message: 'Admin access required' },
         { status: 403 }

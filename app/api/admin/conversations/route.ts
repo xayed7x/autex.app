@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       console.error('Count error:', countError);
     }
 
-    // Get conversations with workspace info (limiting to a higher number like 1000 for safety)
+    // Get conversations with workspace info, message counts, and order status in ONE query
     const { data: conversations, error } = await supabase
       .from('conversations')
       .select(`
@@ -27,43 +27,29 @@ export async function GET(request: NextRequest) {
         current_state,
         last_message_at,
         workspace_id,
-        workspaces!inner(id, name)
+        workspaces!inner(id, name),
+        messages(count),
+        orders(id)
       `)
       .order('last_message_at', { ascending: false })
-      .limit(1000);
+      .limit(200); // Optimized limit
 
     if (error) {
       console.error('Conversations error:', error);
       return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 });
     }
 
-    // Get message counts and order status for each conversation
-    const conversationsWithDetails = await Promise.all(
-      (conversations || []).map(async (conv: any) => {
-        const [msgResult, orderResult] = await Promise.all([
-          supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('conversation_id', conv.id),
-          supabase
-            .from('orders')
-            .select('id')
-            .eq('conversation_id', conv.id)
-            .limit(1),
-        ]);
-
-        return {
-          id: conv.id,
-          customerName: conv.customer_name || 'Unknown',
-          workspaceName: conv.workspaces?.name || 'Unknown',
-          workspaceId: conv.workspace_id,
-          state: conv.current_state,
-          messageCount: msgResult.count || 0,
-          lastMessageAt: conv.last_message_at,
-          hasOrder: (orderResult.data || []).length > 0,
-        };
-      })
-    );
+    // Map the results to the expected format
+    const conversationsWithDetails = (conversations || []).map((conv: any) => ({
+      id: conv.id,
+      customerName: conv.customer_name || 'Unknown',
+      workspaceName: conv.workspaces?.name || 'Unknown',
+      workspaceId: conv.workspace_id,
+      state: conv.current_state,
+      messageCount: conv.messages?.[0]?.count || 0,
+      lastMessageAt: conv.last_message_at,
+      hasOrder: (conv.orders || []).length > 0,
+    }));
 
     return NextResponse.json({
       conversations: conversationsWithDetails,

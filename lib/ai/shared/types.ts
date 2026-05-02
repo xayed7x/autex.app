@@ -23,6 +23,13 @@ export interface AgentInput {
   currentTime?: string;                              // Current server time (ISO)
   lastOrderDate?: string | null;                     // When the last order was placed
   isTest?: boolean;                                  // Test mode flag
+  
+  // Richer context fields
+  isNewConversation?: boolean;
+  hasActiveOrder?: boolean;
+  lastCardSentAt?: string | null;
+  lastMessageAt?: string | null;
+  timeSinceLastMessage?: string | null;
 }
 
 export interface AgentOutput {
@@ -32,4 +39,11 @@ export interface AgentOutput {
   toolsCalled: string[];
   toolCallsMade: number;
   shouldTriggerQuickForm?: boolean;
+  reasoning?: string;
+  intentSummary?: string;
+  bibleMatches?: Array<{
+    customer: string;
+    agent: string;
+    similarity?: number;
+  }>;
 }

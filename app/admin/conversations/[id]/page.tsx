@@ -14,6 +14,12 @@ import {
   MessageSquare,
   Loader2,
   Image as ImageIcon,
+  Brain,
+  ChevronDown,
+  ChevronUp,
+  Hammer,
+  Search,
+  FileText,
 } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import Link from "next/link"
@@ -25,6 +31,22 @@ interface Message {
   attachments: any
   imageUrl?: string | null
   createdAt: string
+  aiDebug?: {
+    reasoning?: string;
+    intent_summary?: string;
+    tools_called?: string[];
+    conversation_state?: {
+      isNewConversation?: boolean;
+      hasActiveOrder?: boolean;
+      lastCardSentAt?: string | null;
+      timeSinceLastMessage?: string | null;
+    };
+    bible_matches?: Array<{
+      customer: string;
+      agent: string;
+      similarity?: number;
+    }>;
+  }
 }
 
 interface ConversationData {
@@ -55,6 +77,108 @@ interface ConversationData {
     profit: number | null
   }
 }
+
+const ReasoningInspector = ({ aiDebug }: { aiDebug: Message['aiDebug'] }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (!aiDebug) return null;
+
+  return (
+    <div className="mt-2 text-left">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-green-600 hover:text-green-700 transition-colors"
+      >
+        <Brain className="h-3 w-3" />
+        AI Reasoning {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </button>
+
+      {isOpen && (
+        <div className="mt-2 p-3 rounded-lg bg-green-500/5 border border-green-500/10 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+          {/* Intent */}
+          {aiDebug.intent_summary && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase text-green-700/50">
+                <Search className="h-3 w-3" /> [Intent]
+              </div>
+              <p className="text-xs text-green-800 leading-relaxed italic">
+                "{aiDebug.intent_summary}"
+              </p>
+            </div>
+          )}
+
+          {/* State */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase text-green-700/50">
+              <Clock className="h-3 w-3" /> [Conversation State]
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="text-[10px] text-green-800/70">
+                New Conv: <span className="font-bold text-green-900">{aiDebug.conversation_state?.isNewConversation ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="text-[10px] text-green-800/70">
+                Active Order: <span className="font-bold text-green-900">{aiDebug.conversation_state?.hasActiveOrder ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="text-[10px] text-green-800/70">
+                Card Sent: <span className="font-bold text-green-900">{aiDebug.conversation_state?.lastCardSentAt ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="text-[10px] text-green-800/70">
+                Last Msg: <span className="font-bold text-green-900">{aiDebug.conversation_state?.timeSinceLastMessage || 'First'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bible Matches */}
+          {aiDebug.bible_matches && aiDebug.bible_matches.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase text-green-700/50">
+                <FileText className="h-3 w-3" /> [Bible Matches]
+              </div>
+              <div className="space-y-1.5">
+                {aiDebug.bible_matches.map((m: any, i: number) => (
+                  <div key={i} className="text-[10px] text-green-800/70 border-l-2 border-green-500/20 pl-2">
+                    <span className="italic">"{m.customer?.substring(0, 40)}..."</span>
+                    {m.similarity !== undefined && (
+                      <span className="ml-1 font-bold text-green-600">({(m.similarity * 100).toFixed(0)}%)</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Reasoning */}
+          {aiDebug.reasoning && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase text-green-700/50">
+                <Brain className="h-3 w-3" /> [Reasoning]
+              </div>
+              <p className="text-[11px] text-green-900 leading-relaxed font-mono whitespace-pre-wrap">
+                {aiDebug.reasoning}
+              </p>
+            </div>
+          )}
+
+          {/* Tools */}
+          {aiDebug.tools_called && aiDebug.tools_called.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase text-green-700/50">
+                <Hammer className="h-3 w-3" /> [Tools Called]
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {aiDebug.tools_called.map((t: string, i: number) => (
+                  <span key={i} className="px-1.5 py-0.5 rounded bg-green-500/10 text-[9px] font-mono text-green-700 border border-green-500/20">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function ConversationDetailPage() {
   const params = useParams()
@@ -284,6 +408,9 @@ export default function ConversationDetailPage() {
                         {!msg.text && !msg.imageUrl && (!msg.attachments || msg.attachments.length === 0) && (
                           <p className="text-sm italic text-muted-foreground">(empty message)</p>
                         )}
+
+                        {/* AI Reasoning Inspector */}
+                        <ReasoningInspector aiDebug={msg.aiDebug} />
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         {format(new Date(msg.createdAt), 'h:mm a')}

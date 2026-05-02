@@ -239,5 +239,8 @@ export async function runClothingAgent(input: AgentInput): Promise<AgentOutput> 
   const systemPrompt = buildClothingSystemPrompt(input, relevantExamples);
   const tools = getToolsForCategory('general'); // Tools for clothing
   
-  return runAgentLoop(input, systemPrompt, tools);
+  return runAgentLoop(input, systemPrompt, tools, {
+    intentSummary: input.messageText, // Fallback for clothing agent
+    bibleMatches: relevantExamples
+  });
 }

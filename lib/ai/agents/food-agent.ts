@@ -27,6 +27,24 @@ import { Database } from '@/types/supabase';
 // ============================================
 
 /**
+ * Formats ISO timestamp to human-readable time since.
+ */
+function getTimeSince(dateStr: string | null | undefined): string {
+  if (!dateStr) return "never";
+  const now = new Date();
+  const past = new Date(dateStr);
+  const diffMs = now.getTime() - past.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 60) return `${diffMins} minutes ago`;
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays < 2) return `yesterday`;
+  return `${diffDays} days ago`;
+}
+
+/**
  * Builds a context-enriched intent summary for more accurate vector retrieval.
  */
 async function buildIntentSummary(
@@ -195,6 +213,18 @@ You MUST perform this internal cognitive process inside [THINK]...[/THINK] tags 
 [PRE-COMPUTED INTENT]
 "${intentSummary}"
 
+[CONVERSATION STATE]
+- New conversation: ${input.isNewConversation ? 'yes' : 'no'}
+- Product card already sent in this conversation: ${input.lastCardSentAt ? `yes, ${getTimeSince(input.lastCardSentAt)}` : 'no'}
+- Active order exists for this customer: ${input.hasActiveOrder ? 'yes' : 'no'}
+- Time since customer's last message: ${input.timeSinceLastMessage || 'first message'}
+
+The agent must read this state BEFORE making any decision.
+This is factual data — not to be ignored or overridden.
+
+"Before proceeding to any tier, read [CONVERSATION STATE] carefully.
+Let the state inform your reasoning about what the customer actually needs right now. A customer with an active order has different needs than a new customer. A customer who received a product card 2 minutes ago is in a different context than one who messaged yesterday."
+
 0. **STATUS & INTENT AUDIT (CRITICAL)**:
    - Does the [PRE-COMPUTED INTENT] indicate that this is an EXISTING/PAST order inquiry? 
    - Keywords to look for: "ordered", "placed order", "confirmed", "my cake", "preview", "delivery date of order".
@@ -311,11 +341,17 @@ export async function runFoodAgent(input: AgentInput): Promise<AgentOutput> {
     const systemPrompt = buildFoodSystemPrompt(input, intentSummary, relevantExamples);
     const tools = getToolsForCategory('food');
     
-    return await runAgentLoop(input, systemPrompt, tools);
+    return await runAgentLoop(input, systemPrompt, tools, {
+      intentSummary,
+      bibleMatches: relevantExamples
+    });
   } catch (error: any) {
     console.error(`[FOOD AGENT] Bible retrieval failed:`, error.message);
     const systemPrompt = buildFoodSystemPrompt(input, input.messageText, []);
     const tools = getToolsForCategory('food');
-    return await runAgentLoop(input, systemPrompt, tools);
+    return await runAgentLoop(input, systemPrompt, tools, {
+      intentSummary: input.messageText,
+      bibleMatches: []
+    });
   }
 }

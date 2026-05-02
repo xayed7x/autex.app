@@ -125,6 +125,7 @@ export async function GET(
         attachments: msg.attachments,
         imageUrl: msg.image_url,
         createdAt: msg.created_at,
+        aiDebug: msg.ai_debug,
       })),
       order: order ? {
         id: order.id,

@@ -21,7 +21,11 @@ const MAX_TOOL_LOOPS = 10;
 export async function runAgentLoop(
   input: AgentInput,
   systemPrompt: string,
-  tools: any[]
+  tools: any[],
+  metadata?: {
+    intentSummary?: string;
+    bibleMatches?: any[];
+  }
 ): Promise<AgentOutput> {
   const messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
@@ -291,5 +295,8 @@ export async function runAgentLoop(
     toolsCalled: toolsCalledLog,
     toolCallsMade: toolLoops,
     shouldTriggerQuickForm,
+    reasoning: firstPassReasoning,
+    intentSummary: metadata?.intentSummary,
+    bibleMatches: metadata?.bibleMatches,
   };
 }

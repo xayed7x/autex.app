@@ -18,6 +18,7 @@ export interface RetrievedExample {
   customer: string;
   agent: string;
   type: string;
+  similarity?: number;
 }
 
 /**
@@ -73,6 +74,7 @@ export async function getRelevantExamples(
       customer: row.customer_text,
       agent: row.agent_text,
       type: row.type || 'faq',
+      similarity: row.similarity,
     }));
 
     console.log(`[SEMANTIC EXAMPLES] Customer message: "${customerMessage}"`);

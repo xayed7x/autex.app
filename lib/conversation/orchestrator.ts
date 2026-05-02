@@ -167,6 +167,24 @@ Has the customer already received an answer to this same topic in the conversati
   }
 }
 
+/**
+ * Formats ISO timestamp to human-readable time since.
+ */
+function formatTimeSince(dateStr: string | null): string | null {
+  if (!dateStr) return "first message";
+  const now = new Date();
+  const past = new Date(dateStr);
+  const diffMs = now.getTime() - past.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 60) return `${diffMins} minutes ago`;
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays < 2) return `yesterday`;
+  return `${diffDays} days ago`;
+}
+
 // ============================================
 // MAIN ORCHESTRATOR FUNCTION
 // ============================================
@@ -647,6 +665,30 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
     const lastOrderDate = lastOrders && lastOrders.length > 0 ? lastOrders[0].created_at : null;
 
     // ========================================
+    // STEP 4.5: LIFECYCLE METADATA CALCULATION
+    // ========================================
+    const isNewConversation = recentMessages.length === 0 && !memorySummary;
+    
+    // hasActiveOrder: lastOrderDate exists AND (current_state order-related OR order exists)
+    const orderRelatedStages = ['COLLECTING_INFO', 'CHECKOUT', 'REVIEW', 'ORDER_CONFIRMED'];
+    const hasActiveOrder = !!lastOrderDate && (
+      orderRelatedStages.some(s => (convData.current_state || '').includes(s)) ||
+      !!lastOrderDate
+    );
+
+    const lastCardMsg = [...(allMessages || [])]
+      .reverse()
+      .find((m: any) => m.message_type === 'template' && m.sender_type === 'bot');
+    const lastCardSentAt = lastCardMsg ? (lastCardMsg.created_at as string) : null;
+
+    // lastMessageAt: second-to-last in allMessages (assuming current is last)
+    const lastMsgRecord = allMessages && allMessages.length >= 2 
+      ? allMessages[allMessages.length - 2] 
+      : null;
+    const lastMessageAt = lastMsgRecord ? (lastMsgRecord.created_at as string) : null;
+    const timeSinceLastMessage = formatTimeSince(lastMessageAt);
+
+    // ========================================
     // STEP 5: CALL NEW SINGLE AGENT
     // ========================================
     console.log(`\n──────────────────────────────────────────────────────────────────────────────`);
@@ -676,6 +718,11 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       customerPsid: input.customerPsid,
       currentTime: new Date().toISOString(),
       lastOrderDate,
+      isNewConversation,
+      hasActiveOrder,
+      lastCardSentAt,
+      lastMessageAt,
+      timeSinceLastMessage,
     };
 
     console.log(`🤖 Calling Agent... [Memory Summary: ${!!memorySummary}] [Messages Passed: ${recentMessages.length}]`);
@@ -710,6 +757,24 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
       toolsCalled: agentResult.toolsCalled,
       model: "gpt-4-turbo", // or dynamically from agentResult
       timestamp: new Date().toISOString()
+    };
+
+    // Build the richer AI debug object for the dashboard inspector
+    const aiDebug = {
+      reasoning: agentResult.reasoning,
+      intent_summary: agentResult.intentSummary,
+      tools_called: agentResult.toolsCalled,
+      conversation_state: {
+        isNewConversation,
+        hasActiveOrder,
+        lastCardSentAt,
+        timeSinceLastMessage
+      },
+      bible_matches: agentResult.bibleMatches?.map(m => ({
+        customer: m.customer,
+        agent: m.agent,
+        similarity: m.similarity
+      }))
     };
 
     // ========================================
@@ -937,7 +1002,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                message_text: `[Sent Card: ${mappedProducts[0].name}]`,
                message_type: 'template',
                mid: result.message_id,
-               attachments: { type: 'product_card', productIds: [mappedProducts[0].id] }
+               attachments: { type: 'product_card', productIds: [mappedProducts[0].id] },
+               ai_debug: aiDebug
              });
           } else {
              if (isFood) {
@@ -953,7 +1019,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                  message_text: `[Sent Vertical Cards: ${mappedProducts.length} items]`,
                  message_type: 'template',
                  mid: lastResult?.message_id,
-                 attachments: { type: 'vertical_cards', productIds: mappedProducts.map(p => p.id) }
+                 attachments: { type: 'vertical_cards', productIds: mappedProducts.map(p => p.id) },
+                 ai_debug: aiDebug
                });
              } else {
                // Unified chunked carousel delivery for all other categories
@@ -967,7 +1034,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
                  message_text: `[Sent Carousel: ${mappedProducts.length} items]`,
                  message_type: 'template',
                  mid: result.message_id,
-                 attachments: { type: 'carousel', productIds: mappedProducts.map(p => p.id) }
+                 attachments: { type: 'carousel', productIds: mappedProducts.map(p => p.id) },
+                 ai_debug: aiDebug
                });
              }
           }
@@ -1003,6 +1071,7 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
               sender_type: 'bot',
               message_text: finalResponse,
               message_type: 'text',
+              ai_debug: aiDebug
             });
             
             // Clear finalResponse so we don't send it again below
@@ -1142,7 +1211,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         sender_type: 'bot',
         message_text: finalResponse,
         message_type: 'text',
-        attachments: { aiReport }
+        attachments: { aiReport },
+        ai_debug: aiDebug
       });
     }
 
@@ -1168,7 +1238,8 @@ export async function processMessage(input: ProcessMessageInput): Promise<Proces
         sender_type: 'bot',
         message_text: officialForm,
         message_type: 'text',
-        attachments: { aiReport: { reasoning: 'AI triggered official order form collection.', toolsCalled: agentResult.toolsCalled, model: 'gpt-4-turbo', timestamp: new Date().toISOString() } }
+        attachments: { aiReport: { reasoning: 'AI triggered official order form collection.', toolsCalled: agentResult.toolsCalled, model: 'gpt-4-turbo', timestamp: new Date().toISOString() } },
+        ai_debug: aiDebug
       });
     }
 

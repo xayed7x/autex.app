@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const data = await resend.emails.send({
-      from: 'Autex <onboarding@resend.dev>', // You can change this to your verified domain later
+      from: process.env.RESEND_FROM_EMAIL || 'Autex AI <hello@autexai.com>', 
       to: targetEmail,
       subject: 'Vercel + Resend Connection Test',
       html: `

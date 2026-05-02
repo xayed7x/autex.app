@@ -30,12 +30,24 @@ export async function GET(request: NextRequest) {
   try {
     // 1. Security Check
     const authHeader = request.headers.get('authorization');
+    const vercelCronHeader = request.headers.get('x-vercel-cron');
+    const netlifyCronHeader = request.headers.get('x-netlify-event');
     const cronSecret = process.env.CRON_SECRET;
     
     const isDev = process.env.NODE_ENV === 'development';
-    const isValidAuth = cronSecret && authHeader === `Bearer ${cronSecret}`;
+    
+    // Valid if:
+    // 1. Correct Bearer token (from GitHub Actions or manual)
+    // 2. Vercel Native Cron (x-vercel-cron header)
+    // 3. Netlify Native Cron (x-netlify-event header)
+    // 4. Development mode
+    const isValidAuth = 
+      (cronSecret && authHeader === `Bearer ${cronSecret}`) || 
+      (vercelCronHeader === '1') ||
+      (netlifyCronHeader === 'scheduled');
     
     if (!isDev && !isValidAuth) {
+      console.error('[Cron] Unauthorized access attempt');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

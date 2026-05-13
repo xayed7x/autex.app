@@ -867,9 +867,32 @@ export async function processMessagingEvent(
     const botPermission = await checkBotPermission(fbPage.workspace_id, supabase);
     
     if (!botPermission.allowed) {
-      console.log(`🛑 Bot blocked by subscription: ${botPermission.reason}`);
-      
-      // Still save the customer message to database
+      console.log(`🛑 Bot blocked by subscription: ${botPermission.reason} [code: ${botPermission.code}]`);
+
+      if (botPermission.code === 'LIMIT_REACHED') {
+        // Freemium limit — save the message silently, send NO reply to customer
+        console.log(`[FREEMIUM] Limit reached for workspace ${fbPage.workspace_id} — bot paused silently`);
+
+        await supabase.from('messages').insert({
+          conversation_id: conversation.id,
+          sender: customerPsid,
+          sender_type: 'customer',
+          message_text: modifiedMessageText,
+          message_type: message.attachments ? 'attachment' : 'text',
+          attachments: message.attachments || null,
+          image_url: imageUrl || null,
+          mid: messageId || null,
+        });
+
+        await supabase
+          .from('conversations')
+          .update({ last_message_at: new Date(timestamp).toISOString() })
+          .eq('id', conversation.id);
+
+        return;
+      }
+
+      // PAUSED / EXPIRED — save message, no AI response
       await supabase.from('messages').insert({
         conversation_id: conversation.id,
         sender: customerPsid,
@@ -878,13 +901,12 @@ export async function processMessagingEvent(
         message_type: message.attachments ? 'attachment' : 'text',
         attachments: message.attachments || null,
       });
-      
-      // Update last_message_at
+
       await supabase
         .from('conversations')
         .update({ last_message_at: new Date(timestamp).toISOString() })
         .eq('id', conversation.id);
-      
+
       console.log('✅ Customer message saved, but bot blocked due to subscription status');
       return;
     }

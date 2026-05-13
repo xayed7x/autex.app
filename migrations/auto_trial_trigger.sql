@@ -1,3 +1,6 @@
+-- DEPRECATED: Trial logic replaced by freemium model (freemium_model.sql)
+-- This file is kept for migration history only.
+--
 -- Trigger to automatically set 14-day trial when a new workspace is created
 CREATE OR REPLACE FUNCTION public.handle_new_workspace_subscription()
 RETURNS TRIGGER AS $$
